@@ -466,7 +466,7 @@ static int set_interface(struct uci_section *s)
 }
 
 
-static volatile bool do_reload = false;
+static volatile int do_reload = false;
 static void set_stop(int signal)
 {
 	uloop_end();
@@ -481,7 +481,7 @@ void odhcpd_run(void)
 	signal(SIGINT, set_stop);
 
 	do {
-		do_reload = false;
+		do_reload = uloop_cancelled = false;
 
 		struct lease *l;
 		list_for_each_entry(l, &leases, head) {

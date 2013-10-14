@@ -344,21 +344,34 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 		}
 	}
 
-	if ((c = tb[IFACE_ATTR_RA]))
-		if ((iface->ra = parse_mode(blobmsg_get_string(c))) < 0)
+	int mode;
+	if ((c = tb[IFACE_ATTR_RA])) {
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+			iface->ra = mode;
+		else
 			goto err;
+	}
 
-	if ((c = tb[IFACE_ATTR_DHCPV4]))
-		if ((iface->dhcpv4 = parse_mode(blobmsg_get_string(c))) < 0)
+	if ((c = tb[IFACE_ATTR_DHCPV4])) {
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+			iface->dhcpv4 = mode;
+		else
 			goto err;
+	}
 
-	if ((c = tb[IFACE_ATTR_DHCPV6]))
-		if ((iface->dhcpv6 = parse_mode(blobmsg_get_string(c))) < 0)
+	if ((c = tb[IFACE_ATTR_DHCPV6])) {
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+			iface->dhcpv6 = mode;
+		else
 			goto err;
+	}
 
-	if ((c = tb[IFACE_ATTR_NDP]))
-		if ((iface->ndp = parse_mode(blobmsg_get_string(c))) < 0)
+	if ((c = tb[IFACE_ATTR_NDP])) {
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+			iface->ndp = mode;
+		else
 			goto err;
+	}
 
 	if ((c = tb[IFACE_ATTR_DNS])) {
 		struct blob_attr *cur;

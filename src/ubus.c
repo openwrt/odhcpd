@@ -160,6 +160,7 @@ enum {
 	IFACE_ATTR_IFNAME,
 	IFACE_ATTR_UP,
 	IFACE_ATTR_DATA,
+	IFACE_ATTR_PREFIX,
 	IFACE_ATTR_MAX,
 };
 
@@ -168,6 +169,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_IFNAME] = { .name = "ifname", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_UP] = { .name = "up", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
+	[IFACE_ATTR_PREFIX] = { .name = "ipv6-prefix", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
@@ -305,6 +307,41 @@ const char* ubus_get_ifname(const char *name)
 	}
 
 	return NULL;
+}
+
+
+bool ubus_has_prefix(const char *name, const char *ifname)
+{
+	struct blob_attr *c, *cur;
+	int rem;
+
+	if (!dump)
+		return NULL;
+
+	blobmsg_for_each_attr(c, dump, rem) {
+		struct blob_attr *tb[IFACE_ATTR_MAX];
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(c), blob_len(c));
+
+		if (!tb[IFACE_ATTR_INTERFACE] || !tb[IFACE_ATTR_IFNAME])
+			continue;
+
+		if (!strcmp(name, blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])) ||
+				!strcmp(ifname, blobmsg_get_string(tb[IFACE_ATTR_IFNAME])))
+			continue;
+
+		if ((cur = tb[IFACE_ATTR_PREFIX])) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			struct blob_attr *d;
+			int drem;
+			blobmsg_for_each_attr(d, cur, drem) {
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 

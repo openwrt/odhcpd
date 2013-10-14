@@ -190,6 +190,7 @@ int config_parse_interface(struct blob_attr *b, const char *iname, bool overwrit
 
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
+bool ubus_has_prefix(const char *name, const char *ifname);
 
 
 // Exported module initializers

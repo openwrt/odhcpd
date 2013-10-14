@@ -15,6 +15,7 @@ struct config config = {false, NULL, NULL};
 enum {
 	IFACE_ATTR_INTERFACE,
 	IFACE_ATTR_IFNAME,
+	IFACE_ATTR_NETWORKID,
 	IFACE_ATTR_DYNAMICDHCP,
 	IFACE_ATTR_IGNORE,
 	IFACE_ATTR_LEASETIME,
@@ -25,7 +26,7 @@ enum {
 	IFACE_ATTR_RA,
 	IFACE_ATTR_DHCPV4,
 	IFACE_ATTR_DHCPV6,
-	IFACE_ATTR_NDPROXY,
+	IFACE_ATTR_NDP,
 	IFACE_ATTR_DNS,
 	IFACE_ATTR_DOMAIN,
 	IFACE_ATTR_ULA_COMPAT,
@@ -42,6 +43,7 @@ enum {
 static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_IFNAME] = { .name = "ifname", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_NETWORKID] = { .name = "networkid", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DYNAMICDHCP] = { .name = "dynamicdhcp", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_IGNORE] = { .name = "ignore", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
@@ -52,7 +54,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA] = { .name = "ra", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV4] = { .name = "dhcpv4", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6] = { .name = "dhcpv6", .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_NDPROXY] = { .name = "ndproxy", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_NDP] = { .name = "ndp", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_ULA_COMPAT] = { .name = "ula_compat", .type = BLOBMSG_TYPE_BOOL },
@@ -276,6 +278,8 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 #endif
 	if ((c = tb[IFACE_ATTR_IFNAME]))
 		ifname = blobmsg_get_string(c);
+	else if ((c = tb[IFACE_ATTR_NETWORKID]))
+		ifname = blobmsg_get_string(c);
 
 	strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 	iface->inuse = true;
@@ -352,13 +356,15 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 		if ((iface->dhcpv6 = parse_mode(blobmsg_get_string(c))) < 0)
 			goto err;
 
-	if ((c = tb[IFACE_ATTR_NDPROXY]))
-		iface->ndp = blobmsg_get_bool(c) ? RELAYD_RELAY : RELAYD_DISABLED;
+	if ((c = tb[IFACE_ATTR_NDP]))
+		if ((iface->ndp = parse_mode(blobmsg_get_string(c))) < 0)
+			goto err;
 
 	if ((c = tb[IFACE_ATTR_DNS])) {
 		struct blob_attr *cur;
 		int rem;
 
+		iface->always_rewrite_dns = true;
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, NULL))
 				continue;
@@ -513,6 +519,11 @@ void odhcpd_run(void)
 				continue;
 
 			enum odhcpd_mode hybrid_mode = RELAYD_DISABLED;
+#ifdef WITH_UBUS
+			if (ubus_has_prefix(i->name, i->ifname))
+				hybrid_mode = RELAYD_RELAY;
+#endif
+
 			if (i->dhcpv6 == RELAYD_HYBRID)
 				i->dhcpv6 = hybrid_mode;
 

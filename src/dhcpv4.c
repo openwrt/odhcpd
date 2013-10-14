@@ -119,8 +119,8 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 				end = addr.s_addr & mask.s_addr;
 
 				if (ntohl(mask.s_addr) <= 0xffffff00) {
-					iface->dhcpv4_start.s_addr = start | htonl(20);
-					iface->dhcpv4_end.s_addr = end | htonl(199);
+					iface->dhcpv4_start.s_addr = start | htonl(100);
+					iface->dhcpv4_end.s_addr = end | htonl(250);
 				} else {
 					iface->dhcpv4_start.s_addr = start | htonl(10);
 					iface->dhcpv4_end.s_addr = end | htonl(59);
@@ -168,7 +168,7 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 
 
 		if (iface->dhcpv4_leasetime < 60)
-			iface->dhcpv4_leasetime = 1800;
+			iface->dhcpv4_leasetime = 43200;
 
 		iface->dhcpv4_event.uloop.fd = sock;
 		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;

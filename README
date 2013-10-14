@@ -21,8 +21,8 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
    relay:	RD relay between master and slave interfaces
    a) support for rewriting announced DNS-server addresses in relay mode
    
-3. DHCPv6-support with 2 modes of operation
-   server:	minimalistic server mode
+2. DHCPv6-support with 2 modes of operation
+   server: stateless, stateful and PD-server mode
    a) stateless and stateful address assignment
    b) prefix delegation support
    c) dynamic reconfiguration in case prefixes change
@@ -31,6 +31,9 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
    relay: 	mostly standards-compliant DHCPv6-relay
    a) support for rewriting announced DNS-server addresses
    
+3. DHCPv4-support
+   server: stateless and stateful mode
+
 4. Proxy for Neighbor Discovery messages (solicitations and advertisments)
    a) support for auto-learning routes to the local routing table
    b) support for marking interfaces "external" not proxying NDP for them
@@ -46,40 +49,68 @@ odhcpd uses cmake:
 * To build DEB or RPM packages use: "make package" afterwards.
 
 
-** Server Mode **
+** Configuration **
 
-0. Server mode is used as a minimalistic alternative for full-blown servers
-   like radvd or ISC DHCP if simplicity or a small footprint matter.
-   Note: The master interface is unused in this mode. It should be set to '.'.
-
-1. If there are non-local addresses assigned to the slave interface when a
-   router solicitation is received, said prefixes are announced automatically
-   for stateless autoconfiguration and also offered via stateful DHCPv6.
-   If all prefixes are bigger than /64 all but the first /64 of these prefixes
-   is offered via DHCPv6-PD to downstream routers.
-
-2. If DNS servers should be announced (DHCPv6 server-mode) then a local DNS-
-   proxy (e.g. dnsmasq) needs to be run on the router itself because 6relayd
-   will always announce a local address as DNS-server (if not otherwise
-   configured).
-
-3. odhcpd is run with the appropriate configuration.
+odhcpd uses a UCI configuration file in /etc/config/dhcp for configuration
+and may also receive information from ubus
 
 
-** Relay Mode **
+Section of type odhcpd
 
-0. Relay mode is used when a /64-bit IPv6-Prefix should be distributed over
-   several links / isolated layer 2 domains (e.g. if no prefix delegation
-   is available). In this mode NDP (namely Router Discovery and Neighbor
-   Discovery) messages and DHCPv6-messages are proxied. For DHCPv6 also
-   server mode can be used instead of relaying if desired.
+Option			Type		Default					Description
+legacy			bool		0						Enable DHCPv4 if start but
+													no dhcpv4 option set
+leasefile		string								DHCP/v6 lease/hostfile
+leasetrigger	string								Lease trigger script
 
-1. When starting 6relayd it is required that the master interface - where
-   IPv6-service is already provided - is configured and usable.
-   
-2. If the upstream router doesn't provide or announce a DNS-service that is
-   reachable in an at least site-local scope, a local DNS proxy (e.g. dnsmasq)
-   needs to be run and configued on the same router where 6relayd is running.
-   (This step can most likely be skipped in most environments.)
-   
-3. odhcpd is run with the appropriate configuration.
+
+Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)
+
+Option			Type		Default					Description
+interface		string		<name of UCI section>	logical OpenWrt interface
+ifname			string		<resolved from logical>	physical network interface
+networkid		string		same as ifname			compat. alias for ifname
+ignore			bool		0						ignore this interface
+master			bool		0						is a master interface
+													for relaying
+
+ra				string		disabled				Router Advert service
+				[disabled|server|relay|hybrid]
+dhcpv6			string		disabled				DHCPv6 service
+				[disabled|server|relay|hybrid]
+dhcpv4			string		disabled				DHCPv4 service
+				[disabled|server]
+ndp				string		disabled				Neighbor Discovery Proxy
+				[disabled|relay|hybrid]
+
+dynamicdhcp		bool		1						dynamically create leases
+													for DHCPv4 and DHCPv6
+dns				list		<local address>			DNS servers to announce
+													accepts IPv4 and IPv6
+domain			list		<local search domain>	Search domains to announce
+
+leasetime		string		12h						DHCPv4 address leasetime
+start			integer		100						DHCPv4 pool start
+limit			integer		150						DHCPv4 pool size
+
+ula_compat		bool		0						Announce ULA in compat mode
+ra_default		integer		0						Override default route
+				0: default, 1: ignore no public address, 2: ignore all
+ra_management	integer		1						RA management mode
+				0: no M-Flag but A-Flag, 1: both M and A, 2: M but not A
+ra_offlink		bool		0						Announce prefixes off-link
+ra_preference	string		medium					Route(r) preference
+				[medium|high|low]
+ndproxy_routing	bool		0						Learn routes from NDP
+ndproxy_slave	bool		0						NDProxy external slave
+ndproxy_static	list								Static NDProxy prefixes
+
+
+Sections of type lease (static leases)
+Option			Type		Default					Description
+ip				string								IP-Address to lease
+mac				string								MAC-address
+duid			string								DUID in base16
+hostid			string								IPv6 host identifier
+hostname		string								Hostname
+

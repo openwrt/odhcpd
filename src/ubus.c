@@ -334,7 +334,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 				continue;
 
 			struct blob_attr *d;
-			int drem;
+			unsigned drem;
 			blobmsg_for_each_attr(d, cur, drem) {
 				return true;
 			}

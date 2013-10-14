@@ -65,7 +65,7 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 		setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &val, sizeof(val));
 		setsockopt(sock, IPPROTO_IP, IP_PKTINFO, &val, sizeof(val));
 
-		val = IPTOS_CLASS_CS6;
+		val = IPTOS_PREC_INTERNETCONTROL;
 		setsockopt(sock, IPPROTO_IP, IP_TOS, &val, sizeof(val));
 
 		val = IP_PMTUDISC_DONT;

@@ -331,7 +331,7 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 
 	if ((c = tb[IFACE_ATTR_UPSTREAM])) {
 		struct blob_attr *cur;
-		int rem;
+		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, NULL))
@@ -362,7 +362,7 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 
 	if ((c = tb[IFACE_ATTR_DNS])) {
 		struct blob_attr *cur;
-		int rem;
+		unsigned rem;
 
 		iface->always_rewrite_dns = true;
 		blobmsg_for_each_attr(cur, c, rem) {
@@ -387,7 +387,7 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 
 	if ((c = tb[IFACE_ATTR_DOMAIN])) {
 		struct blob_attr *cur;
-		int rem;
+		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, NULL))
@@ -437,7 +437,7 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_STATIC])) {
 		struct blob_attr *cur;
-		int rem;
+		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, NULL))

@@ -222,7 +222,7 @@ static void subscribe_netifd(void)
 void ubus_apply_network(void)
 {
 	struct blob_attr *c;
-	int rem;
+	unsigned rem;
 
 	if (!dump)
 		return;
@@ -289,7 +289,7 @@ static struct ubus_event_handler event_handler = { .cb = handle_event };
 const char* ubus_get_ifname(const char *name)
 {
 	struct blob_attr *c;
-	int rem;
+	unsigned rem;
 
 	if (!dump)
 		return NULL;
@@ -313,7 +313,7 @@ const char* ubus_get_ifname(const char *name)
 bool ubus_has_prefix(const char *name, const char *ifname)
 {
 	struct blob_attr *c, *cur;
-	int rem;
+	unsigned rem;
 
 	if (!dump)
 		return NULL;

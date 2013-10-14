@@ -408,7 +408,8 @@ static void update(struct interface *iface)
 		if (addr[i].addr.s6_addr32[0] != iface->ia_addr[i].addr.s6_addr32[0] ||
 				addr[i].addr.s6_addr32[1] != iface->ia_addr[i].addr.s6_addr32[1] ||
 				(addr[i].preferred > 0) != (iface->ia_addr[i].preferred > 0) ||
-				(addr[i].valid > now + 7200) != (iface->ia_addr[i].valid > now + 7200))
+				(addr[i].valid > (uint32_t)now + 7200) !=
+						(iface->ia_addr[i].valid > (uint32_t)now + 7200))
 			change = true;
 
 	if (change) {

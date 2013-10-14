@@ -252,9 +252,8 @@ err:
 }
 
 
-int config_parse_interface(struct blob_attr *b, const char *name)
+int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite)
 {
-	bool overwrite = !!name;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(b), blob_len(b));
 
@@ -457,7 +456,7 @@ static int set_interface(struct uci_section *s)
 {
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &interface_attr_list);
-	return config_parse_interface(b.head, s->e.name);
+	return config_parse_interface(b.head, s->e.name, true);
 }
 
 

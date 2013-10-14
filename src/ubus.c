@@ -184,7 +184,9 @@ static void handle_dump(_unused struct ubus_request *req, _unused int type, stru
 }
 
 
-static struct interface* find_interface(struct blob_attr *msg)
+static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		struct blob_attr *msg)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX];
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
@@ -194,20 +196,11 @@ static struct interface* find_interface(struct blob_attr *msg)
 	const char *ifname = (tb[IFACE_ATTR_IFNAME]) ?
 			blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
 
-	struct interface *c;
+	struct interface *c, *iface = NULL;
 	list_for_each_entry(c, &interfaces, head)
 		if (!strcmp(interface, c->name) || !strcmp(ifname, c->ifname))
-			return c;
+			iface = c;
 
-	return NULL;
-}
-
-
-static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		struct blob_attr *msg)
-{
-	struct interface *iface = find_interface(msg);
 	if (iface && iface->ignore)
 		return 0;
 
@@ -233,9 +226,28 @@ void ubus_apply_network(void)
 		return;
 
 	blobmsg_for_each_attr(c, dump, rem) {
-		struct interface *iface = find_interface(c);
-		if (!iface || !iface->ignore)
-			config_parse_interface(c, NULL);
+		struct blob_attr *tb[IFACE_ATTR_MAX];
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(c), blob_len(c));
+
+		if (!tb[IFACE_ATTR_INTERFACE] || !tb[IFACE_ATTR_DATA])
+			continue;
+
+		const char *interface = (tb[IFACE_ATTR_INTERFACE]) ?
+				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]) : "";
+		const char *ifname = (tb[IFACE_ATTR_IFNAME]) ?
+				blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
+
+		struct interface *c;
+		list_for_each_entry(c, &interfaces, head) {
+			char *f = memmem(c->upstream, c->upstream_len,
+					interface, strlen(interface) + 1);
+			if (strcmp(interface, c->name) && strcmp(ifname, c->ifname) &&
+					(!f || (f != c->upstream && f[-1] != 0)))
+				continue;
+
+			if (!c || !c->ignore)
+				config_parse_interface(tb[IFACE_ATTR_DATA], interface, false);
+		}
 	}
 }
 

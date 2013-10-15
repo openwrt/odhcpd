@@ -270,7 +270,7 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 		iface = calloc(1, sizeof(*iface));
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
 		list_add(&iface->head, &interfaces);
-	} else {
+	} else if (overwrite) {
 		clean_interface(iface);
 	}
 

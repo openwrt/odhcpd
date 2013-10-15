@@ -248,7 +248,8 @@ void ubus_apply_network(void)
 				continue;
 
 			if (!c || !c->ignore)
-				config_parse_interface(tb[IFACE_ATTR_DATA], interface, false);
+				config_parse_interface(blobmsg_data(tb[IFACE_ATTR_DATA]),
+						blobmsg_data_len(tb[IFACE_ATTR_DATA]), interface, false);
 		}
 	}
 }

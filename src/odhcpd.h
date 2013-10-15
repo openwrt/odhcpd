@@ -186,7 +186,7 @@ time_t odhcpd_time(void);
 ssize_t odhcpd_unhexlify(uint8_t *dst, size_t len, const char *src);
 void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
 
-int config_parse_interface(struct blob_attr *b, const char *iname, bool overwrite);
+int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
 #ifdef WITH_UBUS
 int init_ubus(void);

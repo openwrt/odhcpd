@@ -254,10 +254,10 @@ err:
 }
 
 
-int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite)
+int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
-	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(b), blob_len(b));
+	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, data, len);
 
 	if (tb[IFACE_ATTR_INTERFACE])
 		name = blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]);
@@ -481,7 +481,7 @@ static int set_interface(struct uci_section *s)
 {
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &interface_attr_list);
-	return config_parse_interface(b.head, s->e.name, true);
+	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
 

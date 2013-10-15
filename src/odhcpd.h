@@ -188,9 +188,12 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
 
 int config_parse_interface(struct blob_attr *b, const char *iname, bool overwrite);
 
+#ifdef WITH_UBUS
+int init_ubus(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
+#endif
 
 
 // Exported module initializers
@@ -198,7 +201,6 @@ int init_router(void);
 int init_dhcpv6(void);
 int init_dhcpv4(void);
 int init_ndp(void);
-int init_ubus(void);
 
 int setup_router_interface(struct interface *iface, bool enable);
 int setup_dhcpv6_interface(struct interface *iface, bool enable);

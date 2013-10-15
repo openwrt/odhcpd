@@ -83,9 +83,6 @@ int main()
 	if (init_dhcpv4())
 		return 4;
 
-	if (init_ubus())
-		return 4;
-
 	odhcpd_run();
 	return 0;
 }

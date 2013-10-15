@@ -499,6 +499,10 @@ void odhcpd_run(void)
 	signal(SIGHUP, set_stop);
 	signal(SIGINT, set_stop);
 
+#ifdef WITH_UBUS
+	init_ubus();
+#endif
+
 	do {
 		do_reload = uloop_cancelled = false;
 
@@ -558,7 +562,7 @@ void odhcpd_run(void)
 
 
 		list_for_each_entry_safe(i, n, &interfaces, head) {
-			if (i->inuse && !i->ignore) {
+			if (i->inuse) {
 				// Resolve hybrid mode
 				if (i->dhcpv6 == RELAYD_HYBRID)
 					i->dhcpv6 = (master && master->dhcpv6 == RELAYD_RELAY) ?

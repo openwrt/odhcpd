@@ -131,6 +131,7 @@ int odhcpd_get_interface_mtu(const char *ifname)
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6])
 {
 	struct ifreq ifr;
+	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name));
 	if (ioctl(ioctl_sock, SIOCGIFHWADDR, &ifr) < 0)
 		return -1;

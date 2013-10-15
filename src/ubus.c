@@ -238,18 +238,25 @@ void ubus_apply_network(void)
 		const char *ifname = (tb[IFACE_ATTR_IFNAME]) ?
 				blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
 
+		bool matched = false;
 		struct interface *c;
 		list_for_each_entry(c, &interfaces, head) {
 			char *f = memmem(c->upstream, c->upstream_len,
 					interface, strlen(interface) + 1);
-			if (strcmp(interface, c->name) && strcmp(ifname, c->ifname) &&
-					(!f || (f != c->upstream && f[-1] != 0)))
+			bool cmatched = !strcmp(interface, c->name) || !strcmp(ifname, c->ifname);
+			matched |= cmatched;
+
+			if (!cmatched && (!f || (f != c->upstream && f[-1] != 0)))
 				continue;
 
-			if (!c || !c->ignore)
+			if (!c->ignore)
 				config_parse_interface(blobmsg_data(tb[IFACE_ATTR_DATA]),
-						blobmsg_data_len(tb[IFACE_ATTR_DATA]), interface, false);
+						blobmsg_data_len(tb[IFACE_ATTR_DATA]), c->name, false);
 		}
+
+		if (!matched)
+			config_parse_interface(blobmsg_data(tb[IFACE_ATTR_DATA]),
+					blobmsg_data_len(tb[IFACE_ATTR_DATA]), interface, false);
 	}
 }
 

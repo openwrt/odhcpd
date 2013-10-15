@@ -191,7 +191,7 @@ static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_o
 		struct blob_attr *msg)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX];
-	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(msg), blobmsg_data_len(msg));
 
 	const char *interface = (tb[IFACE_ATTR_INTERFACE]) ?
 			blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]) : "";
@@ -229,7 +229,7 @@ void ubus_apply_network(void)
 
 	blobmsg_for_each_attr(c, dump, rem) {
 		struct blob_attr *tb[IFACE_ATTR_MAX];
-		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(c), blob_len(c));
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
 
 		if (!tb[IFACE_ATTR_INTERFACE] || !tb[IFACE_ATTR_DATA])
 			continue;

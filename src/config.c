@@ -260,7 +260,10 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(b), blob_len(b));
 
 	if (tb[IFACE_ATTR_INTERFACE])
-		name = blobmsg_data(tb[IFACE_ATTR_INTERFACE]);
+		name = blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]);
+
+	if (!name)
+		return -1;
 
 	struct interface *iface = get_interface(name);
 	if (!iface) {
@@ -280,6 +283,9 @@ int config_parse_interface(struct blob_attr *b, const char *name, bool overwrite
 		ifname = blobmsg_get_string(c);
 	else if ((c = tb[IFACE_ATTR_NETWORKID]))
 		ifname = blobmsg_get_string(c);
+
+	if (!ifname)
+		return -1;
 
 	strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 	iface->inuse = true;

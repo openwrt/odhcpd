@@ -1,6 +1,8 @@
+#include <fcntl.h>
 #include <resolv.h>
 #include <signal.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 #include <uci.h>
 #include <uci_blob.h>
@@ -8,6 +10,7 @@
 #include "odhcpd.h"
 
 static struct blob_buf b;
+static int reload_pipe[2];
 struct list_head leases = LIST_HEAD_INIT(leases);
 struct list_head interfaces = LIST_HEAD_INIT(interfaces);
 struct config config = {false, NULL, NULL};
@@ -487,118 +490,129 @@ static int set_interface(struct uci_section *s)
 }
 
 
-static volatile int do_reload = false;
 void odhcpd_reload(void)
 {
-	uloop_cancelled = true;
-	do_reload = true;
+	struct uci_context *uci = uci_alloc_context();
+	struct lease *l;
+	list_for_each_entry(l, &leases, head) {
+		list_del(&l->head);
+		free(l->duid);
+		free(l);
+	}
+
+	struct uci_package *dhcp = NULL;
+	if (!uci_load(uci, "dhcp", &dhcp)) {
+		struct uci_element *e;
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "lease"))
+				set_lease(s);
+			else if (!strcmp(s->type, "odhcpd"))
+				set_config(s);
+		}
+
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "dhcp"))
+				set_interface(s);
+		}
+	}
+
+#ifdef WITH_UBUS
+	ubus_apply_network();
+#endif
+
+	// Evaluate hybrid mode for master
+	struct interface *master = NULL, *i, *n;
+	list_for_each_entry(i, &interfaces, head) {
+		if (!i->master)
+			continue;
+
+		enum odhcpd_mode hybrid_mode = RELAYD_DISABLED;
+#ifdef WITH_UBUS
+		if (ubus_has_prefix(i->name, i->ifname))
+			hybrid_mode = RELAYD_RELAY;
+#endif
+
+		if (i->dhcpv6 == RELAYD_HYBRID)
+			i->dhcpv6 = hybrid_mode;
+
+		if (i->ra == RELAYD_HYBRID)
+			i->ra = hybrid_mode;
+
+		if (i->ndp == RELAYD_HYBRID)
+			i->ndp = hybrid_mode;
+
+		if (i->dhcpv6 == RELAYD_RELAY || i->ra == RELAYD_RELAY || i->ndp == RELAYD_RELAY)
+			master = i;
+	}
+
+
+	list_for_each_entry_safe(i, n, &interfaces, head) {
+		if (i->inuse) {
+			// Resolve hybrid mode
+			if (i->dhcpv6 == RELAYD_HYBRID)
+				i->dhcpv6 = (master && master->dhcpv6 == RELAYD_RELAY) ?
+						RELAYD_RELAY : RELAYD_SERVER;
+
+			if (i->ra == RELAYD_HYBRID)
+				i->ra = (master && master->ra == RELAYD_RELAY) ?
+						RELAYD_RELAY : RELAYD_SERVER;
+
+			if (i->ndp == RELAYD_HYBRID)
+				i->ndp = (master && master->ndp == RELAYD_RELAY) ?
+						RELAYD_RELAY : RELAYD_SERVER;
+
+			setup_router_interface(i, true);
+			setup_dhcpv6_interface(i, true);
+			setup_ndp_interface(i, true);
+			setup_dhcpv4_interface(i, true);
+			i->inuse = false;
+		} else {
+			close_interface(i);
+		}
+	}
+
+	uci_unload(uci, dhcp);
+	uci_free_context(uci);
 }
 
 
-static void set_stop(int signal)
+static void handle_signal(int signal)
 {
-	uloop_cancelled = true;
-	do_reload = (signal == SIGHUP);
+	char b[1] = {0};
+	if (signal == SIGHUP)
+		write(reload_pipe[1], b, sizeof(b));
+	else
+		uloop_end();
 }
+
+
+
+static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
+{
+	char b[512];
+	read(u->fd, b, sizeof(b));
+	odhcpd_reload();
+}
+
+static struct uloop_fd reload_fd = { .cb = reload_cb };
 
 void odhcpd_run(void)
 {
-	struct uci_context *uci = uci_alloc_context();
-	signal(SIGTERM, set_stop);
-	signal(SIGHUP, set_stop);
-	signal(SIGINT, set_stop);
+	pipe2(reload_pipe, O_NONBLOCK | O_CLOEXEC);
+	reload_fd.fd = reload_pipe[0];
+	uloop_fd_add(&reload_fd, ULOOP_READ);
+
+	signal(SIGTERM, handle_signal);
+	signal(SIGINT, handle_signal);
+	signal(SIGHUP, handle_signal);
 
 #ifdef WITH_UBUS
 	init_ubus();
 #endif
 
-	do {
-		do_reload = uloop_cancelled = false;
-
-		struct lease *l;
-		list_for_each_entry(l, &leases, head) {
-			list_del(&l->head);
-			free(l->duid);
-			free(l);
-		}
-
-		struct uci_package *dhcp = NULL;
-		if (!uci_load(uci, "dhcp", &dhcp)) {
-			struct uci_element *e;
-			uci_foreach_element(&dhcp->sections, e) {
-				struct uci_section *s = uci_to_section(e);
-				if (!strcmp(s->type, "lease"))
-					set_lease(s);
-				else if (!strcmp(s->type, "odhcpd"))
-					set_config(s);
-			}
-
-			uci_foreach_element(&dhcp->sections, e) {
-				struct uci_section *s = uci_to_section(e);
-				if (!strcmp(s->type, "dhcp"))
-					set_interface(s);
-			}
-		}
-
-#ifdef WITH_UBUS
-		ubus_apply_network();
-#endif
-
-		// Evaluate hybrid mode for master
-		struct interface *master = NULL, *i, *n;
-		list_for_each_entry(i, &interfaces, head) {
-			if (!i->master)
-				continue;
-
-			enum odhcpd_mode hybrid_mode = RELAYD_DISABLED;
-#ifdef WITH_UBUS
-			if (ubus_has_prefix(i->name, i->ifname))
-				hybrid_mode = RELAYD_RELAY;
-#endif
-
-			if (i->dhcpv6 == RELAYD_HYBRID)
-				i->dhcpv6 = hybrid_mode;
-
-			if (i->ra == RELAYD_HYBRID)
-				i->ra = hybrid_mode;
-
-			if (i->ndp == RELAYD_HYBRID)
-				i->ndp = hybrid_mode;
-
-			if (i->dhcpv6 == RELAYD_RELAY || i->ra == RELAYD_RELAY || i->ndp == RELAYD_RELAY)
-				master = i;
-		}
-
-
-		list_for_each_entry_safe(i, n, &interfaces, head) {
-			if (i->inuse) {
-				// Resolve hybrid mode
-				if (i->dhcpv6 == RELAYD_HYBRID)
-					i->dhcpv6 = (master && master->dhcpv6 == RELAYD_RELAY) ?
-							RELAYD_RELAY : RELAYD_SERVER;
-
-				if (i->ra == RELAYD_HYBRID)
-					i->ra = (master && master->ra == RELAYD_RELAY) ?
-							RELAYD_RELAY : RELAYD_SERVER;
-
-				if (i->ndp == RELAYD_HYBRID)
-					i->ndp = (master && master->ndp == RELAYD_RELAY) ?
-							RELAYD_RELAY : RELAYD_SERVER;
-
-				setup_router_interface(i, true);
-				setup_dhcpv6_interface(i, true);
-				setup_ndp_interface(i, true);
-				setup_dhcpv4_interface(i, true);
-				i->inuse = false;
-			} else {
-				close_interface(i);
-			}
-		}
-
-		uloop_run();
-
-		if (dhcp)
-			uci_unload(uci, dhcp);
-	} while (do_reload);
+	odhcpd_reload();
+	uloop_run();
 }
 

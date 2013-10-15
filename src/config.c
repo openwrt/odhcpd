@@ -276,7 +276,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	const char *ifname = NULL;
 #ifdef WITH_UBUS
-	if (overwrite)
+	if (overwrite || !iface->ifname[0])
 		ifname = ubus_get_ifname(name);
 #endif
 	if ((c = tb[IFACE_ATTR_IFNAME]))

@@ -213,7 +213,6 @@ static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_o
 
 static void subscribe_netifd(void)
 {
-	netifd.cb = handle_update;
 	ubus_subscribe(ubus, &netifd, objid);
 	ubus_invoke(ubus, objid, "dump", NULL, handle_dump, NULL, 0);
 }
@@ -352,6 +351,9 @@ int init_ubus(void)
 		syslog(LOG_ERR, "Unable to connect to ubus: %s", strerror(errno));
 		return -1;
 	}
+
+	netifd.cb = handle_update;
+	ubus_register_subscriber(ubus, &netifd);
 
 	ubus_add_uloop(ubus);
 	ubus_add_object(ubus, &main_object);

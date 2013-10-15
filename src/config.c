@@ -284,7 +284,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	else if ((c = tb[IFACE_ATTR_NETWORKID]))
 		ifname = blobmsg_get_string(c);
 
-	if (!ifname)
+	if (!iface->ifname[0] && !ifname)
 		return -1;
 
 	strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);

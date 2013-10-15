@@ -287,7 +287,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if (!iface->ifname[0] && !ifname)
 		return -1;
 
-	strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
+	if (ifname)
+		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
+
 	iface->inuse = true;
 
 	if (overwrite)

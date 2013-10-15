@@ -532,7 +532,7 @@ void odhcpd_run(void)
 #endif
 
 		// Evaluate hybrid mode for master
-		struct interface *master = NULL, *i;
+		struct interface *master = NULL, *i, *n;
 		list_for_each_entry(i, &interfaces, head) {
 			if (!i->master)
 				continue;
@@ -557,7 +557,7 @@ void odhcpd_run(void)
 		}
 
 
-		list_for_each_entry(i, &interfaces, head) {
+		list_for_each_entry_safe(i, n, &interfaces, head) {
 			if (i->inuse && !i->ignore) {
 				// Resolve hybrid mode
 				if (i->dhcpv6 == RELAYD_HYBRID)

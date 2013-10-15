@@ -352,7 +352,7 @@ static void send_router_advert(struct uloop_timeout *event)
 		uint8_t pad2;
 		uint32_t lifetime;
 		uint8_t name[];
-	} *search = malloc(sizeof(*search) + search_padded);
+	} *search = alloca(sizeof(*search) + search_padded);
 	search->type = ND_OPT_DNS_SEARCH;
 	search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
 	search->pad = 0;
@@ -409,7 +409,6 @@ static void send_router_advert(struct uloop_timeout *event)
 	struct sockaddr_in6 all_nodes = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
 	odhcpd_send(router_event.uloop.fd,
 			&all_nodes, iov, ARRAY_SIZE(iov), iface);
-	free(search);
 
 	// Rearm timer
 	int msecs;

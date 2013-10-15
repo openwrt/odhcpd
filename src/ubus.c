@@ -182,7 +182,7 @@ static void handle_dump(_unused struct ubus_request *req, _unused int type, stru
 
 	free(dump);
 	dump = blob_memdup(tb[DUMP_ATTR_INTERFACE]);
-	raise(SIGHUP);
+	odhcpd_reload();
 }
 
 

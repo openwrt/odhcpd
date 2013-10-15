@@ -488,9 +488,16 @@ static int set_interface(struct uci_section *s)
 
 
 static volatile int do_reload = false;
+void odhcpd_reload(void)
+{
+	uloop_cancelled = true;
+	do_reload = true;
+}
+
+
 static void set_stop(int signal)
 {
-	uloop_end();
+	uloop_cancelled = true;
 	do_reload = (signal == SIGHUP);
 }
 
@@ -582,6 +589,7 @@ void odhcpd_run(void)
 				setup_dhcpv6_interface(i, true);
 				setup_ndp_interface(i, true);
 				setup_dhcpv4_interface(i, true);
+				i->inuse = false;
 			} else {
 				close_interface(i);
 			}

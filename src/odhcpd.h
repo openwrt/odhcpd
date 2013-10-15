@@ -206,3 +206,5 @@ int setup_router_interface(struct interface *iface, bool enable);
 int setup_dhcpv6_interface(struct interface *iface, bool enable);
 int setup_ndp_interface(struct interface *iface, bool enable);
 int setup_dhcpv4_interface(struct interface *iface, bool enable);
+
+void odhcpd_reload(void);

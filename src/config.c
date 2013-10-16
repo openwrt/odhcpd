@@ -282,10 +282,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if (overwrite || !iface->ifname[0])
 		ifname = ubus_get_ifname(name);
 #endif
-	if ((c = tb[IFACE_ATTR_IFNAME]))
-		ifname = blobmsg_get_string(c);
-	else if ((c = tb[IFACE_ATTR_NETWORKID]))
-		ifname = blobmsg_get_string(c);
+
+	if (overwrite) {
+		if ((c = tb[IFACE_ATTR_IFNAME]))
+			ifname = blobmsg_get_string(c);
+		else if ((c = tb[IFACE_ATTR_NETWORKID]))
+			ifname = blobmsg_get_string(c);
+	}
 
 	if (!iface->ifname[0] && !ifname)
 		return -1;
@@ -301,7 +304,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_DYNAMICDHCP]))
 		iface->no_dynamic_dhcp = !blobmsg_get_bool(c);
 
-	if ((c = tb[IFACE_ATTR_IGNORE]))
+	if (overwrite && (c = tb[IFACE_ATTR_IGNORE]))
 		iface->ignore = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_LEASETIME])) {
@@ -340,7 +343,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_MASTER]))
 		iface->master = blobmsg_get_bool(c);
 
-	if ((c = tb[IFACE_ATTR_UPSTREAM])) {
+	if (overwrite && (c = tb[IFACE_ATTR_UPSTREAM])) {
 		struct blob_attr *cur;
 		unsigned rem;
 

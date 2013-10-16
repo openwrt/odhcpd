@@ -49,6 +49,7 @@ int init_dhcpv4(void)
 int setup_dhcpv4_interface(struct interface *iface, bool enable)
 {
 	if (iface->dhcpv4_event.uloop.fd > 0) {
+		uloop_fd_delete(&iface->dhcpv4_event.uloop);
 		close(iface->dhcpv4_event.uloop.fd);
 		iface->dhcpv4_event.uloop.fd = -1;
 	}

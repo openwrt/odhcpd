@@ -612,7 +612,8 @@ void odhcpd_run(void)
 	signal(SIGHUP, handle_signal);
 
 #ifdef WITH_UBUS
-	init_ubus();
+	while (init_ubus())
+		sleep(1);
 #endif
 
 	odhcpd_reload();

@@ -278,7 +278,6 @@ static void handle_event(_unused struct ubus_context *ctx, _unused struct ubus_e
 {
 	struct blob_attr *tb[OBJ_ATTR_MAX];
 	blobmsg_parse(obj_attrs, OBJ_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
-	objid = 0;
 
 	if (!tb[OBJ_ATTR_ID] || !tb[OBJ_ATTR_PATH])
 		return;

@@ -202,6 +202,12 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 	*cookie = c + len;
 }
 
+static unsigned char hnet_internal_data[5] = {
+  0x76, 0xfe, /* Steven Barth (freifunk) enterprise ID */
+  2, /* data-len1 */
+  1, /* subopt-code */
+  0, /* subopt-len */
+};
 
 // Simple DHCPv6-server for information requests
 static void handle_dhcpv4(void *addr, void *data, size_t len,
@@ -284,6 +290,9 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			memcpy(&reqaddr, opt->data, 4);
 		} else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
 			if (memcmp(opt->data, &ifaddr.sin_addr, 4))
+				return;
+		} else if (opt->type == DHCPV4_OPT_VENDOR_SPECIFIC_INFORMATION && opt->len == 5) {
+			if (memcmp(opt->data, hnet_internal_data, 5) == 0)
 				return;
 		}
 	}

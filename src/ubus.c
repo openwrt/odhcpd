@@ -246,7 +246,7 @@ void ubus_apply_network(void)
 			bool cmatched = !strcmp(interface, c->name) || !strcmp(ifname, c->ifname);
 			matched |= cmatched;
 
-			if (!cmatched && (!f || (f != c->upstream && f[-1] != 0)))
+			if (!cmatched && (!c->upstream_len || !f || (f != c->upstream && f[-1] != 0)))
 				continue;
 
 			if (!c->ignore)

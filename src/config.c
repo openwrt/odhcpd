@@ -425,6 +425,24 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (len <= 0)
 				goto err;
 
+			uint8_t *iter = iface->search;
+			uint8_t *iter_end = iface->search + iface->search_len;
+			bool found = false;
+			while (iter < iter_end) {
+				if ((iter_end - iter) < len)
+					break;
+				if (memcmp(iter, buf, len) == 0) {
+					found = true;
+					break;
+				}
+				/* Skip non-zero label lengths */
+				while (iter < iter_end && *iter)
+					iter += (int) *iter + 1;
+				/* Skip last zero label (if any) */
+				iter++;
+			}
+			if (found) continue;
+
 			iface->search = realloc(iface->search, iface->search_len + len);
 			memcpy(&iface->search[iface->search_len], buf, len);
 			iface->search_len += len;

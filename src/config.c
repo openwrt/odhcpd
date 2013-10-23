@@ -273,8 +273,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface = calloc(1, sizeof(*iface));
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
 		list_add(&iface->head, &interfaces);
-	} else if (overwrite) {
-		clean_interface(iface);
 	}
 
 	const char *ifname = NULL;
@@ -297,9 +295,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 
 	iface->inuse = true;
-
-	if (overwrite)
-		clean_interface(iface);
 
 	if ((c = tb[IFACE_ATTR_DYNAMICDHCP]))
 		iface->no_dynamic_dhcp = !blobmsg_get_bool(c);
@@ -503,6 +498,10 @@ void odhcpd_reload(void)
 		free(l);
 	}
 
+	struct interface *master = NULL, *i, *n;
+	list_for_each_entry(i, &interfaces, head)
+		clean_interface(i);
+
 	struct uci_package *dhcp = NULL;
 	if (!uci_load(uci, "dhcp", &dhcp)) {
 		struct uci_element *e;
@@ -521,12 +520,12 @@ void odhcpd_reload(void)
 		}
 	}
 
+
 #ifdef WITH_UBUS
 	ubus_apply_network();
 #endif
 
 	// Evaluate hybrid mode for master
-	struct interface *master = NULL, *i, *n;
 	list_for_each_entry(i, &interfaces, head) {
 		if (!i->master)
 			continue;
@@ -570,7 +569,6 @@ void odhcpd_reload(void)
 			setup_dhcpv6_interface(i, true);
 			setup_ndp_interface(i, true);
 			setup_dhcpv4_interface(i, true);
-			i->inuse = false;
 		} else {
 			close_interface(i);
 		}

@@ -104,7 +104,6 @@ struct interface {
 	int ifindex;
 	char ifname[IF_NAMESIZE];
 	char name[IF_NAMESIZE];
-	bool inuse;
 
 	// Runtime data
 	struct uloop_timeout timer_rs;
@@ -124,6 +123,7 @@ struct interface {
 	enum odhcpd_mode dhcpv4;
 
 	// Config
+	bool inuse;
 	bool external;
 	bool master;
 	bool ignore;

@@ -40,6 +40,7 @@
 #define DHCPV6_OPT_SERVERID 2
 #define DHCPV6_OPT_IA_NA 3
 #define DHCPV6_OPT_IA_ADDR 5
+#define DHCPV6_OPT_ORO 6
 #define DHCPV6_OPT_STATUS 13
 #define DHCPV6_OPT_RELAY_MSG 9
 #define DHCPV6_OPT_AUTH 11
@@ -52,6 +53,11 @@
 #define DHCPV6_OPT_IA_PREFIX 26
 #define DHCPV6_OPT_INFO_REFRESH 32
 #define DHCPV6_OPT_FQDN 39
+
+#ifdef EXT_PREFIX_CLASS
+/* draft-bhandari-dhc-class-based-prefix, not yet standardized */
+#define DHCPV6_OPT_PREFIX_CLASS EXT_PREFIX_CLASS
+#endif
 
 #define DHCPV6_DUID_VENDOR 2
 
@@ -134,6 +140,9 @@ struct dhcpv6_assignment {
 	struct sockaddr_in6 peer;
 	time_t valid_until;
 	time_t reconf_sent;
+	bool all_class;
+	uint8_t classes_cnt;
+	uint16_t *classes;
 	int reconf_cnt;
 	char *hostname;
 	uint8_t key[16];

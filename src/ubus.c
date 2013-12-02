@@ -161,6 +161,7 @@ enum {
 	IFACE_ATTR_UP,
 	IFACE_ATTR_DATA,
 	IFACE_ATTR_PREFIX,
+	IFACE_ATTR_ADDRESS,
 	IFACE_ATTR_MAX,
 };
 
@@ -170,6 +171,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_UP] = { .name = "up", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
 	[IFACE_ATTR_PREFIX] = { .name = "ipv6-prefix", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_ADDRESS] = { .name = "ipv6-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
@@ -331,8 +333,8 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 		if (!tb[IFACE_ATTR_INTERFACE] || !tb[IFACE_ATTR_IFNAME])
 			continue;
 
-		if (!strcmp(name, blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])) ||
-				!strcmp(ifname, blobmsg_get_string(tb[IFACE_ATTR_IFNAME])))
+		if (strcmp(name, blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])) ||
+				strcmp(ifname, blobmsg_get_string(tb[IFACE_ATTR_IFNAME])))
 			continue;
 
 		if ((cur = tb[IFACE_ATTR_PREFIX])) {
@@ -348,6 +350,66 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 	}
 
 	return false;
+}
+
+
+enum {
+	ADDR_ATTR_ADDR,
+	ADDR_ATTR_CLASS,
+	ADDR_ATTR_MAX
+};
+
+static const struct blobmsg_policy addr_attrs[ADDR_ATTR_MAX] = {
+	[ADDR_ATTR_ADDR] = { .name = "address", .type = BLOBMSG_TYPE_STRING },
+	[ADDR_ATTR_CLASS] = { .name = "class", .type = BLOBMSG_TYPE_STRING },
+};
+
+uint16_t ubus_get_class(const char *ifname, const struct in6_addr *addr)
+{
+	struct blob_attr *c, *cur;
+	unsigned rem;
+
+	if (!dump)
+		return 0;
+
+	blobmsg_for_each_attr(c, dump, rem) {
+		struct blob_attr *tb[IFACE_ATTR_MAX];
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
+
+		if (!tb[IFACE_ATTR_IFNAME])
+			continue;
+
+		if (strcmp(ifname, blobmsg_get_string(tb[IFACE_ATTR_IFNAME])))
+			continue;
+
+		if ((cur = tb[IFACE_ATTR_ADDRESS])) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			struct blob_attr *d;
+			unsigned drem;
+			blobmsg_for_each_attr(d, cur, drem) {
+				struct blob_attr *t[ADDR_ATTR_MAX];
+				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, t, blobmsg_data(d), blobmsg_data_len(d));
+
+				if (!t[ADDR_ATTR_ADDR] || !t[ADDR_ATTR_CLASS])
+					continue;
+
+				const char *addrs = blobmsg_get_string(t[ADDR_ATTR_ADDR]);
+				const char *class = blobmsg_get_string(t[ADDR_ATTR_CLASS]);
+
+				struct in6_addr ip6addr;
+				inet_pton(AF_INET6, addrs, &ip6addr);
+
+				if (IN6_ARE_ADDR_EQUAL(&ip6addr, addr))
+					return atoi(class);
+			}
+		}
+
+		return 0;
+	}
+
+	return 0;
 }
 
 

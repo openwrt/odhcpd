@@ -51,6 +51,8 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		while (!list_empty(&iface->ia_assignments)) {
 			c = list_first_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
 			list_del(&c->head);
+			free(c->hostname);
+			free(c->classes);
 			free(c);
 		}
 	}
@@ -96,6 +98,8 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 					a->hostname = strdup(lease->hostname);
 				}
 			} else {
+				free(a->classes);
+				free(a->hostname);
 				free(a);
 			}
 		}
@@ -333,7 +337,21 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 
 static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 {
-	if (iface->ia_addr_len < 1)
+	bool match = false;
+	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
+		if (!iface->ia_addr[i].has_class) {
+			match = true;
+			continue;
+		} else if (assign->classes_cnt) {
+			for (size_t j = 0; j < assign->classes_cnt; ++j)
+				if (assign->classes[j] == iface->ia_addr[i].class)
+					match = true;
+		} else if (assign->all_class) {
+			match = true;
+		}
+	}
+
+	if (!match)
 		return false;
 
 	// Seed RNG with checksum of DUID
@@ -476,6 +494,7 @@ static void reconf_timer(struct uloop_timeout *event)
 				if ((a->length < 128 && a->clid_len > 0) ||
 						(a->length == 128 && a->clid_len == 0)) {
 					list_del(&a->head);
+					free(a->classes);
 					free(a->hostname);
 					free(a);
 				}
@@ -528,6 +547,21 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					have_non_ula = true;
 
 			for (size_t i = 0; i < iface->ia_addr_len; ++i) {
+				bool match = true;
+				if (iface->ia_addr[i].has_class) {
+					match = false;
+					if (a->classes_cnt) {
+						for (size_t j = 0; j < a->classes_cnt; ++j)
+							if (a->classes[j] == iface->ia_addr[i].class)
+								match = true;
+					} else if (a->all_class) {
+						match = true;
+					}
+				}
+
+				if (!match)
+					continue;
+
 				uint32_t prefix_pref = iface->ia_addr[i].preferred - now;
 				uint32_t prefix_valid = iface->ia_addr[i].valid - now;
 
@@ -547,6 +581,15 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 				if (prefix_valid > 86400)
 					prefix_valid = 86400;
 
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+				struct {
+					uint16_t code;
+					uint16_t length;
+					uint16_t class;
+				} pclass = {htons(DHCPV6_OPT_PREFIX_CLASS),
+					htons(2), htons(iface->ia_addr[i].class)};
+#endif
+
 				if (a->length < 128) {
 					struct dhcpv6_ia_prefix p = {
 						.type = htons(DHCPV6_OPT_IA_PREFIX),
@@ -557,12 +600,23 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.addr = iface->ia_addr[i].addr
 					};
 					p.addr.s6_addr32[1] |= htonl(a->assigned);
+					size_t entrlen = sizeof(p);
 
-					if (datalen + sizeof(p) > buflen || a->assigned == 0)
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+					if (iface->ia_addr[i].has_class) {
+						entrlen += sizeof(pclass);
+						p.len = htons(entrlen);
+					}
+#endif
+
+					if (datalen + entrlen > buflen || a->assigned == 0)
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));
-					datalen += sizeof(p);
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+					memcpy(buf + datalen + sizeof(p), &pclass, sizeof(pclass));
+#endif
+					datalen += entrlen;
 				} else {
 					struct dhcpv6_ia_addr n = {
 						.type = htons(DHCPV6_OPT_IA_ADDR),
@@ -572,12 +626,23 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.valid = htonl(prefix_valid)
 					};
 					n.addr.s6_addr32[3] = htonl(a->assigned);
+					size_t entrlen = sizeof(n);
 
-					if (datalen + sizeof(n) > buflen || a->assigned == 0)
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+					if (iface->ia_addr[i].has_class) {
+						entrlen += sizeof(pclass);
+						n.len = htons(entrlen);
+					}
+#endif
+
+					if (datalen + entrlen > buflen || a->assigned == 0)
 						continue;
 
 					memcpy(buf + datalen, &n, sizeof(n));
-					datalen += sizeof(n);
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+					memcpy(buf + datalen + sizeof(n), &pclass, sizeof(pclass));
+#endif
+					datalen += entrlen;
 				}
 
 				// Calculate T1 / T2 based on non-deprecated addresses
@@ -690,6 +755,7 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 	uint8_t *clid_data = NULL, clid_len = 0, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	char hostname[256];
 	size_t hostname_len = 0;
+	bool class_oro = false;
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
 			clid_data = odata;
@@ -706,6 +772,14 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
 				hostname_len = strcspn(hostname, ".");
+		} else if (otype == DHCPV6_OPT_ORO) {
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+			for (size_t i = 0; i + 1 < olen; i += 2) {
+				if (odata[i] == (DHCPV6_OPT_PREFIX_CLASS >> 8) &&
+						odata[i + 1] == (DHCPV6_OPT_PREFIX_CLASS & 0xff))
+					class_oro = true;
+			}
+#endif
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			accept_reconf = true;
 		}
@@ -729,25 +803,65 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
 
+		const uint8_t classes_max = 32;
+		uint8_t classes_cnt = 0;
+		uint16_t classes[classes_max];
+
 		// Parse request hint for IA-PD
 		if (is_pd) {
 			uint8_t *sdata;
 			uint16_t stype, slen;
 			dhcpv6_for_each_option(&ia[1], odata + olen, stype, slen, sdata) {
-				if (stype == DHCPV6_OPT_IA_PREFIX && slen >= sizeof(struct dhcpv6_ia_prefix) - 4) {
-					struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&sdata[-4];
-					if (p->prefix) {
-						reqlen = p->prefix;
-						reqhint = ntohl(p->addr.s6_addr32[1]);
-						if (reqlen > 32 && reqlen <= 64)
-							reqhint &= (1U << (64 - reqlen)) - 1;
-					}
-					break;
+				if (stype != DHCPV6_OPT_IA_PREFIX || slen < sizeof(struct dhcpv6_ia_prefix) - 4)
+					continue;
+
+				struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&sdata[-4];
+				if (p->prefix) {
+					reqlen = p->prefix;
+					reqhint = ntohl(p->addr.s6_addr32[1]);
+					if (reqlen > 32 && reqlen <= 64)
+						reqhint &= (1U << (64 - reqlen)) - 1;
 				}
+
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+				uint8_t *xdata;
+				uint16_t xtype, xlen;
+				dhcpv6_for_each_option(&p[1], sdata + slen, xtype, xlen, xdata) {
+					if (xtype != DHCPV6_OPT_PREFIX_CLASS || xlen != 2)
+						continue;
+
+					if (classes_cnt >= classes_max)
+						continue;
+
+					classes[classes_cnt++] = (uint16_t)xdata[0] << 8 | (uint16_t)xdata[1];
+				}
+#endif
 			}
 
 			if (reqlen > 64)
 				reqlen = 64;
+		} else if (is_na) {
+			uint8_t *sdata;
+			uint16_t stype, slen;
+			dhcpv6_for_each_option(&ia[1], odata + olen, stype, slen, sdata) {
+				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
+					continue;
+
+#ifdef DHCPV6_OPT_PREFIX_CLASS
+				uint8_t *xdata;
+				uint16_t xtype, xlen;
+				struct dhcpv6_ia_addr *p = (struct dhcpv6_ia_addr*)&sdata[-4];
+				dhcpv6_for_each_option(&p[1], sdata + slen, xtype, xlen, xdata) {
+					if (xtype != DHCPV6_OPT_PREFIX_CLASS || xlen != 2)
+						continue;
+
+					if (classes_cnt >= classes_max)
+						continue;
+
+					classes[classes_cnt++] = (uint16_t)xdata[0] << 8 | (uint16_t)xdata[1];
+				}
+#endif
+			}
 		}
 
 		// Find assignment
@@ -784,6 +898,11 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->length = reqlen;
 				a->peer = *addr;
 				a->assigned = reqhint;
+				a->all_class = class_oro;
+				a->classes_cnt = classes_cnt;
+				a->classes = malloc(classes_cnt * sizeof(uint16_t));
+				memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+
 				if (first)
 					memcpy(a->key, first->key, sizeof(a->key));
 				else
@@ -841,6 +960,7 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				apply_lease(iface, a, true);
 				update_state = true;
 			} else if (!assigned && a) { // Cleanup failed assignment
+				free(a->classes);
 				free(a->hostname);
 				free(a);
 			}

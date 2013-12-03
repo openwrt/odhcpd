@@ -10,6 +10,11 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
 
 add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra -DWITH_UBUS)
 
+if(${EXT_PREFIX_CLASS})
+	add_definitions(-DEXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
+endif(${EXT_PREFIX_CLASS})
+
+
 add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/md5.c src/dhcpv6-ia.c src/dhcpv4.c src/ubus.c)
 target_link_libraries(odhcpd resolv ubus ubox uci)
 

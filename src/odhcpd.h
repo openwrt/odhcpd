@@ -195,7 +195,7 @@ int init_ubus(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
-uint16_t ubus_get_class(const char *ifname, const struct in6_addr *addr);
+bool ubus_get_class(const char *ifname, const struct in6_addr *addr, uint16_t *pclass);
 #endif
 
 

@@ -244,10 +244,9 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 		addrs[ret].class = 0;
 #ifdef WITH_UBUS
 		struct interface *iface = odhcpd_get_interface_by_index(ifindex);
-		if (iface) {
-			addrs[ret].has_class = true;
-			addrs[ret].class = ubus_get_class(iface->ifname, &addrs[ret].addr);
-		}
+		if (iface)
+			addrs[ret].has_class = ubus_get_class(iface->ifname,
+					&addrs[ret].addr, &addrs[ret].class);
 #endif
 		++ret;
 	}

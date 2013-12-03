@@ -900,8 +900,10 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->assigned = reqhint;
 				a->all_class = class_oro;
 				a->classes_cnt = classes_cnt;
-				a->classes = malloc(classes_cnt * sizeof(uint16_t));
-				memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+				if (classes_cnt) {
+					a->classes = malloc(classes_cnt * sizeof(uint16_t));
+					memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+				}
 
 				if (first)
 					memcpy(a->key, first->key, sizeof(a->key));

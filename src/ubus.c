@@ -364,13 +364,13 @@ static const struct blobmsg_policy addr_attrs[ADDR_ATTR_MAX] = {
 	[ADDR_ATTR_CLASS] = { .name = "class", .type = BLOBMSG_TYPE_STRING },
 };
 
-uint16_t ubus_get_class(const char *ifname, const struct in6_addr *addr)
+bool ubus_get_class(const char *ifname, const struct in6_addr *addr, uint16_t *pclass)
 {
 	struct blob_attr *c, *cur;
 	unsigned rem;
 
 	if (!dump)
-		return 0;
+		return false;
 
 	blobmsg_for_each_attr(c, dump, rem) {
 		struct blob_attr *tb[IFACE_ATTR_MAX];
@@ -401,15 +401,17 @@ uint16_t ubus_get_class(const char *ifname, const struct in6_addr *addr)
 				struct in6_addr ip6addr;
 				inet_pton(AF_INET6, addrs, &ip6addr);
 
-				if (IN6_ARE_ADDR_EQUAL(&ip6addr, addr))
-					return atoi(class);
+				if (IN6_ARE_ADDR_EQUAL(&ip6addr, addr)) {
+					*pclass = atoi(class);
+					return true;
+				}
 			}
 		}
 
-		return 0;
+		return false;
 	}
 
-	return 0;
+	return false;
 }
 
 

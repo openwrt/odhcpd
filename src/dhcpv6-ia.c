@@ -600,7 +600,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.addr = iface->ia_addr[i].addr
 					};
 					p.addr.s6_addr32[1] |= htonl(a->assigned);
-					size_t entrlen = sizeof(p);
+					size_t entrlen = sizeof(p) - 4;
 
 #ifdef DHCPV6_OPT_PREFIX_CLASS
 					if (iface->ia_addr[i].has_class) {
@@ -609,14 +609,14 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					}
 #endif
 
-					if (datalen + entrlen > buflen || a->assigned == 0)
+					if (datalen + entrlen + 4 > buflen || a->assigned == 0)
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));
 #ifdef DHCPV6_OPT_PREFIX_CLASS
 					memcpy(buf + datalen + sizeof(p), &pclass, sizeof(pclass));
 #endif
-					datalen += entrlen;
+					datalen += entrlen + 4;
 				} else {
 					struct dhcpv6_ia_addr n = {
 						.type = htons(DHCPV6_OPT_IA_ADDR),
@@ -626,7 +626,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.valid = htonl(prefix_valid)
 					};
 					n.addr.s6_addr32[3] = htonl(a->assigned);
-					size_t entrlen = sizeof(n);
+					size_t entrlen = sizeof(n) - 4;
 
 #ifdef DHCPV6_OPT_PREFIX_CLASS
 					if (iface->ia_addr[i].has_class) {
@@ -635,14 +635,14 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					}
 #endif
 
-					if (datalen + entrlen > buflen || a->assigned == 0)
+					if (datalen + entrlen + 4 > buflen || a->assigned == 0)
 						continue;
 
 					memcpy(buf + datalen, &n, sizeof(n));
 #ifdef DHCPV6_OPT_PREFIX_CLASS
 					memcpy(buf + datalen + sizeof(n), &pclass, sizeof(pclass));
 #endif
-					datalen += entrlen;
+					datalen += entrlen + 4;
 				}
 
 				// Calculate T1 / T2 based on non-deprecated addresses

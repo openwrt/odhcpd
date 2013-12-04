@@ -882,6 +882,10 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->peer = *addr;
 				a->reconf_cnt = 0;
 				a->reconf_sent = 0;
+				a->all_class = class_oro;
+				a->classes_cnt = classes_cnt;
+				a->classes = realloc(a->classes, classes_cnt * sizeof(uint16_t));
+				memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
 				break;
 			}
 		}

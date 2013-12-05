@@ -61,6 +61,11 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			INIT_LIST_HEAD(&iface->dhcpv4_assignments);
 
 		int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+		if (sock < 0) {
+			syslog(LOG_ERR, "Failed to create DHCPv4 server socket: %s",
+					strerror(errno));
+			return -1;
+		}
 
 		// Basic IPv6 configuration
 		int val = 1;
@@ -139,7 +144,11 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			// Construct entry
 			size_t hostlen = strlen(lease->hostname) + 1;
 			struct dhcpv4_assignment *a = calloc(1, sizeof(*a) + hostlen);
-
+			if (!a) {
+				syslog(LOG_ERR, "Calloc failed for static lease on interface %s",
+					iface->ifname);
+				return -1;
+			}
 			a->addr = ntohl(lease->ipaddr.s_addr);
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
 			memcpy(a->hostname, lease->hostname, hostlen);
@@ -470,6 +479,10 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 
 		if (!a && !iface->no_dynamic_dhcp) { // Create new binding
 			a = calloc(1, sizeof(*a) + hostlen);
+			if (!a) {
+				syslog(LOG_ERR, "Failed to calloc binding on interface %s", iface->ifname);
+				return NULL;
+			}
 			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
 			memcpy(a->hostname, hostname, hostlen);
 
@@ -478,6 +491,10 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 
 		if (assigned && !a->hostname[0] && hostname) {
 			a = realloc(a, sizeof(*a) + hostlen);
+			if (!a) {
+				syslog(LOG_ERR, "Failed to realloc binding on interface %s", iface->ifname);
+				return NULL;
+			}
 			memcpy(a->hostname, hostname, hostlen);
 
 			// Fixup list

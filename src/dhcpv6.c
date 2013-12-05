@@ -40,6 +40,11 @@ static struct odhcpd_event dhcpv6_event = {{.fd = -1}, handle_dhcpv6};
 int init_dhcpv6(void)
 {
 	int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+	if (sock < 0) {
+		syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %s",
+				strerror(errno));
+		return -1;
+	}
 
 	// Basic IPv6 configuration
 	int val = 1;
@@ -91,8 +96,7 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 					IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
 	}
 
-	setup_dhcpv6_ia_interface(iface, enable);
-	return 0;
+	return setup_dhcpv6_ia_interface(iface, enable);
 }
 
 

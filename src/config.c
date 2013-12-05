@@ -187,8 +187,8 @@ static void set_config(struct uci_section *s)
 	struct blob_attr *tb[ODHCPD_ATTR_MAX], *c;
 
 	blob_buf_init(&b, 0);
-	uci_to_blob(&b, s, &lease_attr_list);
-	blobmsg_parse(lease_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+	uci_to_blob(&b, s, &odhcpd_attr_list);
+	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
 	if ((c = tb[ODHCPD_ATTR_LEGACY]))
 		config.legacy = blobmsg_get_bool(c);

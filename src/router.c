@@ -353,6 +353,11 @@ static void send_router_advert(struct uloop_timeout *event)
 		uint32_t lifetime;
 		uint8_t name[];
 	} *search = alloca(sizeof(*search) + search_padded);
+
+	if (!search) {
+		syslog(LOG_ERR, "Alloca failed for dns search on interface %s", iface->ifname);
+		return;
+	}
 	search->type = ND_OPT_DNS_SEARCH;
 	search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
 	search->pad = 0;

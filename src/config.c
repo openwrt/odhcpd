@@ -187,8 +187,8 @@ static void set_config(struct uci_section *s)
 	struct blob_attr *tb[ODHCPD_ATTR_MAX], *c;
 
 	blob_buf_init(&b, 0);
-	uci_to_blob(&b, s, &lease_attr_list);
-	blobmsg_parse(lease_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+	uci_to_blob(&b, s, &odhcpd_attr_list);
+	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
 	if ((c = tb[ODHCPD_ATTR_LEGACY]))
 		config.legacy = blobmsg_get_bool(c);
@@ -218,6 +218,8 @@ static int set_lease(struct uci_section *s)
 		hostlen = blobmsg_data_len(c);
 
 	struct lease *lease = calloc(1, sizeof(*lease) + hostlen);
+	if (!lease)
+		goto err;
 
 	if (hostlen > 1)
 		memcpy(lease->hostname, blobmsg_get_string(c), hostlen);
@@ -233,6 +235,9 @@ static int set_lease(struct uci_section *s)
 	if ((c = tb[LEASE_ATTR_DUID])) {
 		size_t duidlen = (blobmsg_data_len(c) - 1) / 2;
 		lease->duid = malloc(duidlen);
+		if (!lease->duid)
+			goto err;
+
 		ssize_t len = odhcpd_unhexlify(lease->duid,
 				duidlen, blobmsg_get_string(c));
 
@@ -251,8 +256,10 @@ static int set_lease(struct uci_section *s)
 	return 0;
 
 err:
-	free(lease->duid);
-	free(lease);
+	if (lease) {
+		free(lease->duid);
+		free(lease);
+	}
 	return -1;
 }
 
@@ -271,6 +278,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	struct interface *iface = get_interface(name);
 	if (!iface) {
 		iface = calloc(1, sizeof(*iface));
+		if (!iface)
+			return -1;
+
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
 		list_add(&iface->head, &interfaces);
 	}
@@ -348,6 +358,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 			iface->upstream = realloc(iface->upstream,
 					iface->upstream_len + blobmsg_data_len(cur));
+			if (!iface->upstream)
+				goto err;
+
 			memcpy(iface->upstream + iface->upstream_len, blobmsg_get_string(cur), blobmsg_data_len(cur));
 			iface->upstream_len += blobmsg_data_len(cur);
 		}
@@ -396,10 +409,16 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
 				iface->dhcpv4_dns = realloc(iface->dhcpv4_dns,
 						(++iface->dhcpv4_dns_cnt) * sizeof(*iface->dhcpv4_dns));
+				if (!iface->dhcpv4_dns)
+					goto err;
+
 				iface->dhcpv4_dns[iface->dhcpv4_dns_cnt - 1] = addr4;
 			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
 				iface->dns = realloc(iface->dns,
 						(++iface->dns_cnt) * sizeof(*iface->dns));
+				if (!iface->dns)
+					goto err;
+
 				iface->dns[iface->dns_cnt - 1] = addr6;
 			} else {
 				goto err;
@@ -421,6 +440,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				goto err;
 
 			iface->search = realloc(iface->search, iface->search_len + len);
+			if (!iface->search)
+				goto err;
+
 			memcpy(&iface->search[iface->search_len], buf, len);
 			iface->search_len += len;
 		}
@@ -467,6 +489,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 			int len = blobmsg_data_len(cur);
 			iface->static_ndp = realloc(iface->static_ndp, iface->static_ndp_len + len);
+			if (!iface->static_ndp)
+				goto err;
+
 			memcpy(&iface->static_ndp[iface->static_ndp_len], blobmsg_get_string(cur), len);
 			iface->static_ndp_len += len;
 		}
@@ -499,6 +524,10 @@ void odhcpd_reload(void)
 	}
 
 	struct interface *master = NULL, *i, *n;
+
+	if (!uci)
+		return;
+
 	list_for_each_entry(i, &interfaces, head)
 		clean_interface(i);
 

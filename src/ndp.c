@@ -160,10 +160,19 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 
 		if (iface->static_ndp_len) {
 			char *entry = alloca(iface->static_ndp_len), *saveptr;
+			if (!entry) {
+				syslog(LOG_ERR, "Alloca failed for static NDP list");
+				return -1;
+			}
 			memcpy(entry, iface->static_ndp, iface->static_ndp_len);
 
 			for (entry = strtok_r(entry, " ", &saveptr); entry; entry = strtok_r(NULL, " ", &saveptr)) {
 				struct ndp_neighbor *n = malloc(sizeof(*n));
+				if (!n) {
+					syslog(LOG_ERR, "Malloc failed for static NDP-prefix %s", entry);
+					return -1;
+				}
+
 				n->iface = iface;
 				n->timeout = 0;
 

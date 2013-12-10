@@ -211,7 +211,7 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	struct {
 		struct nd_router_advert h;
-		struct icmpv6_opt lladdr;
+		struct nd_opt_slla lladdr;
 		struct nd_opt_mtu mtu;
 		struct nd_opt_prefix_info prefix[RELAYD_MAX_PREFIXES];
 	} adv = {
@@ -227,7 +227,7 @@ static void send_router_advert(struct uloop_timeout *event)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;
 	else if (iface->route_preference > 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_HIGH;
-	odhcpd_get_mac(iface, adv.lladdr.data);
+	odhcpd_get_mac(iface, adv.lladdr.addr);
 
 	// If not currently shutting down
 	struct odhcpd_ipaddr addrs[RELAYD_MAX_PREFIXES];
@@ -319,14 +319,7 @@ static void send_router_advert(struct uloop_timeout *event)
 	if (!dns_addr)
 		dns_cnt = 0;
 
-	struct {
-		uint8_t type;
-		uint8_t len;
-		uint8_t pad;
-		uint8_t pad2;
-		uint32_t lifetime;
-	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, htonl(dns_time)};
-
+	struct nd_opt_recursive_dns dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, htonl(dns_time)};
 
 
 	// DNS Search options
@@ -455,11 +448,12 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 	icmpv6_for_each_option(opt, &adv[1], end) {
 		if (opt->type == ND_OPT_SOURCE_LINKADDR) {
 			// Store address of source MAC-address
-			mac_ptr = opt->data;
+			mac_ptr = ((struct nd_opt_slla *)opt)->addr;
 		} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 1) {
+			struct nd_opt_recursive_dns *dns = (struct nd_opt_recursive_dns *)opt;
 			// Check if we have to rewrite DNS
-			dns_ptr = (struct in6_addr*)&opt->data[6];
-			dns_count = (opt->len - 1) / 2;
+			dns_ptr = (struct in6_addr *)&dns[1];
+			dns_count = (dns->len - 1) / 2;
 		}
 	}
 

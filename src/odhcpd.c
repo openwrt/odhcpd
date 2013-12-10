@@ -320,8 +320,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		int *hlim = NULL;
 		struct in6_pktinfo *pktinfo;
 		struct in_pktinfo *pkt4info;
-		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL &&
-				destiface == 0; ch = CMSG_NXTHDR(&msg, ch)) {
+		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL; ch = CMSG_NXTHDR(&msg, ch)) {
 			if (ch->cmsg_level == IPPROTO_IPV6 &&
 					ch->cmsg_type == IPV6_PKTINFO) {
 				pktinfo = (struct in6_pktinfo*)CMSG_DATA(ch);

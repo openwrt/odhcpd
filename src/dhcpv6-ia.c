@@ -63,6 +63,11 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 
 		if (list_empty(&iface->ia_assignments)) {
 			struct dhcpv6_assignment *border = calloc(1, sizeof(*border));
+			if (!border) {
+				syslog(LOG_ERR, "Calloc failed for border on interface %s", iface->ifname);
+				return -1;
+			}
+			
 			border->length = 64;
 			list_add(&border->head, &iface->ia_assignments);
 		}
@@ -74,6 +79,12 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		list_for_each_entry(lease, &leases, head) {
 			// Construct entry
 			struct dhcpv6_assignment *a = calloc(1, sizeof(*a) + lease->duid_len);
+			if (!a) {
+				syslog(LOG_ERR, "Calloc failed for static lease assignment on interface %s",
+					iface->ifname);
+				return -1;
+			}
+
 			a->clid_len = lease->duid_len;
 			a->length = 128;
 			a->assigned = lease->hostid;
@@ -885,7 +896,8 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->all_class = class_oro;
 				a->classes_cnt = classes_cnt;
 				a->classes = realloc(a->classes, classes_cnt * sizeof(uint16_t));
-				memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+				if (a->classes)
+					memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
 				break;
 			}
 		}
@@ -897,28 +909,31 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			if (!a && !iface->no_dynamic_dhcp) { // Create new binding
 				a = calloc(1, sizeof(*a) + clid_len);
-				a->clid_len = clid_len;
-				a->iaid = ia->iaid;
-				a->length = reqlen;
-				a->peer = *addr;
-				a->assigned = reqhint;
-				a->all_class = class_oro;
-				a->classes_cnt = classes_cnt;
-				if (classes_cnt) {
-					a->classes = malloc(classes_cnt * sizeof(uint16_t));
-					memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+				if (a) {
+					a->clid_len = clid_len;
+					a->iaid = ia->iaid;
+					a->length = reqlen;
+					a->peer = *addr;
+					a->assigned = reqhint;
+					a->all_class = class_oro;
+					a->classes_cnt = classes_cnt;
+					if (classes_cnt) {
+						a->classes = malloc(classes_cnt * sizeof(uint16_t));
+						if (a->classes)
+							memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
+					}
+
+					if (first)
+						memcpy(a->key, first->key, sizeof(a->key));
+					else
+						odhcpd_urandom(a->key, sizeof(a->key));
+					memcpy(a->clid_data, clid_data, clid_len);
+
+					if (is_pd)
+						while (!(assigned = assign_pd(iface, a)) && ++a->length <= 64);
+					else
+						assigned = assign_na(iface, a);
 				}
-
-				if (first)
-					memcpy(a->key, first->key, sizeof(a->key));
-				else
-					odhcpd_urandom(a->key, sizeof(a->key));
-				memcpy(a->clid_data, clid_data, clid_len);
-
-				if (is_pd)
-					while (!(assigned = assign_pd(iface, a)) && ++a->length <= 64);
-				else
-					assigned = assign_na(iface, a);
 			}
 
 			if (!assigned || iface->ia_addr_len == 0) { // Set error status
@@ -959,8 +974,10 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
-					memcpy(a->hostname, hostname, hostname_len);
-					a->hostname[hostname_len] = 0;
+					if (a->hostname) {
+						memcpy(a->hostname, hostname, hostname_len);
+						a->hostname[hostname_len] = 0;
+					}
 				}
 				a->accept_reconf = accept_reconf;
 				apply_lease(iface, a, true);

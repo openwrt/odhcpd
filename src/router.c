@@ -219,7 +219,10 @@ static void send_router_advert(struct uloop_timeout *event)
 		.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
 		.mtu = {ND_OPT_MTU, 1, 0, htonl(mtu)},
 	};
-	adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
+
+	if (iface->dhcpv6)
+		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
+
 	if (iface->managed >= RELAYD_MANAGED_MFLAG)
 		adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
 

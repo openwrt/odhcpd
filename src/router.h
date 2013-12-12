@@ -37,8 +37,10 @@ struct nd_opt_recursive_dns {
 };
 
 #define icmpv6_for_each_option(opt, start, end)\
-	for (opt = (struct icmpv6_opt*)(start);\
-	(void*)(opt + (opt->len << 3)) <= (void*)(end); opt += (opt->len << 3))
+	for (opt = (struct icmpv6_opt *)(start);\
+	((void *)opt < (void *)end) && \
+	(void *)((uint8_t *)opt + (opt->len << 3)) <= (void *)(end); \
+	opt = (struct icmpv6_opt *)((uint8_t *)opt + (opt->len << 3)))
 
 #define MaxRtrAdvInterval 600
 #define MinRtrAdvInterval (MaxRtrAdvInterval / 3)

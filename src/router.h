@@ -20,25 +20,15 @@
 struct icmpv6_opt {
 	uint8_t type;
 	uint8_t len;
+	uint8_t data[6];
 };
 
-struct nd_opt_slla {
-	uint8_t type;
-	uint8_t len;
-	uint8_t addr[6];
-};
-
-struct nd_opt_recursive_dns {
-	uint8_t type;
-	uint8_t len;
-	uint8_t pad;
-	uint8_t pad2;
-	uint32_t lifetime;
-};
 
 #define icmpv6_for_each_option(opt, start, end)\
 	for (opt = (struct icmpv6_opt*)(start);\
-	(void*)(opt + (opt->len << 3)) <= (void*)(end); opt += (opt->len << 3))
+	(void*)(opt + 1) <= (void*)(end) && opt->len > 0 &&\
+	(void*)(opt + opt->len) <= (void*)(end); opt += opt->len)
+
 
 #define MaxRtrAdvInterval 600
 #define MinRtrAdvInterval (MaxRtrAdvInterval / 3)

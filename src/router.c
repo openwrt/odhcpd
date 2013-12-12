@@ -134,7 +134,7 @@ static int router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size_
 {
 	struct icmp6_hdr *hdr = (struct icmp6_hdr *)data;
 	struct icmpv6_opt *opt;
-	size_t optlen = len - sizeof(*hdr);
+	size_t optlen;
 
 	/* Hoplimit is already checked in odhcpd_receive_packets */
 	if (len < sizeof(*hdr))
@@ -149,10 +149,12 @@ static int router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size_
 			return 0;
 
 		opt = (struct icmpv6_opt *)((struct nd_router_advert *)data + 1);
+		optlen = len - sizeof(struct nd_router_advert);
 		break;
 
 	case ND_ROUTER_SOLICIT:
 		opt = (struct icmpv6_opt *)((struct nd_router_solicit *)data + 1);
+		optlen = len - sizeof(struct nd_router_solicit);
 		break;
 
 	default:

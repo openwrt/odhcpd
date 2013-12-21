@@ -130,66 +130,12 @@ static void sigusr1_refresh(_unused int signal)
 			uloop_timeout_set(&iface->timer_rs, 1000);
 }
 
-static int router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size_t len)
-{
-	struct icmp6_hdr *hdr = (struct icmp6_hdr *)data;
-	struct icmpv6_opt *opt;
-	size_t optlen = len - sizeof(*hdr);
-
-	/* Hoplimit is already checked in odhcpd_receive_packets */
-	if (len < sizeof(*hdr))
-		return 0;
-
-	if (hdr->icmp6_code)
-		return 0;
-
-	switch (hdr->icmp6_type) {
-	case ND_ROUTER_ADVERT:
-		if (!IN6_IS_ADDR_LINKLOCAL(&source->sin6_addr))
-			return 0;
-
-		opt = (struct icmpv6_opt *)((struct nd_router_advert *)data + 1);
-		break;
-
-	case ND_ROUTER_SOLICIT:
-		opt = (struct icmpv6_opt *)((struct nd_router_solicit *)data + 1);
-		break;
-
-	default:
-		return 0;
-	}
-
-	while (optlen > 0) {
-		size_t l = opt->len << 3;
-
-		if (optlen < sizeof(*opt))
-			return 0;
-
-		if (l > optlen || l == 0)
-			return 0;
-
-		if (opt->type == ND_OPT_SOURCE_LINKADDR && IN6_IS_ADDR_UNSPECIFIED(&source->sin6_addr) &&
-			hdr->icmp6_type == ND_ROUTER_SOLICIT) {
-			return 0;
-		}
-
-		opt = (struct icmpv6_opt *)(((uint8_t *)opt) + l);
-
-		optlen -= l;
-	}
-
-	return 1;
-}
 
 // Event handler for incoming ICMPv6 packets
-static void handle_icmpv6(void *addr, void *data, size_t len,
+static void handle_icmpv6(_unused void *addr, void *data, size_t len,
 		struct interface *iface)
 {
 	struct icmp6_hdr *hdr = data;
-	
-	if (!router_icmpv6_valid(addr, data, len))
-		return;
-
 	if ((iface->ra == RELAYD_SERVER && !iface->master)) { // Server mode
 		if (hdr->icmp6_type == ND_ROUTER_SOLICIT)
 			send_router_advert(&iface->timer_rs);

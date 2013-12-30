@@ -8,15 +8,20 @@ set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
 
 
-add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra -DWITH_UBUS)
+add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra)
 
 if(${EXT_PREFIX_CLASS})
 	add_definitions(-DEXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
 endif(${EXT_PREFIX_CLASS})
 
+if(${UBUS})
+	add_definitions(-DWITH_UBUS)
+	set(EXT_SRC ${EXT_SRC} src/ubus.c)
+	set(EXT_LINK ${EXT_LINK} ubus)
+endif(${UBUS})
 
-add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/md5.c src/dhcpv6-ia.c src/dhcpv4.c src/ubus.c)
-target_link_libraries(odhcpd resolv ubus ubox uci)
+add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/md5.c src/dhcpv6-ia.c src/dhcpv4.c ${EXT_SRC})
+target_link_libraries(odhcpd resolv ubox uci ${EXT_LINK})
 
 # Installation
 install(TARGETS odhcpd DESTINATION sbin/)

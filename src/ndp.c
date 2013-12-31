@@ -534,8 +534,8 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 		/* TODO: See if this is required for optimal operation
 		// Keep neighbor entries alive so we don't loose routes
+		 */
 		if (add && (ndm->ndm_state & NUD_STALE))
 			ping6(addr, iface);
-		*/
 	}
 }

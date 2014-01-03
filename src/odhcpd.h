@@ -130,7 +130,6 @@ struct interface {
 	bool master;
 	bool ignore;
 	bool always_rewrite_dns;
-	bool deprecate_ula_if_public_avail;
 	bool ra_not_onlink;
 	bool no_dynamic_dhcp;
 

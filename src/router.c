@@ -345,11 +345,6 @@ static void send_router_advert(struct uloop_timeout *event)
 		adv.h.nd_ra_router_lifetime = 0;
 	}
 
-	if (have_public && iface->deprecate_ula_if_public_avail)
-		for (size_t i = 0; i < cnt; ++i)
-			if ((adv.prefix[i].nd_opt_pi_prefix.s6_addr[0] & 0xfe) == 0xfc)
-				adv.prefix[i].nd_opt_pi_preferred_time = 0;
-
 	// DNS Recursive DNS
 	if (iface->dns_cnt > 0) {
 		dns_addr = iface->dns;

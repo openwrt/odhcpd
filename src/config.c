@@ -32,7 +32,6 @@ enum {
 	IFACE_ATTR_NDP,
 	IFACE_ATTR_DNS,
 	IFACE_ATTR_DOMAIN,
-	IFACE_ATTR_ULA_COMPAT,
 	IFACE_ATTR_RA_DEFAULT,
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_OFFLINK,
@@ -60,7 +59,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDP] = { .name = "ndp", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
-	[IFACE_ATTR_ULA_COMPAT] = { .name = "ula_compat", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
@@ -447,9 +445,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			iface->search_len += len;
 		}
 	}
-
-	if ((c = tb[IFACE_ATTR_ULA_COMPAT]))
-		iface->deprecate_ula_if_public_avail = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);

@@ -552,10 +552,6 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 		if (a) {
 			uint32_t pref = 3600;
 			uint32_t valid = 3600;
-			bool have_non_ula = false;
-			for (size_t i = 0; i < iface->ia_addr_len; ++i)
-				if ((iface->ia_addr[i].addr.s6_addr[0] & 0xfe) != 0xfc)
-					have_non_ula = true;
 
 			for (size_t i = 0; i < iface->ia_addr_len; ++i) {
 				bool match = true;
@@ -578,12 +574,6 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 				if (iface->ia_addr[i].prefix > 64 ||
 						iface->ia_addr[i].preferred <= (uint32_t)now)
-					continue;
-
-				// ULA-deprecation compatibility workaround
-				if ((iface->ia_addr[i].addr.s6_addr[0] & 0xfe) == 0xfc &&
-						a->length == 128 && have_non_ula &&
-						iface->deprecate_ula_if_public_avail)
 					continue;
 
 				if (prefix_pref > 86400)

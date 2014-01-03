@@ -497,7 +497,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	iface->ignore = (iface->ifindex = if_nametoindex(iface->ifname)) < 0;
+	iface->ignore = (iface->ifindex = if_nametoindex(iface->ifname)) <= 0;
 	return 0;
 
 err:

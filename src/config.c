@@ -87,7 +87,7 @@ enum {
 	LEASE_ATTR_MAC,
 	LEASE_ATTR_DUID,
 	LEASE_ATTR_HOSTID,
-	LEASE_ATTR_HOSTNAME,
+	LEASE_ATTR_NAME,
 	LEASE_ATTR_MAX
 };
 
@@ -97,7 +97,7 @@ static const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
-	[LEASE_ATTR_HOSTNAME] = { .name = "hostname", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
 };
 
 
@@ -212,7 +212,7 @@ static int set_lease(struct uci_section *s)
 	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
 	size_t hostlen = 1;
-	if ((c = tb[LEASE_ATTR_HOSTNAME]))
+	if ((c = tb[LEASE_ATTR_NAME]))
 		hostlen = blobmsg_data_len(c);
 
 	struct lease *lease = calloc(1, sizeof(*lease) + hostlen);
@@ -533,7 +533,7 @@ void odhcpd_reload(void)
 		struct uci_element *e;
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section *s = uci_to_section(e);
-			if (!strcmp(s->type, "lease"))
+			if (!strcmp(s->type, "host"))
 				set_lease(s);
 			else if (!strcmp(s->type, "odhcpd"))
 				set_config(s);

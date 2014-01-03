@@ -105,11 +105,11 @@ ndproxy_slave	bool	0			NDProxy external slave
 ndproxy_static	list				Static NDProxy prefixes
 
 
-Sections of type lease (static leases)
+Sections of type host (static leases)
 Option		Type	Default			Description
 ip		string				IP-Address to lease
 mac		string				MAC-address
 duid		string				DUID in base16
 hostid		string				IPv6 host identifier
-hostname	string				Hostname
+name		string				Hostname
 

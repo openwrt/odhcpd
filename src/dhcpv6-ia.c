@@ -15,7 +15,7 @@
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"
-#include "md5.h"
+#include "libubox/md5.h"
 
 #include <time.h>
 #include <errno.h>

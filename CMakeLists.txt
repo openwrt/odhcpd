@@ -20,7 +20,7 @@ if(${UBUS})
 	set(EXT_LINK ${EXT_LINK} ubus)
 endif(${UBUS})
 
-add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/md5.c src/dhcpv6-ia.c src/dhcpv4.c ${EXT_SRC})
+add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/dhcpv6-ia.c src/dhcpv4.c ${EXT_SRC})
 target_link_libraries(odhcpd resolv ubox uci ${EXT_LINK})
 
 # Installation

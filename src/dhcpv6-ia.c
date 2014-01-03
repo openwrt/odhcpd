@@ -87,7 +87,12 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 
 			a->clid_len = lease->duid_len;
 			a->length = 128;
-			a->assigned = lease->hostid;
+			if (lease->hostid) {
+				a->assigned = lease->hostid;
+			} else {
+				uint32_t i4a = ntohl(lease->ipaddr.s_addr) & 0xff;
+				a->assigned = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
+			}
 			odhcpd_urandom(a->key, sizeof(a->key));
 			memcpy(a->clid_data, lease->duid, a->clid_len);
 			memcpy(a->mac, lease->mac.ether_addr_octet, sizeof(a->mac));

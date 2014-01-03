@@ -100,7 +100,7 @@ ra_management	integer	1			RA management mode
 ra_offlink	bool	0			Announce prefixes off-link
 ra_preference	string	medium			Route(r) preference
 		[medium|high|low]
-ndproxy_routing	bool	0			Learn routes from NDP
+ndproxy_routing	bool	1			Learn routes from NDP
 ndproxy_slave	bool	0			NDProxy external slave
 ndproxy_static	list				Static NDProxy prefixes
 

@@ -470,6 +470,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);
+	else
+		iface->learn_routes = true;
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);

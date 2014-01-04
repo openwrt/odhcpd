@@ -32,13 +32,11 @@
 static void update(struct interface *iface);
 static void reconf_timer(struct uloop_timeout *event);
 static struct uloop_timeout reconf_event = {.cb = reconf_timer};
-static int socket_fd = -1;
 static uint32_t serial = 0;
 
 
-int dhcpv6_ia_init(int dhcpv6_socket)
+int dhcpv6_ia_init(void)
 {
-	socket_fd = dhcpv6_socket;
 	uloop_timeout_set(&reconf_event, 2000);
 	return 0;
 }
@@ -183,7 +181,7 @@ static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign
 	md5_hash(reconf_msg.auth.key, 16, &md5);
 	md5_end(reconf_msg.auth.key, &md5);
 
-	return odhcpd_send(socket_fd, &assign->peer, &iov, 1, iface);
+	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
 }
 
 

@@ -166,6 +166,6 @@ struct dhcpv6_assignment {
 int dhcpv6_init_ia(struct interface *iface, int socket);
 size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
-int dhcpv6_ia_init(int dhcpv6_socket);
+int dhcpv6_ia_init(void);
 int setup_dhcpv6_ia_interface(struct interface *iface, bool enable);
 void dhcpv6_write_statefile(void);

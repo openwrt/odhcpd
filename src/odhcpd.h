@@ -115,6 +115,7 @@ struct interface {
 	bool ia_reconf;
 
 	// DHCPv4
+	struct odhcpd_event dhcpv6_event;
 	struct odhcpd_event dhcpv4_event;
 	struct list_head dhcpv4_assignments;
 

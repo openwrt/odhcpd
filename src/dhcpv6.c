@@ -32,68 +32,68 @@ static void handle_dhcpv6(void *addr, void *data, size_t len,
 static void handle_client_request(void *addr, void *data, size_t len,
 		struct interface *iface);
 
-static struct odhcpd_event dhcpv6_event = {{.fd = -1}, handle_dhcpv6};
-
 
 
 // Create socket and register events
 int init_dhcpv6(void)
 {
-	int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-	if (sock < 0) {
-		syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %s",
-				strerror(errno));
-		return -1;
-	}
-
-	// Basic IPv6 configuration
-	int val = 1;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
-	setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
-
-	val = DHCPV6_HOP_COUNT_LIMIT;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
-
-	val = 0;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
-
-	struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
-				0, IN6ADDR_ANY_INIT, 0};
-
-	if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
-		syslog(LOG_ERR, "Failed to open DHCPv6 server socket: %s",
-				strerror(errno));
-		return -1;
-	}
-
-	dhcpv6_event.uloop.fd = sock;
-	odhcpd_register(&dhcpv6_event);
-
-	dhcpv6_ia_init(dhcpv6_event.uloop.fd);
-
+	dhcpv6_ia_init();
 	return 0;
 }
 
 
 int setup_dhcpv6_interface(struct interface *iface, bool enable)
 {
+	if (iface->dhcpv6_event.uloop.fd > 0) {
+		uloop_fd_delete(&iface->dhcpv6_event.uloop);
+		close(iface->dhcpv6_event.uloop.fd);
+		iface->dhcpv6_event.uloop.fd = -1;
+	}
+
 	// Configure multicast settings
-	struct ipv6_mreq relay = {ALL_DHCPV6_RELAYS, iface->ifindex};
-	struct ipv6_mreq server = {ALL_DHCPV6_SERVERS, iface->ifindex};
-
-	setsockopt(dhcpv6_event.uloop.fd, IPPROTO_IPV6,
-			IPV6_DROP_MEMBERSHIP, &relay, sizeof(relay));
-	setsockopt(dhcpv6_event.uloop.fd, IPPROTO_IPV6,
-			IPV6_DROP_MEMBERSHIP, &server, sizeof(server));
-
 	if (enable && iface->dhcpv6 && !iface->master) {
-		setsockopt(dhcpv6_event.uloop.fd, IPPROTO_IPV6,
+		int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+		if (sock < 0) {
+			syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %s",
+					strerror(errno));
+			return -1;
+		}
+
+		// Basic IPv6 configuration
+		setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, iface->ifname, strlen(iface->ifname));
+
+		int val = 1;
+		setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
+		setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+		setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
+
+		val = DHCPV6_HOP_COUNT_LIMIT;
+		setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
+
+		val = 0;
+		setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
+
+		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
+					0, IN6ADDR_ANY_INIT, 0};
+
+		if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
+			syslog(LOG_ERR, "Failed to open DHCPv6 server socket: %s",
+					strerror(errno));
+			return -1;
+		}
+
+		struct ipv6_mreq relay = {ALL_DHCPV6_RELAYS, iface->ifindex};
+		struct ipv6_mreq server = {ALL_DHCPV6_SERVERS, iface->ifindex};
+		setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6,
 				IPV6_ADD_MEMBERSHIP, &relay, sizeof(relay));
 
 		if (iface->dhcpv6 == RELAYD_SERVER)
-			setsockopt(dhcpv6_event.uloop.fd, IPPROTO_IPV6,
+			setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6,
 					IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
+
+		iface->dhcpv6_event.uloop.fd = sock;
+		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;
+		odhcpd_register(&iface->dhcpv6_event);
 	}
 
 	return setup_dhcpv6_ia_interface(iface, enable);
@@ -291,7 +291,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				iov[3].iov_len + iov[4].iov_len + iov[5].iov_len +
 				iov[6].iov_len - (4 + opts_end - opts));
 
-	odhcpd_send(dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
+	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }
 
 
@@ -395,7 +395,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	}
 
 	struct iovec iov = {payload_data, payload_len};
-	odhcpd_send(dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
+	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
 }
 
 
@@ -452,5 +452,5 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	struct sockaddr_in6 dhcpv6_servers = {AF_INET6,
 			htons(DHCPV6_SERVER_PORT), 0, ALL_DHCPV6_SERVERS, 0};
 	struct iovec iov[2] = {{&hdr, sizeof(hdr)}, {(void*)data, len}};
-	odhcpd_send(dhcpv6_event.uloop.fd, &dhcpv6_servers, iov, 2, master);
+	odhcpd_send(iface->dhcpv6_event.uloop.fd, &dhcpv6_servers, iov, 2, master);
 }

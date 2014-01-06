@@ -33,6 +33,7 @@ static void update(struct interface *iface);
 static void reconf_timer(struct uloop_timeout *event);
 static struct uloop_timeout reconf_event = {.cb = reconf_timer};
 static uint32_t serial = 0;
+static uint8_t statemd5[16];
 
 
 int dhcpv6_ia_init(void)
@@ -187,6 +188,9 @@ static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign
 
 void dhcpv6_write_statefile(void)
 {
+	md5_ctx_t md5;
+	md5_begin(&md5);
+
 	if (config.dhcp_statefile) {
 		time_t now = odhcpd_time(), wall_time = time(NULL);
 		int fd = open(config.dhcp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
@@ -238,8 +242,11 @@ void dhcpv6_write_statefile(void)
 							addr.s6_addr32[1] |= htonl(c->assigned);
 						inet_ntop(AF_INET6, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-						if (c->length == 128 && c->hostname && i == 0)
+						if (c->length == 128 && c->hostname && i == 0) {
 							fprintf(fp, "%s\t%s\n", ipbuf, c->hostname);
+							md5_hash(ipbuf, strlen(ipbuf), &md5);
+							md5_hash(c->hostname, strlen(c->hostname), &md5);
+						}
 
 						l += snprintf(leasebuf + l, sizeof(leasebuf) - l, "%s/%hhu ", ipbuf, c->length);
 					}
@@ -267,8 +274,11 @@ void dhcpv6_write_statefile(void)
 					struct in_addr addr = {htonl(c->addr)};
 					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-					if (c->hostname[0])
+					if (c->hostname[0]) {
 						fprintf(fp, "%s\t%s\n", ipbuf, c->hostname);
+						md5_hash(ipbuf, strlen(ipbuf), &md5);
+						md5_hash(c->hostname, strlen(c->hostname), &md5);
+					}
 
 					l += snprintf(leasebuf + l, sizeof(leasebuf) - l, "%s/32 ", ipbuf);
 					leasebuf[l - 1] = '\n';
@@ -280,7 +290,11 @@ void dhcpv6_write_statefile(void)
 		fclose(fp);
 	}
 
-	if (config.dhcp_cb) {
+	uint8_t newmd5[16];
+	md5_end(newmd5, &md5);
+
+	if (config.dhcp_cb && memcmp(newmd5, statemd5, sizeof(newmd5))) {
+		memcpy(statemd5, newmd5, sizeof(statemd5));
 		char *argv[2] = {config.dhcp_cb, NULL};
 		if (!vfork()) {
 			execv(argv[0], argv);

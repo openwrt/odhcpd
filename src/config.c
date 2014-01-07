@@ -108,7 +108,7 @@ const struct uci_blob_param_list lease_attr_list = {
 
 
 enum {
-	ODHCPD_ATTR_LEGACY,
+	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_MAX
@@ -116,7 +116,7 @@ enum {
 
 
 static const struct blobmsg_policy odhcpd_attrs[LEASE_ATTR_MAX] = {
-	[ODHCPD_ATTR_LEGACY] = { .name = "legacy", .type = BLOBMSG_TYPE_BOOL },
+	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 };
@@ -188,7 +188,7 @@ static void set_config(struct uci_section *s)
 	uci_to_blob(&b, s, &odhcpd_attr_list);
 	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
-	if ((c = tb[ODHCPD_ATTR_LEGACY]))
+	if ((c = tb[ODHCPD_ATTR_MAINDHCP]))
 		config.legacy = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_LEASEFILE])) {

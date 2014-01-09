@@ -84,12 +84,10 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 
 		struct ipv6_mreq relay = {ALL_DHCPV6_RELAYS, iface->ifindex};
 		struct ipv6_mreq server = {ALL_DHCPV6_SERVERS, iface->ifindex};
-		setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6,
-				IPV6_ADD_MEMBERSHIP, &relay, sizeof(relay));
+		setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &relay, sizeof(relay));
 
 		if (iface->dhcpv6 == RELAYD_SERVER)
-			setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6,
-					IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
+			setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
 
 		iface->dhcpv6_event.uloop.fd = sock;
 		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;

@@ -302,6 +302,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if (ifname)
 		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 
+	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
+		return -1;
+
 	iface->inuse = true;
 
 	if ((c = tb[IFACE_ATTR_DYNAMICDHCP]))
@@ -494,7 +497,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	iface->ignore = (iface->ifindex = if_nametoindex(iface->ifname)) <= 0;
 	return 0;
 
 err:

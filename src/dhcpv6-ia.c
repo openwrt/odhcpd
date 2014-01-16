@@ -243,7 +243,14 @@ void dhcpv6_write_statefile(void)
 						inet_ntop(AF_INET6, &addr, ipbuf, sizeof(ipbuf) - 1);
 
 						if (c->length == 128 && c->hostname && i == 0) {
-							fprintf(fp, "%s\t%s\n", ipbuf, c->hostname);
+							fputs(ipbuf, fp);
+
+							char b[256];
+					                if (dn_expand(iface->search, iface->search + iface->search_len,
+					                		iface->search, b, sizeof(b)) > 0)
+					                	fprintf(fp, "\t%s.%s", c->hostname, b);
+
+							fprintf(fp, "\t%s\n", c->hostname);
 							md5_hash(ipbuf, strlen(ipbuf), &md5);
 							md5_hash(c->hostname, strlen(c->hostname), &md5);
 						}
@@ -275,7 +282,14 @@ void dhcpv6_write_statefile(void)
 					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
 					if (c->hostname[0]) {
-						fprintf(fp, "%s\t%s\n", ipbuf, c->hostname);
+						fputs(ipbuf, fp);
+
+						char b[256];
+				                if (dn_expand(iface->search, iface->search + iface->search_len,
+				                		iface->search, b, sizeof(b)) > 0)
+				                	fprintf(fp, "\t%s.%s", c->hostname, b);
+
+						fprintf(fp, "\t%s\n", c->hostname);
 						md5_hash(ipbuf, strlen(ipbuf), &md5);
 						md5_hash(c->hostname, strlen(c->hostname), &md5);
 					}

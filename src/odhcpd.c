@@ -52,7 +52,7 @@ static int urandom_fd = -1;
 int main()
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
-	setlogmask(LOG_UPTO(LOG_INFO));
+	setlogmask(LOG_UPTO(LOG_WARNING));
 	uloop_init();
 
 	if (getuid() != 0) {

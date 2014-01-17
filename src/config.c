@@ -555,6 +555,23 @@ void odhcpd_reload(void)
 	ubus_apply_network();
 #endif
 
+	bool any_dhcpv6_slave = false, any_ra_slave = false, any_ndp_slave = false;
+
+	// Test for
+	list_for_each_entry(i, &interfaces, head) {
+		if (i->master)
+			continue;
+
+		if (i->dhcpv6 == RELAYD_HYBRID || i->dhcpv6 == RELAYD_RELAY)
+			any_dhcpv6_slave = true;
+
+		if (i->ra == RELAYD_HYBRID || i->ra == RELAYD_RELAY)
+			any_ra_slave = true;
+
+		if (i->ndp == RELAYD_HYBRID || i->ndp == RELAYD_RELAY)
+			any_ndp_slave = true;
+	}
+
 	// Evaluate hybrid mode for master
 	list_for_each_entry(i, &interfaces, head) {
 		if (!i->master)
@@ -569,11 +586,20 @@ void odhcpd_reload(void)
 		if (i->dhcpv6 == RELAYD_HYBRID)
 			i->dhcpv6 = hybrid_mode;
 
+		if (i->dhcpv6 == RELAYD_RELAY && !any_dhcpv6_slave)
+			i->dhcpv6 = RELAYD_DISABLED;
+
 		if (i->ra == RELAYD_HYBRID)
 			i->ra = hybrid_mode;
 
+		if (i->ra == RELAYD_RELAY && !any_ra_slave)
+			i->ra = RELAYD_DISABLED;
+
 		if (i->ndp == RELAYD_HYBRID)
 			i->ndp = hybrid_mode;
+
+		if (i->ndp == RELAYD_RELAY && !any_ndp_slave)
+			i->ndp = RELAYD_DISABLED;
 
 		if (i->dhcpv6 == RELAYD_RELAY || i->ra == RELAYD_RELAY || i->ndp == RELAYD_RELAY)
 			master = i;
@@ -593,7 +619,7 @@ void odhcpd_reload(void)
 
 			if (i->ndp == RELAYD_HYBRID)
 				i->ndp = (master && master->ndp == RELAYD_RELAY) ?
-						RELAYD_RELAY : RELAYD_SERVER;
+						RELAYD_RELAY : RELAYD_DISABLED;
 
 			setup_router_interface(i, true);
 			setup_dhcpv6_interface(i, true);

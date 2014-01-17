@@ -175,7 +175,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		syslog(LOG_WARNING, "Failed to send to %s%%%s (%s)",
 				ipbuf, iface->ifname, strerror(errno));
 	else
-		syslog(LOG_NOTICE, "Sent %li bytes to %s%%%s",
+		syslog(LOG_DEBUG, "Sent %li bytes to %s%%%s",
 				(long)sent, ipbuf, iface->ifname);
 	return sent;
 }
@@ -359,8 +359,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		else if (addr.in.sin_family == AF_INET)
 			inet_ntop(AF_INET, &addr.in.sin_addr, ipbuf, sizeof(ipbuf));
 
-		syslog(LOG_NOTICE, "--");
-		syslog(LOG_NOTICE, "Received %li Bytes from %s%%%s", (long)len,
+		syslog(LOG_DEBUG, "--");
+		syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
 				ipbuf, (iface) ? iface->ifname : "netlink");
 
 		e->handle_dgram(&addr, data_buf, len, iface);

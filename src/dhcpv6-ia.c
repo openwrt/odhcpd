@@ -211,7 +211,7 @@ void dhcpv6_write_statefile(void)
 			if (iface->dhcpv6 != RELAYD_SERVER && iface->dhcpv4 != RELAYD_SERVER)
 				continue;
 
-			if (iface->dhcpv6 == RELAYD_SERVER) {
+			if (iface->dhcpv6 == RELAYD_SERVER && iface->ia_assignments.next) {
 				struct dhcpv6_assignment *c;
 				list_for_each_entry(c, &iface->ia_assignments, head) {
 					if (c->clid_len == 0)
@@ -262,7 +262,7 @@ void dhcpv6_write_statefile(void)
 				}
 			}
 
-			if (iface->dhcpv4 == RELAYD_SERVER) {
+			if (iface->dhcpv4 == RELAYD_SERVER && iface->dhcpv4_assignments.next) {
 				struct dhcpv4_assignment *c;
 				list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 					char ipbuf[INET6_ADDRSTRLEN];

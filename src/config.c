@@ -517,8 +517,8 @@ static int set_interface(struct uci_section *s)
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
-	struct lease *l;
-	list_for_each_entry(l, &leases, head) {
+	while (!list_empty(&leases)) {
+		struct lease *l = list_first_entry(&leases, struct lease, head);
 		list_del(&l->head);
 		free(l->duid);
 		free(l);

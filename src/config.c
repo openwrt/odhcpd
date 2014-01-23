@@ -560,7 +560,7 @@ void odhcpd_reload(void)
 
 		enum odhcpd_mode hybrid_mode = RELAYD_DISABLED;
 #ifdef WITH_UBUS
-		if (ubus_has_prefix(i->name, i->ifname))
+		if (!ubus_has_prefix(i->name, i->ifname))
 			hybrid_mode = RELAYD_RELAY;
 #endif
 

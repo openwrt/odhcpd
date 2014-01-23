@@ -234,7 +234,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 	char ipbuf[INET6_ADDRSTRLEN];
 	inet_ntop(AF_INET6, &req->nd_ns_target, ipbuf, sizeof(ipbuf));
-	syslog(LOG_NOTICE, "Got a NS for %s", ipbuf);
+	syslog(LOG_DEBUG, "Got a NS for %s", ipbuf);
 
 	uint8_t mac[6];
 	odhcpd_get_mac(iface, mac);
@@ -246,7 +246,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 	struct ndp_neighbor *n = find_neighbor(&req->nd_ns_target, false);
 	if (n && (n->iface || abs(n->timeout - now) < 5)) {
-		syslog(LOG_NOTICE, "%s is on %s", ipbuf,
+		syslog(LOG_DEBUG, "%s is on %s", ipbuf,
 				(n->iface) ? n->iface->ifname : "<pending>");
 		if (!n->iface || n->iface == iface)
 			return;

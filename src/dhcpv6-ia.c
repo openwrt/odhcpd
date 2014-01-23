@@ -101,6 +101,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 			list_for_each_entry(c, &iface->ia_assignments, head) {
 				if (c->length != 128 || c->assigned > a->assigned) {
 					list_add_tail(&a->head, &c->head);
+					break;
 				} else if (c->assigned == a->assigned) {
 					// Already an assignment with that number
 					break;

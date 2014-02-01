@@ -37,9 +37,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
 		const char *hostname);
-
-// Magic option for hnet internal (4B enterprise ID, 1B data-len, 1B subopt-code, 1B subopt-len)
-static uint8_t hnet_internal_data[7] = {0x00, 0x00, 0x76, 0xfe, 2, 1, 0};
+static const char *excluded_class = "HOMENET";
 
 // Create socket and register events
 int init_dhcpv4(void)
@@ -296,10 +294,13 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		} else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
 			if (memcmp(opt->data, &ifaddr.sin_addr, 4))
 				return;
-		} else if (opt->type == DHCPV4_OPT_VENDOR_SPECIFIC_INFORMATION &&
-				opt->len == sizeof(hnet_internal_data)) {
-			if (!memcmp(opt->data, hnet_internal_data, sizeof(hnet_internal_data)))
-				return; // Ignoring hnet internal routers
+		} else if (opt->type == DHCPV4_OPT_USER_CLASS) {
+			uint8_t *c = opt->data, *cend = &opt->data[opt->len];
+			for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
+				size_t elen = strlen(excluded_class);
+				if (*c == elen && !memcmp(&c[1], excluded_class, elen))
+					return; // Ignore from homenet
+			}
 		}
 	}
 

@@ -22,6 +22,8 @@
 #include "odhcpd.h"
 #include "dhcpv6.h"
 
+static const char *excluded_class = "HOMENET";
+
 
 static void relay_client_request(struct sockaddr_in6 *source,
 		const void *data, size_t len, struct interface *iface);
@@ -275,6 +277,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			if (olen != ntohs(dest.serverid_length) ||
 					memcmp(odata, &dest.duid_type, olen))
 				return; // Not for us
+		} else if (otype == DHCPV6_OPT_USER_CLASS) {
+			uint8_t *c = odata, *cend = &odata[olen];
+			for (; &c[2] <= cend && &c[2 + (c[0] << 8) + c[1]] <= cend; c = &c[2 + (c[0] << 8) + c[1]]) {
+				size_t elen = strlen(excluded_class);
+				if (((((size_t)c[0]) << 8) | c[1]) == elen && !memcmp(&c[2], excluded_class, elen))
+					return; // Ignore from homenet
+			}
 		}
 	}
 

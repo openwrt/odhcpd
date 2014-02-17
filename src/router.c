@@ -273,6 +273,7 @@ static void send_router_advert(struct uloop_timeout *event)
 	// If not currently shutting down
 	struct odhcpd_ipaddr addrs[RELAYD_MAX_PREFIXES];
 	ssize_t ipcnt = 0;
+	uint64_t maxpreferred = 0;
 
 	// If not shutdown
 	if (event->cb) {
@@ -318,8 +319,12 @@ static void send_router_advert(struct uloop_timeout *event)
 			p = &adv.prefix[cnt++];
 		}
 
-		if ((addr->addr.s6_addr[0] & 0xfe) != 0xfc && addr->preferred > 0)
+		if ((addr->addr.s6_addr[0] & 0xfe) != 0xfc && addr->preferred > 0) {
 			have_public = true;
+
+			if (maxpreferred < 1000 * addr->preferred)
+				maxpreferred = 1000 * addr->preferred;
+		}
 
 		memcpy(&p->nd_opt_pi_prefix, &addr->addr, 8);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
@@ -453,10 +458,23 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	// Rearm timer if not shut down
 	if (event->cb) {
+		uint32_t maxinterval = MaxRtrAdvInterval * 1000;
+		uint32_t mininterval = MinRtrAdvInterval * 1000;
+
+		if (maxpreferred > 0 && maxinterval > maxpreferred / 2) {
+			maxinterval = maxpreferred / 2;
+			if (maxinterval < 4000)
+				maxinterval = 4000;
+
+			if (maxinterval >= 9000)
+				mininterval = maxinterval / 3;
+			else
+				mininterval = (maxinterval * 3) / 4;
+		}
+
 		int msecs;
 		odhcpd_urandom(&msecs, sizeof(msecs));
-		msecs = (labs(msecs) % (1000 * (MaxRtrAdvInterval
-				- MinRtrAdvInterval))) + (MinRtrAdvInterval * 1000);
+		msecs = (labs(msecs) % (maxinterval - mininterval)) + mininterval;
 		uloop_timeout_set(&iface->timer_rs, msecs);
 	}
 }

@@ -364,41 +364,12 @@ static void free_neighbor(struct ndp_neighbor *n)
 	--neighbor_count;
 }
 
-
-static bool match_neighbor(struct ndp_neighbor *n, struct in6_addr *addr)
-{
-	if (n->len <= 32)
-		return ntohl(n->addr.s6_addr32[0]) >> (32 - n->len) ==
-				ntohl(addr->s6_addr32[0]) >> (32 - n->len);
-
-	if (n->addr.s6_addr32[0] != addr->s6_addr32[0])
-		return false;
-
-	if (n->len <= 64)
-		return ntohl(n->addr.s6_addr32[1]) >> (64 - n->len) ==
-				ntohl(addr->s6_addr32[1]) >> (64 - n->len);
-
-	if (n->addr.s6_addr32[1] != addr->s6_addr32[1])
-		return false;
-
-	if (n->len <= 96)
-		return ntohl(n->addr.s6_addr32[2]) >> (96 - n->len) ==
-				ntohl(addr->s6_addr32[2]) >> (96 - n->len);
-
-	if (n->addr.s6_addr32[2] != addr->s6_addr32[2])
-		return false;
-
-	return ntohl(n->addr.s6_addr32[3]) >> (128 - n->len) ==
-			ntohl(addr->s6_addr32[3]) >> (128 - n->len);
-}
-
-
 static struct ndp_neighbor* find_neighbor(struct in6_addr *addr, bool strict)
 {
 	time_t now = time(NULL);
 	struct ndp_neighbor *n, *e;
 	list_for_each_entry_safe(n, e, &neighbors, head) {
-		if ((!strict && match_neighbor(n, addr)) ||
+		if ((!strict && !odhcpd_bmemcmp(&n->addr, addr, n->len)) ||
 				(n->len == 128 && IN6_ARE_ADDR_EQUAL(&n->addr, addr)))
 			return n;
 

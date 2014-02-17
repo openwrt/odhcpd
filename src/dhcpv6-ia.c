@@ -233,7 +233,7 @@ void dhcpv6_write_statefile(void)
 
 					struct in6_addr addr;
 					for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-						if (iface->ia_addr[i].prefix > 64)
+						if (iface->ia_addr[i].prefix > 96)
 							continue;
 
 						addr = iface->ia_addr[i].addr;
@@ -451,7 +451,6 @@ static void update(struct interface *iface)
 		if (addr[i].prefix > minprefix)
 			minprefix = addr[i].prefix;
 
-		addr[i].addr.s6_addr32[2] = 0;
 		addr[i].addr.s6_addr32[3] = 0;
 
 		if (addr[i].preferred < UINT32_MAX - now)
@@ -604,7 +603,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 				uint32_t prefix_pref = iface->ia_addr[i].preferred - now;
 				uint32_t prefix_valid = iface->ia_addr[i].valid - now;
 
-				if (iface->ia_addr[i].prefix > 64 ||
+				if (iface->ia_addr[i].prefix > 96 ||
 						iface->ia_addr[i].preferred <= (uint32_t)now)
 					continue;
 
@@ -712,7 +711,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 				bool found = false;
 				if (a) {
 					for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-						if (iface->ia_addr[i].prefix > 64 ||
+						if (iface->ia_addr[i].prefix > 96 ||
 								iface->ia_addr[i].preferred <= (uint32_t)now)
 							continue;
 

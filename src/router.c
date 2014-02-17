@@ -296,7 +296,7 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 64 || addr->has_class)
+		if (addr->prefix > 96 || addr->has_class)
 			continue; // Address not suitable
 
 		if (addr->preferred > MaxPreferredTime)
@@ -307,8 +307,9 @@ static void send_router_advert(struct uloop_timeout *event)
 
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < cnt; ++i) {
-			if (!memcmp(&adv.prefix[i].nd_opt_pi_prefix,
-					&addr->addr, 8))
+			if (addr->prefix == adv.prefix[i].nd_opt_pi_prefix_len &&
+					!odhcpd_bmemcmp(&adv.prefix[i].nd_opt_pi_prefix,
+					&addr->addr, addr->prefix))
 				p = &adv.prefix[i];
 		}
 
@@ -326,14 +327,14 @@ static void send_router_advert(struct uloop_timeout *event)
 				maxpreferred = 1000 * addr->preferred;
 		}
 
-		memcpy(&p->nd_opt_pi_prefix, &addr->addr, 8);
+		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr, addr->prefix);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
-		p->nd_opt_pi_prefix_len = 64;
+		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
-		if (iface->managed < RELAYD_MANAGED_NO_AFLAG)
+		if (iface->managed < RELAYD_MANAGED_NO_AFLAG && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		p->nd_opt_pi_valid_time = htonl(addr->valid);
 		p->nd_opt_pi_preferred_time = htonl(addr->preferred);

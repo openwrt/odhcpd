@@ -186,20 +186,6 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 }
 
 
-static bool match_route(const struct odhcpd_ipaddr *n, const struct in6_addr *addr)
-{
-	if (n->prefix <= 32)
-		return ntohl(n->addr.s6_addr32[0]) >> (32 - n->prefix) ==
-				ntohl(addr->s6_addr32[0]) >> (32 - n->prefix);
-
-	if (n->addr.s6_addr32[0] != addr->s6_addr32[0])
-		return false;
-
-	return ntohl(n->addr.s6_addr32[1]) >> (64 - n->prefix) ==
-			ntohl(addr->s6_addr32[1]) >> (64 - n->prefix);
-}
-
-
 // Detect whether a default route exists, also find the source prefixes
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
@@ -224,7 +210,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 
 			for (ssize_t i = 0; i < len; ++i) {
 				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
-						match_route(&p, &n[i].addr)) {
+						!odhcpd_bmemcmp(&p.addr, &n[i].addr, p.prefix)) {
 					n[i].prefix = p.prefix;
 					break;
 				}

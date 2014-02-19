@@ -719,13 +719,13 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
 							addr.s6_addr32[1] |= htonl(a->assigned);
 
-							if (IN6_ARE_ADDR_EQUAL(&p->addr, &addr) &&
+							if (!memcmp(&p->addr, &addr, sizeof(addr)) &&
 									p->prefix == a->length)
 								found = true;
 						} else {
 							addr.s6_addr32[3] = htonl(a->assigned);
 
-							if (IN6_ARE_ADDR_EQUAL(&n->addr, &addr))
+							if (!memcmp(&n->addr, &addr, sizeof(addr)))
 								found = true;
 						}
 					}

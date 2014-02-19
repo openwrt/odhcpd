@@ -186,20 +186,6 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 }
 
 
-static bool match_route(const struct odhcpd_ipaddr *n, const struct in6_addr *addr)
-{
-	if (n->prefix <= 32)
-		return ntohl(n->addr.s6_addr32[0]) >> (32 - n->prefix) ==
-				ntohl(addr->s6_addr32[0]) >> (32 - n->prefix);
-
-	if (n->addr.s6_addr32[0] != addr->s6_addr32[0])
-		return false;
-
-	return ntohl(n->addr.s6_addr32[1]) >> (64 - n->prefix) ==
-			ntohl(addr->s6_addr32[1]) >> (64 - n->prefix);
-}
-
-
 // Detect whether a default route exists, also find the source prefixes
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
@@ -224,7 +210,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 
 			for (ssize_t i = 0; i < len; ++i) {
 				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
-						match_route(&p, &n[i].addr)) {
+						!odhcpd_bmemcmp(&p.addr, &n[i].addr, p.prefix)) {
 					n[i].prefix = p.prefix;
 					break;
 				}
@@ -273,6 +259,7 @@ static void send_router_advert(struct uloop_timeout *event)
 	// If not currently shutting down
 	struct odhcpd_ipaddr addrs[RELAYD_MAX_PREFIXES];
 	ssize_t ipcnt = 0;
+	uint64_t maxpreferred = 0;
 
 	// If not shutdown
 	if (event->cb) {
@@ -295,7 +282,7 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 64 || addr->has_class)
+		if (addr->prefix > 96 || addr->has_class)
 			continue; // Address not suitable
 
 		if (addr->preferred > MaxPreferredTime)
@@ -306,8 +293,9 @@ static void send_router_advert(struct uloop_timeout *event)
 
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < cnt; ++i) {
-			if (!memcmp(&adv.prefix[i].nd_opt_pi_prefix,
-					&addr->addr, 8))
+			if (addr->prefix == adv.prefix[i].nd_opt_pi_prefix_len &&
+					!odhcpd_bmemcmp(&adv.prefix[i].nd_opt_pi_prefix,
+					&addr->addr, addr->prefix))
 				p = &adv.prefix[i];
 		}
 
@@ -318,17 +306,21 @@ static void send_router_advert(struct uloop_timeout *event)
 			p = &adv.prefix[cnt++];
 		}
 
-		if ((addr->addr.s6_addr[0] & 0xfe) != 0xfc && addr->preferred > 0)
+		if ((addr->addr.s6_addr[0] & 0xfe) != 0xfc && addr->preferred > 0) {
 			have_public = true;
 
-		memcpy(&p->nd_opt_pi_prefix, &addr->addr, 8);
+			if (maxpreferred < 1000 * addr->preferred)
+				maxpreferred = 1000 * addr->preferred;
+		}
+
+		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr, addr->prefix);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
-		p->nd_opt_pi_prefix_len = 64;
+		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
-		if (iface->managed < RELAYD_MANAGED_NO_AFLAG)
+		if (iface->managed < RELAYD_MANAGED_NO_AFLAG && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		p->nd_opt_pi_valid_time = htonl(addr->valid);
 		p->nd_opt_pi_preferred_time = htonl(addr->preferred);
@@ -453,10 +445,23 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	// Rearm timer if not shut down
 	if (event->cb) {
+		uint32_t maxinterval = MaxRtrAdvInterval * 1000;
+		uint32_t mininterval = MinRtrAdvInterval * 1000;
+
+		if (maxpreferred > 0 && maxinterval > maxpreferred / 2) {
+			maxinterval = maxpreferred / 2;
+			if (maxinterval < 4000)
+				maxinterval = 4000;
+
+			if (maxinterval >= 9000)
+				mininterval = maxinterval / 3;
+			else
+				mininterval = (maxinterval * 3) / 4;
+		}
+
 		int msecs;
 		odhcpd_urandom(&msecs, sizeof(msecs));
-		msecs = (labs(msecs) % (1000 * (MaxRtrAdvInterval
-				- MinRtrAdvInterval))) + (MinRtrAdvInterval * 1000);
+		msecs = (labs(msecs) % (maxinterval - mininterval)) + mininterval;
 		uloop_timeout_set(&iface->timer_rs, msecs);
 	}
 }

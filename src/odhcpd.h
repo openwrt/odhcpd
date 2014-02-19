@@ -188,6 +188,9 @@ time_t odhcpd_time(void);
 ssize_t odhcpd_unhexlify(uint8_t *dst, size_t len, const char *src);
 void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
 
+int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
+void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
+
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
 #ifdef WITH_UBUS

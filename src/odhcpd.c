@@ -427,3 +427,33 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len)
 	}
 	*dst = 0;
 }
+
+
+int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits)
+{
+	const uint8_t *a = av, *b = bv;
+	size_t bytes = bits / 8;
+	bits %= 8;
+
+	int res = memcmp(a, b, bytes);
+	if (res == 0 && bits > 0)
+		res = (a[bytes] >> (8 - bits)) - (b[bytes] >> (8 - bits));
+
+	return res;
+}
+
+
+void odhcpd_bmemcpy(void *av, const void *bv, size_t bits)
+{
+	uint8_t *a = av;
+	const uint8_t *b = bv;
+
+	size_t bytes = bits / 8;
+	bits %= 8;
+	memcpy(a, b, bytes);
+
+	if (bits > 0) {
+		uint8_t mask = (1 << (8 - bits)) - 1;
+		a[bytes] = (a[bytes] & mask) | ((~mask) & b[bytes]);
+	}
+}

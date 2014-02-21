@@ -68,6 +68,7 @@ struct odhcpd_event {
 struct odhcpd_ipaddr {
 	struct in6_addr addr;
 	uint8_t prefix;
+	uint8_t dprefix;
 	bool has_class;
 	uint16_t class;
 	uint32_t preferred;

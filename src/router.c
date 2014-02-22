@@ -193,7 +193,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 
 	char line[512], ifname[16];
 	bool found_default = false;
-	struct odhcpd_ipaddr p = {IN6ADDR_ANY_INIT, 0, false, 0, 0, 0};
+	struct odhcpd_ipaddr p = {IN6ADDR_ANY_INIT, 0, 0, false, 0, 0, 0};
 	while (fgets(line, sizeof(line), fp_route)) {
 		uint32_t rflags;
 		if (sscanf(line, "00000000000000000000000000000000 00 "
@@ -211,7 +211,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 			for (ssize_t i = 0; i < len; ++i) {
 				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
 						!odhcpd_bmemcmp(&p.addr, &n[i].addr, p.prefix)) {
-					n[i].prefix = p.prefix;
+					n[i].dprefix = p.prefix;
 					break;
 				}
 			}
@@ -407,18 +407,18 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 64 || addr->prefix == 0) {
+		if (addr->dprefix > 64 || addr->dprefix == 0) {
 			continue; // Address not suitable
-		} else if (addr->prefix > 32) {
-			addr->addr.s6_addr32[1] &= htonl(~((1U << (64 - addr->prefix)) - 1));
-		} else if (addr->prefix <= 32) {
-			addr->addr.s6_addr32[0] &= htonl(~((1U << (32 - addr->prefix)) - 1));
+		} else if (addr->dprefix > 32) {
+			addr->addr.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));
+		} else if (addr->dprefix <= 32) {
+			addr->addr.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix)) - 1));
 			addr->addr.s6_addr32[1] = 0;
 		}
 
 		routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
 		routes[routes_cnt].len = sizeof(*routes) / 8;
-		routes[routes_cnt].prefix = addr->prefix;
+		routes[routes_cnt].prefix = addr->dprefix;
 		routes[routes_cnt].flags = 0;
 		if (iface->route_preference < 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_LOW;

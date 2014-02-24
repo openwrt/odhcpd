@@ -276,7 +276,7 @@ static void send_router_advert(struct uloop_timeout *event)
 	bool have_public = false;
 	size_t cnt = 0;
 
-	struct in6_addr *dns_addr = NULL;
+	struct in6_addr dns_pref = IN6ADDR_ANY_INIT, *dns_addr = &dns_pref;
 	uint32_t dns_time = 0;
 	size_t dns_cnt = 1;
 
@@ -327,7 +327,7 @@ static void send_router_advert(struct uloop_timeout *event)
 
 		if (addr->preferred > dns_time) {
 			dns_time = addr->preferred;
-			dns_addr = &addr->addr;
+			dns_pref = addr->addr;
 		}
 	}
 
@@ -344,7 +344,7 @@ static void send_router_advert(struct uloop_timeout *event)
 		dns_time = 2 * MaxRtrAdvInterval;
 	}
 
-	if (!dns_addr)
+	if (!dns_addr || IN6_IS_ADDR_UNSPECIFIED(dns_addr))
 		dns_cnt = 0;
 
 	struct {
@@ -427,8 +427,8 @@ static void send_router_advert(struct uloop_timeout *event)
 		routes[routes_cnt].lifetime = htonl(addr->valid);
 		routes[routes_cnt].addr[0] = addr->addr.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.s6_addr32[1];
-		routes[routes_cnt].addr[2] = addr->addr.s6_addr32[2];
-		routes[routes_cnt].addr[3] = addr->addr.s6_addr32[3];
+		routes[routes_cnt].addr[2] = 0;
+		routes[routes_cnt].addr[3] = 0;
 
 		++routes_cnt;
 	}

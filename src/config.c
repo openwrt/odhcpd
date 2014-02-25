@@ -494,6 +494,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (!iface->static_ndp)
 				goto err;
 
+			if (iface->static_ndp_len)
+				iface->static_ndp[iface->static_ndp_len - 1] = ' ';
+
 			memcpy(&iface->static_ndp[iface->static_ndp_len], blobmsg_get_string(cur), len);
 			iface->static_ndp_len += len;
 		}

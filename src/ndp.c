@@ -167,6 +167,7 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 			memcpy(entry, iface->static_ndp, iface->static_ndp_len);
 
 			for (entry = strtok_r(entry, " ", &saveptr); entry; entry = strtok_r(NULL, " ", &saveptr)) {
+				char *sep;
 				struct ndp_neighbor *n = malloc(sizeof(*n));
 				if (!n) {
 					syslog(LOG_ERR, "Malloc failed for static NDP-prefix %s", entry);
@@ -176,10 +177,18 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 				n->iface = iface;
 				n->timeout = 0;
 
-				char ipbuf[INET6_ADDRSTRLEN];
-				if (sscanf(entry, "%45s/%hhu", ipbuf, &n->len) < 2
-						|| n->len > 128 || inet_pton(AF_INET6, ipbuf, &n->addr) != 1) {
+				sep = strchr(entry, '/');
+				if (!sep) {
+					free(n);
 					syslog(LOG_ERR, "Invalid static NDP-prefix %s", entry);
+					return -1;
+				}
+
+				*sep = 0;
+				n->len = atoi(sep + 1);
+				if (inet_pton(AF_INET6, entry, &n->addr) != 1 || n->len > 128) {
+					free(n);
+					syslog(LOG_ERR, "Invalid static NDP-prefix %s/%s", entry, sep + 1);
 					return -1;
 				}
 

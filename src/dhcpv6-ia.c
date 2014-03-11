@@ -162,8 +162,9 @@ static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign
 	struct iovec iov = {&reconf_msg, sizeof(reconf_msg) - 128 + assign->clid_len};
 
 	md5_ctx_t md5;
-	uint8_t secretbytes[16];
-	memcpy(secretbytes, assign->key, sizeof(secretbytes));
+	uint8_t secretbytes[64];
+	memset(secretbytes, 0, sizeof(secretbytes));
+	memcpy(secretbytes, assign->key, sizeof(assign->key));
 
 	for (size_t i = 0; i < sizeof(secretbytes); ++i)
 		secretbytes[i] ^= 0x36;

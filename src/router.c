@@ -88,6 +88,9 @@ int init_router(void)
 
 int setup_router_interface(struct interface *iface, bool enable)
 {
+	if (!fp_route || router_event.uloop.fd < 0)
+		return -1;
+
 	struct ipv6_mreq all_nodes = {ALL_IPV6_NODES, iface->ifindex};
 	struct ipv6_mreq all_routers = {ALL_IPV6_ROUTERS, iface->ifindex};
 

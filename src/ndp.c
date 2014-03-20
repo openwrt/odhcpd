@@ -111,6 +111,10 @@ int init_ndp(void)
 
 	// Open ICMPv6 socket
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
+	if (ping_socket < 0) {
+		syslog(LOG_ERR, "Unable to open raw socket: %s", strerror(errno));
+			return -1;
+	}
 
 	int val = 2;
 	setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));

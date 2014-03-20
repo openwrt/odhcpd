@@ -222,15 +222,15 @@ static void subscribe_netifd(void)
 
 void ubus_apply_network(void)
 {
-	struct blob_attr *c;
+	struct blob_attr *a;
 	unsigned rem;
 
 	if (!dump)
 		return;
 
-	blobmsg_for_each_attr(c, dump, rem) {
+	blobmsg_for_each_attr(a, dump, rem) {
 		struct blob_attr *tb[IFACE_ATTR_MAX];
-		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(a), blobmsg_data_len(a));
 
 		if (!tb[IFACE_ATTR_INTERFACE] || !tb[IFACE_ATTR_DATA])
 			continue;

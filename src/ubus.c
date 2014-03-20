@@ -241,8 +241,8 @@ void ubus_apply_network(void)
 				blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
 
 		bool matched = false;
-		struct interface *c;
-		list_for_each_entry(c, &interfaces, head) {
+		struct interface *c, *n;
+		list_for_each_entry_safe(c, n, &interfaces, head) {
 			char *f = memmem(c->upstream, c->upstream_len,
 					interface, strlen(interface) + 1);
 			bool cmatched = !strcmp(interface, c->name) || !strcmp(ifname, c->ifname);

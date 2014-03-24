@@ -120,6 +120,9 @@ struct interface {
 	struct odhcpd_event dhcpv4_event;
 	struct list_head dhcpv4_assignments;
 
+	// Managed PD
+	char dhcpv6_pd_manager[128];
+
 	// Services
 	enum odhcpd_mode ra;
 	enum odhcpd_mode dhcpv6;

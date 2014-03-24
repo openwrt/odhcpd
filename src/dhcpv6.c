@@ -175,6 +175,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t duid_type;
 		uint16_t hardware_type;
 		uint8_t mac[6];
+		uint16_t solmaxrt_type;
+		uint16_t solmaxrt_length;
+		uint32_t solmaxrt_value;
 		uint16_t clientid_type;
 		uint16_t clientid_length;
 		uint8_t clientid_buf[130];
@@ -184,6 +187,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.serverid_length = htons(10),
 		.duid_type = htons(3),
 		.hardware_type = htons(1),
+		.solmaxrt_type = htons(DHCPV6_OPT_SOL_MAX_RT),
+		.solmaxrt_length = htons(4),
+		.solmaxrt_value = htonl(60),
 		.clientid_type = htons(DHCPV6_OPT_CLIENTID),
 		.clientid_buf = {0}
 	};

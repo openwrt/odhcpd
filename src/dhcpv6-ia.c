@@ -460,6 +460,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 					iaidbuf, assign->iaid, assign->length);
 			ustream_write_pending(&assign->managed_sock.stream);
 			assign->managed_size = -1;
+			assign->valid_until = odhcpd_time() + 15;
 			list_add(&assign->head, &iface->ia_assignments);
 		}
 
@@ -1130,7 +1131,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			// Was only a solicitation: mark binding for removal
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
-				a->valid_until = now + 15;
+				a->valid_until = 0;
 			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);

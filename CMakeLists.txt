@@ -14,6 +14,10 @@ if(${EXT_PREFIX_CLASS})
 	add_definitions(-DEXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
 endif(${EXT_PREFIX_CLASS})
 
+if (${EXT_CER_ID})
+	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})
+endif(${EXT_CER_ID})
+
 if(${UBUS})
 	add_definitions(-DWITH_UBUS)
 	set(EXT_SRC ${EXT_SRC} src/ubus.c)

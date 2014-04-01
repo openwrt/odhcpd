@@ -50,9 +50,12 @@ int dhcpv6_ia_init(void)
 void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 {
 	if (c->managed_sock.fd.registered) {
-		close(c->managed_sock.fd.fd);
 		ustream_free(&c->managed_sock.stream);
+		close(c->managed_sock.fd.fd);
 	}
+
+	if (c->head.next)
+		list_del(&c->head);
 
 	free(c->managed);
 	free(c->hostname);
@@ -67,7 +70,6 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		struct dhcpv6_assignment *c;
 		while (!list_empty(&iface->ia_assignments)) {
 			c = list_first_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
-			list_del(&c->head);
 			free_dhcpv6_assignment(c);
 		}
 	}
@@ -401,8 +403,22 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 			if (sscanf(x, "%u", &n->valid) < 1)
 				continue;
 
-			n->preferred += now;
-			n->valid += now;
+			if (n->preferred > n->valid)
+				continue;
+
+			if (UINT32_MAX - now < n->preferred)
+				n->preferred = UINT32_MAX;
+			else
+				n->preferred += now;
+
+			if (UINT32_MAX - now < n->valid)
+				n->valid = UINT32_MAX;
+			else
+				n->valid += now;
+
+			n->has_class = false;
+			n->class = 0;
+			n->dprefix = 0;
 
 			++c->managed_size;
 		}
@@ -410,10 +426,8 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 		ustream_consume(s, end - data);
 	}
 
-	if (first && c->managed_size == 0) {
-		list_del(&c->head);
+	if (first && c->managed_size == 0)
 		free_dhcpv6_assignment(c);
-	}
 }
 
 
@@ -436,10 +450,14 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 	if (iface->dhcpv6_pd_manager[0]) {
 		int fd = usock(USOCK_UNIX | USOCK_TCP, iface->dhcpv6_pd_manager, NULL);
 		if (fd >= 0) {
+			char iaidbuf[298];
+			odhcpd_hexlify(iaidbuf, assign->clid_data, assign->clid_len);
+
 			assign->managed_sock.stream.notify_read = managed_handle_pd_data;
 			assign->managed_sock.stream.notify_state = managed_handle_pd_done;
 			ustream_fd_init(&assign->managed_sock, fd);
-			ustream_printf(&assign->managed_sock.stream, "::/%d,0,0\n\n", assign->length);
+			ustream_printf(&assign->managed_sock.stream, "%s,%x\n::/%d,0,0\n\n",
+					iaidbuf, assign->iaid, assign->length);
 			ustream_write_pending(&assign->managed_sock.stream);
 			assign->managed_size = -1;
 			list_add(&assign->head, &iface->ia_assignments);
@@ -693,6 +711,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
 			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
+
 			for (size_t i = 0; i < addrlen; ++i) {
 				bool match = true;
 				if (addrs[i].has_class) {
@@ -737,7 +756,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.len = htons(sizeof(p) - 4),
 						.preferred = htonl(prefix_pref),
 						.valid = htonl(prefix_valid),
-						.prefix = (a->managed_size) ? a->managed_size : a->length,
+						.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
 						.addr = addrs[i].addr
 					};
 					p.addr.s6_addr32[1] |= htonl(a->assigned);
@@ -751,7 +770,8 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					}
 #endif
 
-					if (datalen + entrlen + 4 > buflen || a->assigned == 0)
+					if (datalen + entrlen + 4 > buflen ||
+							(a->assigned == 0 && a->managed_size == 0))
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));
@@ -886,7 +906,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 }
 
 
-size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
+ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
 	time_t now = odhcpd_time();
@@ -935,7 +955,6 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 	update(iface);
 	bool update_state = false;
-	bool managed_pd_out = false;
 
 	struct dhcpv6_assignment *first = NULL;
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -1040,9 +1059,7 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		// Generic message handling
 		uint16_t status = DHCPV6_STATUS_OK;
 		if (a && a->managed_size < 0) {
-			managed_pd_out = true;
-			status = DHCPV6_STATUS_NOTONLINK;
-			ia_response_len = append_reply(buf, buflen, status, ia, NULL, iface, true);
+			return -1;
 		} else if (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST) {
 			bool assigned = !!a;
 
@@ -1070,12 +1087,12 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 					if (is_pd)
 						while (!(assigned = assign_pd(iface, a)) &&
-								++a->length <= 64 && !a->managed_size);
+								!a->managed_size && ++a->length <= 64);
 					else
 						assigned = assign_na(iface, a);
 
 					if (a->managed_size && !assigned)
-						managed_pd_out = true;
+						return -1;
 				}
 			}
 
@@ -1167,14 +1184,6 @@ size_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		buf[3] = 2;
 		buf[4] = 0;
 		buf[5] = DHCPV6_STATUS_OK;
-		response_len += 6;
-	} else if (managed_pd_out && response_len + 6 < buflen) {
-		buf[0] = 0;
-		buf[1] = DHCPV6_OPT_STATUS;
-		buf[2] = 0;
-		buf[3] = 2;
-		buf[4] = 0;
-		buf[5] = DHCPV6_STATUS_NOADDRSAVAIL;
 		response_len += 6;
 	}
 

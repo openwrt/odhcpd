@@ -101,7 +101,7 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 
 
 static void handle_nested_message(uint8_t *data, size_t len,
-		uint8_t **opts, uint8_t **end, struct iovec iov[6])
+		uint8_t **opts, uint8_t **end, struct iovec iov[9])
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
 	if (iov[0].iov_base == NULL) {
@@ -124,8 +124,8 @@ static void handle_nested_message(uint8_t *data, size_t len,
 	uint8_t *odata;
 	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
-			iov[7].iov_base = odata + olen;
-			iov[7].iov_len = (((uint8_t*)iov[0].iov_base) + iov[0].iov_len)
+			iov[8].iov_base = odata + olen;
+			iov[8].iov_len = (((uint8_t*)iov[0].iov_base) + iov[0].iov_len)
 					- (odata + olen);
 			handle_nested_message(odata, olen, opts, end, iov);
 			return;
@@ -244,6 +244,14 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} search = {htons(DHCPV6_OPT_DNS_DOMAIN), htons(search_len)};
 
 
+	struct dhcpv6_cer_id cerid = {
+#ifdef EXT_CER_ID
+		.type = htons(EXT_CER_ID),
+#endif
+		.len = htons(36),
+		.addr = iface->dhcpv6_pd_cer,
+	};
+
 
 	uint8_t pdbuf[512];
 	struct iovec iov[] = {{NULL, 0},
@@ -253,6 +261,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			{&search, (search_len) ? sizeof(search) : 0},
 			{search_domain, search_len},
 			{pdbuf, 0},
+			{&cerid, 0},
 			{NULL, 0}};
 
 	uint8_t *opts = (uint8_t*)&hdr[1], *opts_end = (uint8_t*)data + len;
@@ -290,19 +299,35 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				if (((((size_t)c[0]) << 8) | c[1]) == elen && !memcmp(&c[2], excluded_class, elen))
 					return; // Ignore from homenet
 			}
+		} else if (otype == DHCPV6_OPT_IA_PD) {
+#ifdef EXT_CER_ID
+			iov[7].iov_len = sizeof(cerid);
+
+			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
+				struct odhcpd_ipaddr addrs[32];
+				ssize_t len = odhcpd_get_interface_addresses(0, addrs,
+						sizeof(addrs) / sizeof(*addrs));
+
+				for (ssize_t i = 0; i < len; ++i)
+					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
+							|| memcmp(&addrs[i].addr, &cerid.addr, sizeof(cerid.addr)) < 0)
+						cerid.addr = addrs[i].addr;
+			}
+#endif
 		}
 	}
 
 	if (opts[-4] != DHCPV6_MSG_INFORMATION_REQUEST) {
-		iov[6].iov_len = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, &opts[-4], opts_end);
-		if (iov[6].iov_len == 0 && opts[-4] == DHCPV6_MSG_REBIND)
+		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, &opts[-4], opts_end);
+		iov[6].iov_len = ialen;
+		if (ialen < 0 || (ialen == 0 && opts[-4] == DHCPV6_MSG_REBIND))
 			return;
 	}
 
 	if (iov[0].iov_len > 0) // Update length
 		update_nested_message(data, len, iov[1].iov_len + iov[2].iov_len +
 				iov[3].iov_len + iov[4].iov_len + iov[5].iov_len +
-				iov[6].iov_len - (4 + opts_end - opts));
+				iov[6].iov_len + iov[7].iov_len - (4 + opts_end - opts));
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }

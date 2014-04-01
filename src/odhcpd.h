@@ -122,6 +122,7 @@ struct interface {
 
 	// Managed PD
 	char dhcpv6_pd_manager[128];
+	struct in6_addr dhcpv6_pd_cer;
 
 	// Services
 	enum odhcpd_mode ra;

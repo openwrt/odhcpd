@@ -1142,7 +1142,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->accept_reconf = accept_reconf;
 				apply_lease(iface, a, true);
 				update_state = true;
-			} else if (!assigned && a) { // Cleanup failed assignment
+			} else if (!assigned && a && a->managed_size == 0) { // Cleanup failed assignment
 				free_dhcpv6_assignment(a);
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||

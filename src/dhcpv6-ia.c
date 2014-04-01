@@ -428,6 +428,8 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 
 	if (first && c->managed_size == 0)
 		free_dhcpv6_assignment(c);
+	else if (first)
+		c->valid_until = now + 150;
 }
 
 

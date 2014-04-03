@@ -279,7 +279,7 @@ void dhcpv6_write_statefile(void)
 							md5_hash(c->hostname, strlen(c->hostname), &md5);
 						}
 
-						l += snprintf(leasebuf + l, sizeof(leasebuf) - l, "%s/%hhu ", ipbuf,
+						l += snprintf(leasebuf + l, sizeof(leasebuf) - l, "%s/%d ", ipbuf,
 								(c->managed_size) ? addrs[i].prefix : c->length);
 					}
 					leasebuf[l - 1] = '\n';

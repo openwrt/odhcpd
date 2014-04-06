@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <poll.h>
 #include <alloca.h>
 #include <resolv.h>
 #include <limits.h>
@@ -464,6 +465,14 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 			assign->managed_size = -1;
 			assign->valid_until = odhcpd_time() + 15;
 			list_add(&assign->head, &iface->ia_assignments);
+
+			// Wait initial period of up to 250ms for immediate assignment
+			struct pollfd pfd = { .fd = fd, .events = POLLIN };
+			poll(&pfd, 1, 250);
+			managed_handle_pd_data(&assign->managed_sock.stream, 0);
+
+			if (fcntl(fd, F_GETFL) >= 0 && assign->managed_size > 0)
+				return true;
 		}
 
 		return false;

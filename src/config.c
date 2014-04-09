@@ -285,6 +285,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
 		list_add(&iface->head, &interfaces);
+		overwrite = true;
 	}
 
 	const char *ifname = NULL;

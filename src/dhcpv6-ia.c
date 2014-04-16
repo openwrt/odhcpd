@@ -972,6 +972,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
 		bool is_na = (otype == DHCPV6_OPT_IA_NA);
+		bool ia_addr_present = false;
 		if (!is_pd && !is_na)
 			continue;
 
@@ -1024,6 +1025,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
 					continue;
 
+				ia_addr_present = true;
 #ifdef DHCPV6_OPT_PREFIX_CLASS
 				uint8_t *xdata;
 				uint16_t xtype, xlen;
@@ -1178,8 +1180,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->valid_until = now + 3600; // Block address for 1h
 				update_state = true;
 			}
-		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM) {
-			// Always send NOTONLINK for CONFIRM so that clients restart connection
+		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
+			// Send NOTONLINK for CONFIRM with addr present so that clients restart connection
 			status = DHCPV6_STATUS_NOTONLINK;
 			ia_response_len = append_reply(buf, buflen, status, ia, a, iface, true);
 		}

@@ -1191,7 +1191,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		response_len += ia_response_len;
 	}
 
-	if (hdr->msg_type == DHCPV6_MSG_RELEASE && response_len + 6 < buflen) {
+	if ((hdr->msg_type == DHCPV6_MSG_RELEASE  || hdr->msg_type == DHCPV6_MSG_DECLINE) &&
+			response_len + 6 < buflen) {
 		buf[0] = 0;
 		buf[1] = DHCPV6_OPT_STATUS;
 		buf[2] = 0;

@@ -320,7 +320,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (opts[-4] != DHCPV6_MSG_INFORMATION_REQUEST) {
 		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, &opts[-4], opts_end);
 		iov[6].iov_len = ialen;
-		if (ialen < 0 || (ialen == 0 && opts[-4] == DHCPV6_MSG_REBIND))
+		if (ialen < 0 || (ialen == 0 && (opts[-4] == DHCPV6_MSG_REBIND || opts[-4] == DHCPV6_MSG_CONFIRM)))
 			return;
 	}
 

@@ -124,8 +124,8 @@ static void handle_nested_message(uint8_t *data, size_t len,
 	uint8_t *odata;
 	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
-			iov[8].iov_base = odata + olen;
-			iov[8].iov_len = (((uint8_t*)iov[0].iov_base) + iov[0].iov_len)
+			iov[9].iov_base = odata + olen;
+			iov[9].iov_len = (((uint8_t*)iov[0].iov_base) + iov[0].iov_len)
 					- (odata + olen);
 			handle_nested_message(odata, olen, opts, end, iov);
 			return;
@@ -262,6 +262,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			{search_domain, search_len},
 			{pdbuf, 0},
 			{&cerid, 0},
+			{iface->dhcpv6_raw, iface->dhcpv6_raw_len},
 			{NULL, 0}};
 
 	uint8_t *opts = (uint8_t*)&hdr[1], *opts_end = (uint8_t*)data + len;

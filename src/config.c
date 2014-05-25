@@ -32,6 +32,7 @@ enum {
 	IFACE_ATTR_NDP,
 	IFACE_ATTR_DNS,
 	IFACE_ATTR_DOMAIN,
+	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_RA_DEFAULT,
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_OFFLINK,
@@ -61,6 +62,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDP] = { .name = "ndp", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
@@ -149,6 +151,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->upstream);
 	free(iface->static_ndp);
 	free(iface->dhcpv4_dns);
+	free(iface->dhcpv6_raw);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 }
 
@@ -452,6 +455,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			memcpy(&iface->search[iface->search_len], buf, len);
 			iface->search_len += len;
 		}
+	}
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_RAW])) {
+		iface->dhcpv6_raw_len = blobmsg_data_len(c) / 2;
+		iface->dhcpv6_raw = realloc(iface->dhcpv6_raw, iface->dhcpv6_raw_len);
+		odhcpd_unhexlify(iface->dhcpv6_raw, iface->dhcpv6_raw_len, blobmsg_get_string(c));
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))

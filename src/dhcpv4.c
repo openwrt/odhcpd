@@ -37,7 +37,6 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
 		const char *hostname);
-static const char *excluded_class = "HOMENET";
 
 // Create socket and register events
 int init_dhcpv4(void)
@@ -294,11 +293,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		} else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
 			if (memcmp(opt->data, &ifaddr.sin_addr, 4))
 				return;
-		} else if (opt->type == DHCPV4_OPT_USER_CLASS) {
+		} else if (iface->filter_class && opt->type == DHCPV4_OPT_USER_CLASS) {
 			uint8_t *c = opt->data, *cend = &opt->data[opt->len];
 			for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
-				size_t elen = strlen(excluded_class);
-				if (*c == elen && !memcmp(&c[1], excluded_class, elen))
+				size_t elen = strlen(iface->filter_class);
+				if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
 					return; // Ignore from homenet
 			}
 		}

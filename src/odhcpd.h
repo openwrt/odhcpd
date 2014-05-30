@@ -165,6 +165,8 @@ struct interface {
 
 	char *upstream;
 	size_t upstream_len;
+
+	char *filter_class;
 };
 
 extern struct list_head interfaces;

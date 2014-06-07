@@ -119,16 +119,19 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 						(addr.s_addr & mask.s_addr);
 				iface->dhcpv4_end.s_addr = htonl(end) |
 						(addr.s_addr & mask.s_addr);
-			} else if (ntohl(mask.s_addr) <= 0xffffffc0) {
+			} else if (ntohl(mask.s_addr) <= 0xfffffff0) {
 				start = addr.s_addr & mask.s_addr;
 				end = addr.s_addr & mask.s_addr;
 
 				if (ntohl(mask.s_addr) <= 0xffffff00) {
 					iface->dhcpv4_start.s_addr = start | htonl(100);
 					iface->dhcpv4_end.s_addr = end | htonl(250);
+				} else if (ntohl(mask.s_addr) <= 0xffffffc0) {
+					iface->dhcpv4_start.s_addr = start | htonl(10);
+					iface->dhcpv4_end.s_addr = end | htonl(60);
 				} else {
 					iface->dhcpv4_start.s_addr = start | htonl(10);
-					iface->dhcpv4_end.s_addr = end | htonl(59);
+					iface->dhcpv4_end.s_addr = end | htonl(30);
 				}
 			}
 

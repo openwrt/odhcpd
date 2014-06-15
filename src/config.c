@@ -447,7 +447,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				continue;
 
 			uint8_t buf[256];
-			int len = dn_comp(blobmsg_get_string(cur), buf, sizeof(buf), NULL, NULL);
+			char *domain = blobmsg_get_string(cur);
+			size_t domainlen = strlen(domain);
+			if (domainlen > 0 && domain[domainlen - 1] == '.')
+				domain[domainlen - 1] = 0;
+
+			int len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
+			free(domain);
 			if (len <= 0)
 				goto err;
 

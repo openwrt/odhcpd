@@ -517,6 +517,8 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		} else if (!assigned && a) { // Cleanup failed assignment
 			free(a);
 			a = NULL;
+		} else {
+			update_state = true;
 		}
 
 		if (assigned && a)

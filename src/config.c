@@ -255,10 +255,12 @@ static int set_lease(struct uci_section *s)
 		lease->duid_len = len;
 	}
 
-	if ((c = tb[LEASE_ATTR_HOSTID]))
-		if (odhcpd_unhexlify((uint8_t*)&lease->hostid, sizeof(lease->hostid),
-				blobmsg_get_string(c)) < 0)
+	if ((c = tb[LEASE_ATTR_HOSTID])) {
+		errno = 0;
+		lease->hostid = strtoul(blobmsg_get_string(c), NULL, 16);
+		if (errno)
 			goto err;
+	}
 
 	list_add(&lease->head, &leases);
 	return 0;

@@ -718,8 +718,14 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 		datalen += sizeof(stat);
 	} else {
 		if (a) {
-			uint32_t pref = 3600;
-			uint32_t valid = 3600;
+			uint32_t leasetime = iface->dhcpv4_leasetime;
+			if (leasetime == 0)
+				leasetime = 3600;
+			else if (leasetime < 60)
+				leasetime = 60;
+
+			uint32_t pref = leasetime;
+			uint32_t valid = leasetime;
 
 			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
 			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;

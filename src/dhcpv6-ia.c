@@ -933,6 +933,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 	char hostname[256];
 	size_t hostname_len = 0;
 	bool class_oro = false;
+	bool notonlink = false;
+
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
 			clid_data = odata;
@@ -1182,8 +1184,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
 			// Send NOTONLINK for CONFIRM with addr present so that clients restart connection
-			status = DHCPV6_STATUS_NOTONLINK;
-			ia_response_len = append_reply(buf, buflen, status, ia, a, iface, true);
+			notonlink = true;
 		}
 
 		buf += ia_response_len;
@@ -1191,14 +1192,14 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		response_len += ia_response_len;
 	}
 
-	if ((hdr->msg_type == DHCPV6_MSG_RELEASE  || hdr->msg_type == DHCPV6_MSG_DECLINE) &&
+	if ((hdr->msg_type == DHCPV6_MSG_RELEASE || hdr->msg_type == DHCPV6_MSG_DECLINE || notonlink) &&
 			response_len + 6 < buflen) {
 		buf[0] = 0;
 		buf[1] = DHCPV6_OPT_STATUS;
 		buf[2] = 0;
 		buf[3] = 2;
 		buf[4] = 0;
-		buf[5] = DHCPV6_STATUS_OK;
+		buf[5] = (notonlink) ? DHCPV6_STATUS_NOTONLINK : DHCPV6_STATUS_OK;
 		response_len += 6;
 	}
 

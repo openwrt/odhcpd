@@ -1184,6 +1184,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
 			// Send NOTONLINK for CONFIRM with addr present so that clients restart connection
+			status = DHCPV6_STATUS_NOTONLINK;
+			ia_response_len = append_reply(buf, buflen, status, ia, a, iface, true);
 			notonlink = true;
 		}
 

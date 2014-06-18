@@ -155,16 +155,21 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			a->addr = ntohl(lease->ipaddr.s_addr);
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
 			memcpy(a->hostname, lease->hostname, hostlen);
+			a->valid_until = LONG_MAX;
 
 			// Assign to all interfaces
 			struct dhcpv4_assignment *c;
 			list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 				if (c->addr > a->addr) {
 					list_add_tail(&a->head, &c->head);
+					break;
 				} else if (c->addr == a->addr) {
 					// Already an assignment with that number
 					break;
 				}
+			}
+			if (&c->head == &iface->dhcpv4_assignments) {
+				list_add(&a->head, &iface->dhcpv4_assignments);
 			}
 
 			if (!a->head.next)
@@ -175,7 +180,7 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 		struct dhcpv4_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
 			if ((htonl(a->addr) & smask->sin_addr.s_addr) !=
-					(saddr->sin_addr.s_addr & smask->sin_addr.s_addr)) {
+					(iface->dhcpv4_start.s_addr & smask->sin_addr.s_addr)) {
 				list_del(&a->head);
 				free(a);
 			}
@@ -471,9 +476,10 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 
 	struct dhcpv4_assignment *c, *n, *a = NULL;
 	list_for_each_entry_safe(c, n, &iface->dhcpv4_assignments, head) {
-		if (c->addr == raddr && !memcmp(c->hwaddr, mac, 6)) {
+		if (!memcmp(c->hwaddr, mac, 6)) {
 			a = c;
-			break;
+			if (c->addr == raddr)
+				break;
 		} else if (c->valid_until < now) {
 			list_del(&c->head);
 			free(c);

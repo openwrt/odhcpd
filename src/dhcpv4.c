@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <resolv.h>
+#include <limits.h>
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/ip.h>

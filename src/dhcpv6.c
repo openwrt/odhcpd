@@ -302,6 +302,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} else if (opts[-4] == DHCPV6_MSG_INFORMATION_REQUEST) {
 		iov[IOV_REFRESH].iov_base = &refresh;
 		iov[IOV_REFRESH].iov_len = sizeof(refresh);
+
+		// Return inf max rt option in reply to information request
+		maxrt.type = htons(DHCPV6_OPT_INF_MAX_RT);
 	}
 
 	// Go through options and find what we need

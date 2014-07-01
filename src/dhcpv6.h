@@ -57,6 +57,7 @@
 #define DHCPV6_OPT_INFO_REFRESH 32
 #define DHCPV6_OPT_FQDN 39
 #define DHCPV6_OPT_SOL_MAX_RT 82
+#define DHCPV6_OPT_INF_MAX_RT 83
 
 #ifdef EXT_PREFIX_CLASS
 /* draft-bhandari-dhc-class-based-prefix, not yet standardized */

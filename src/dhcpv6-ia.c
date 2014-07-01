@@ -258,6 +258,8 @@ void dhcpv6_write_statefile(void)
 					for (size_t i = 0; i < addrlen; ++i) {
 						if (addrs[i].prefix > 96)
 							continue;
+						if (c->valid_until <= now)
+							continue;
 
 						addr = addrs[i].addr;
 						if (c->length == 128)

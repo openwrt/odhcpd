@@ -331,6 +331,10 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			return;
 	} else if (reqmsg == DHCPV4_MSG_DISCOVER) {
 		msg = DHCPV4_MSG_OFFER;
+	} else if (reqmsg == DHCPV4_MSG_REQUEST && reqaddr.s_addr &&
+			reqaddr.s_addr != htonl(lease->addr)) {
+		msg = DHCPV4_MSG_NAK;
+		lease = NULL;
 	}
 
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
@@ -401,7 +405,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		dest.sin_addr = req->ciaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else if ((ntohs(req->flags) & DHCPV4_FLAG_BROADCAST) ||
-			req->hlen != reply.hlen) {
+			req->hlen != reply.hlen || !reply.yiaddr.s_addr) {
 		dest.sin_addr.s_addr = INADDR_BROADCAST;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else {

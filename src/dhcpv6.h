@@ -69,6 +69,7 @@
 #define DHCPV6_STATUS_NOADDRSAVAIL 2
 #define DHCPV6_STATUS_NOBINDING 3
 #define DHCPV6_STATUS_NOTONLINK 4
+#define DHCPV6_STATUS_USEMULTICAST 5
 #define DHCPV6_STATUS_NOPREFIXAVAIL 6
 
 // I just remembered I have an old one lying around...

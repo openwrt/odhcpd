@@ -34,7 +34,7 @@
 
 
 static void handle_dhcpv4(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest_addr);
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
 		const char *hostname);
@@ -225,7 +225,7 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 
 // Simple DHCPv6-server for information requests
 static void handle_dhcpv4(void *addr, void *data, size_t len,
-		struct interface *iface)
+		struct interface *iface, _unused void *dest_addr)
 {
 	if (!iface->dhcpv4)
 		return;

@@ -32,9 +32,9 @@
 
 
 static void handle_solicit(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest);
 static void handle_rtnetlink(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest);
 static struct ndp_neighbor* find_neighbor(struct in6_addr *addr, bool strict);
 static void modify_neighbor(struct in6_addr *addr, struct interface *iface,
 		bool add);
@@ -223,7 +223,7 @@ static ssize_t ping6(struct in6_addr *addr,
 
 // Handle solicitations
 static void handle_solicit(void *addr, void *data, size_t len,
-		struct interface *iface)
+		struct interface *iface, _unused void *dest)
 {
 	struct ip6_hdr *ip6 = data;
 	struct nd_neighbor_solicit *req = (struct nd_neighbor_solicit*)&ip6[1];
@@ -435,7 +435,7 @@ static void modify_neighbor(struct in6_addr *addr,
 // Handler for neighbor cache entries from the kernel. This is our source
 // to learn and unlearn hosts on interfaces.
 static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
-		_unused struct interface *iface)
+		_unused struct interface *iface, _unused void *dest)
 {
 	for (struct nlmsghdr *nh = data; NLMSG_OK(nh, len);
 			nh = NLMSG_NEXT(nh, len)) {

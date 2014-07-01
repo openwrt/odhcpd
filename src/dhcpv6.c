@@ -28,9 +28,9 @@ static void relay_client_request(struct sockaddr_in6 *source,
 static void relay_server_response(uint8_t *data, size_t len);
 
 static void handle_dhcpv6(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest);
 static void handle_client_request(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest_addr);
 
 
 
@@ -100,6 +100,8 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 enum {
 	IOV_NESTED = 0,
 	IOV_DEST,
+	IOV_MAXRT,
+#define IOV_STAT IOV_MAXRT
 	IOV_DNS,
 	IOV_DNS_ADDR,
 	IOV_SEARCH,
@@ -167,12 +169,12 @@ static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
 	}
 }
 
-
 // Simple DHCPv6-server for information requests
 static void handle_client_request(void *addr, void *data, size_t len,
-		struct interface *iface)
+		struct interface *iface, void *dest_addr)
 {
 	struct dhcpv6_client_header *hdr = data;
+
 	if (len < sizeof(*hdr))
 		return;
 
@@ -187,9 +189,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t duid_type;
 		uint16_t hardware_type;
 		uint8_t mac[6];
-		uint16_t solmaxrt_type;
-		uint16_t solmaxrt_length;
-		uint32_t solmaxrt_value;
 		uint16_t clientid_type;
 		uint16_t clientid_length;
 		uint8_t clientid_buf[130];
@@ -199,9 +198,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.serverid_length = htons(10),
 		.duid_type = htons(3),
 		.hardware_type = htons(1),
-		.solmaxrt_type = htons(DHCPV6_OPT_SOL_MAX_RT),
-		.solmaxrt_length = htons(4),
-		.solmaxrt_value = htonl(60),
 		.clientid_type = htons(DHCPV6_OPT_CLIENTID),
 		.clientid_buf = {0}
 	};
@@ -210,9 +206,16 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	struct __attribute__((packed)) {
 		uint16_t type;
 		uint16_t len;
+		uint32_t value;
+	} maxrt = {htons(DHCPV6_OPT_SOL_MAX_RT), htons(sizeof(maxrt) - 4),
+			htonl(60)};
+
+	struct __attribute__((packed)) {
+		uint16_t type;
+		uint16_t len;
 		uint16_t value;
 	} stat = {htons(DHCPV6_OPT_STATUS), htons(sizeof(stat) - 4),
-			htons(DHCPV6_STATUS_NOADDRSAVAIL)};
+			htons(DHCPV6_STATUS_USEMULTICAST)};
 
 	struct __attribute__((packed)) {
 		uint16_t type;
@@ -269,6 +272,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_NESTED] = {NULL, 0},
 		[IOV_DEST] = {&dest, (uint8_t*)&dest.clientid_type - (uint8_t*)&dest},
+		[IOV_MAXRT] = {&maxrt, sizeof(maxrt)},
 		[IOV_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
 		[IOV_DNS_ADDR] = {dns_addr, dns_cnt * sizeof(*dns_addr)},
 		[IOV_SEARCH] = {&search, (search_len) ? sizeof(search) : 0},
@@ -286,6 +290,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	memcpy(dest.tr_id, &opts[-3], sizeof(dest.tr_id));
 
 	if (opts[-4] == DHCPV6_MSG_ADVERTISE || opts[-4] == DHCPV6_MSG_REPLY || opts[-4] == DHCPV6_MSG_RELAY_REPL)
+		return;
+
+	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
+		(opts[-4] == DHCPV6_MSG_SOLICIT || opts[-4] == DHCPV6_MSG_CONFIRM ||
+		 opts[-4] == DHCPV6_MSG_REBIND || opts[-4] == DHCPV6_MSG_INFORMATION_REQUEST))
 		return;
 
 	if (opts[-4] == DHCPV6_MSG_SOLICIT) {
@@ -332,6 +341,19 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		}
 	}
 
+	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
+		(opts[-4] == DHCPV6_MSG_REQUEST || opts[-4] == DHCPV6_MSG_RENEW ||
+		 opts[-4] == DHCPV6_MSG_RELEASE || opts[-4] == DHCPV6_MSG_DECLINE)) {
+		iov[IOV_STAT].iov_base = &stat;
+		iov[IOV_STAT].iov_len = sizeof(stat);
+
+		for (ssize_t i = IOV_STAT + 1; i < IOV_TOTAL; ++i)
+			iov[i].iov_len = 0;
+
+		odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
+		return;
+	}
+
 	if (opts[-4] != DHCPV6_MSG_INFORMATION_REQUEST) {
 		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, &opts[-4], opts_end);
 		iov[IOV_PDBUF].iov_len = ialen;
@@ -340,10 +362,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (iov[IOV_NESTED].iov_len > 0) // Update length
-		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_DNS].iov_len +
-				iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
-				iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
-				iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len - (4 + opts_end - opts));
+		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
+				iov[IOV_DNS].iov_len + iov[IOV_DNS_ADDR].iov_len +
+				iov[IOV_SEARCH].iov_len + iov[IOV_SEARCH_DOMAIN].iov_len +
+				iov[IOV_PDBUF].iov_len + iov[IOV_CERID].iov_len +
+				iov[IOV_DHCPV6_RAW].iov_len - (4 + opts_end - opts));
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }
@@ -351,10 +374,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 // Central DHCPv6-relay handler
 static void handle_dhcpv6(void *addr, void *data, size_t len,
-		struct interface *iface)
+		struct interface *iface, void *dest_addr)
 {
 	if (iface->dhcpv6 == RELAYD_SERVER) {
-		handle_client_request(addr, data, len, iface);
+		handle_client_request(addr, data, len, iface, dest_addr);
 	} else if (iface->dhcpv6 == RELAYD_RELAY) {
 		if (iface->master)
 			relay_server_response(data, len);

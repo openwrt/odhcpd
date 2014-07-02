@@ -57,6 +57,7 @@
 #define DHCPV6_OPT_INFO_REFRESH 32
 #define DHCPV6_OPT_FQDN 39
 #define DHCPV6_OPT_SOL_MAX_RT 82
+#define DHCPV6_OPT_INF_MAX_RT 83
 
 #ifdef EXT_PREFIX_CLASS
 /* draft-bhandari-dhc-class-based-prefix, not yet standardized */
@@ -69,6 +70,7 @@
 #define DHCPV6_STATUS_NOADDRSAVAIL 2
 #define DHCPV6_STATUS_NOBINDING 3
 #define DHCPV6_STATUS_NOTONLINK 4
+#define DHCPV6_STATUS_USEMULTICAST 5
 #define DHCPV6_STATUS_NOPREFIXAVAIL 6
 
 // I just remembered I have an old one lying around...

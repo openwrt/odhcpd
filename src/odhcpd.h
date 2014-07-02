@@ -61,7 +61,7 @@ extern struct list_head leases;
 struct odhcpd_event {
 	struct uloop_fd uloop;
 	void (*handle_dgram)(void *addr, void *data, size_t len,
-			struct interface *iface);
+			struct interface *iface, void *dest_addr);
 };
 
 

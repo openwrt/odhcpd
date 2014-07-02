@@ -30,7 +30,7 @@ static void forward_router_solicitation(const struct interface *iface);
 static void forward_router_advertisement(uint8_t *data, size_t len);
 
 static void handle_icmpv6(void *addr, void *data, size_t len,
-		struct interface *iface);
+		struct interface *iface, void *dest);
 static void send_router_advert(struct uloop_timeout *event);
 static void sigusr1_refresh(int signal);
 
@@ -170,7 +170,7 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 
 // Event handler for incoming ICMPv6 packets
 static void handle_icmpv6(void *addr, void *data, size_t len,
-		struct interface *iface)
+		struct interface *iface, _unused void *dest)
 {
 	struct icmp6_hdr *hdr = data;
 

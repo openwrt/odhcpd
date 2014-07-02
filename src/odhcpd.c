@@ -319,6 +319,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		// Extract destination interface
 		int destiface = 0;
 		int *hlim = NULL;
+		void *dest = NULL;
 		struct in6_pktinfo *pktinfo;
 		struct in_pktinfo *pkt4info;
 		for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch != NULL; ch = CMSG_NXTHDR(&msg, ch)) {
@@ -326,10 +327,12 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 					ch->cmsg_type == IPV6_PKTINFO) {
 				pktinfo = (struct in6_pktinfo*)CMSG_DATA(ch);
 				destiface = pktinfo->ipi6_ifindex;
+				dest = &pktinfo->ipi6_addr;
 			} else if (ch->cmsg_level == IPPROTO_IP &&
 					ch->cmsg_type == IP_PKTINFO) {
 				pkt4info = (struct in_pktinfo*)CMSG_DATA(ch);
 				destiface = pkt4info->ipi_ifindex;
+				dest = &pkt4info->ipi_addr;
 			} else if (ch->cmsg_level == IPPROTO_IPV6 &&
 					ch->cmsg_type == IPV6_HOPLIMIT) {
 				hlim = (int*)CMSG_DATA(ch);
@@ -363,7 +366,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
 				ipbuf, (iface) ? iface->ifname : "netlink");
 
-		e->handle_dgram(&addr, data_buf, len, iface);
+		e->handle_dgram(&addr, data_buf, len, iface, dest);
 	}
 }
 

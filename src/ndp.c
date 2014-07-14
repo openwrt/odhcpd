@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <errno.h>
 
+#include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <net/ethernet.h>
@@ -89,25 +90,6 @@ int init_ndp(void)
 	};
 	send(rtnl_event.uloop.fd, &req2, sizeof(req2), MSG_DONTWAIT);
 	odhcpd_register(&rtnl_event);
-
-
-	// Create socket for intercepting NDP
-	int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
-			htons(ETH_P_ALL)); // ETH_P_ALL for ingress + egress
-	if (sock < 0) {
-		syslog(LOG_ERR, "Unable to open packet socket: %s",
-				strerror(errno));
-		return -1;
-	}
-
-	if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER,
-			&bpf_prog, sizeof(bpf_prog))) {
-		syslog(LOG_ERR, "Failed to set BPF: %s", strerror(errno));
-		return -1;
-	}
-
-	ndp_event.uloop.fd = sock;
-	odhcpd_register(&ndp_event);
 
 	// Open ICMPv6 socket
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
@@ -199,6 +181,39 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 				list_add(&n->head, &neighbors);
 			}
 		}
+	}
+
+	bool enable_packet = false;
+	struct interface *i;
+	list_for_each_entry(i, &interfaces, head) {
+		if (i == iface && !enable)
+			continue;
+
+		if (i->ndp == RELAYD_RELAY)
+			enable_packet = true;
+	}
+
+	if (enable_packet && ndp_event.uloop.fd < 0) {
+		// Create socket for intercepting NDP
+		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK,
+				htons(ETH_P_ALL)); // ETH_P_ALL for ingress + egress
+		if (sock < 0) {
+			syslog(LOG_ERR, "Unable to open packet socket: %s",
+					strerror(errno));
+			return -1;
+		}
+
+		if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER,
+				&bpf_prog, sizeof(bpf_prog))) {
+			syslog(LOG_ERR, "Failed to set BPF: %s", strerror(errno));
+			return -1;
+		}
+
+		ndp_event.uloop.fd = sock;
+		odhcpd_register(&ndp_event);
+	} else if (!enable_packet && ndp_event.uloop.fd >= 0) {
+		close(ndp_event.uloop.fd);
+		ndp_event.uloop.fd = -1;
 	}
 
 	return 0;

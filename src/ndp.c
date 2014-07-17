@@ -169,6 +169,10 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 			.sll_family = AF_PACKET,
 			.sll_ifindex = iface->ifindex,
 			.sll_protocol = htons(ETH_P_IPV6),
+			.sll_hatype = 0,
+			.sll_pkttype = 0,
+			.sll_halen = 0,
+			.sll_addr = {0},
 		};
 		bind(sock, (struct sockaddr*)&ll, sizeof(ll));
 

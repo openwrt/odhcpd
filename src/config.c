@@ -42,6 +42,7 @@ enum {
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
+	IFACE_ATTR_NDPROXY_STATIC,
 	IFACE_ATTR_MAX
 };
 
@@ -72,12 +73,14 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_PREFERENCE] = { .name = "ra_preference", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_NDPROXY_STATIC] = { .name = "ndproxy_static", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_UPSTREAM] = { .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DNS] = { .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DOMAIN] = { .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_NDPROXY_STATIC] = { .type = BLOBMSG_TYPE_STRING },
 };
 
 const struct uci_blob_param_list interface_attr_list = {
@@ -148,6 +151,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dns);
 	free(iface->search);
 	free(iface->upstream);
+	free(iface->static_ndp);
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
 	free(iface->filter_class);
@@ -514,6 +518,27 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_NDPROXY_STATIC])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			int len = blobmsg_data_len(cur);
+			iface->static_ndp = realloc(iface->static_ndp, iface->static_ndp_len + len);
+			if (!iface->static_ndp)
+				goto err;
+
+			if (iface->static_ndp_len)
+				iface->static_ndp[iface->static_ndp_len - 1] = ' ';
+
+			memcpy(&iface->static_ndp[iface->static_ndp_len], blobmsg_get_string(cur), len);
+			iface->static_ndp_len += len;
+		}
+	}
 
 	return 0;
 

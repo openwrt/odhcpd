@@ -118,7 +118,6 @@ struct interface {
 	// DHCPv4
 	struct odhcpd_event dhcpv6_event;
 	struct odhcpd_event dhcpv4_event;
-	struct odhcpd_event ndp_event;
 	struct list_head dhcpv4_assignments;
 
 	// Managed PD
@@ -160,6 +159,9 @@ struct interface {
 
 	void *dhcpv6_raw;
 	size_t dhcpv6_raw_len;
+
+	char* static_ndp;
+	size_t static_ndp_len;
 
 	char *upstream;
 	size_t upstream_len;

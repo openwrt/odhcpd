@@ -622,7 +622,7 @@ static void update(struct interface *iface)
 	if (change) {
 		struct dhcpv6_assignment *c;
 		list_for_each_entry(c, &iface->ia_assignments, head)
-			if (c != border)
+			if (c != border && !iface->managed)
 				apply_lease(iface, c, false);
 	}
 

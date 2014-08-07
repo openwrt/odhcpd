@@ -410,7 +410,8 @@ static void send_router_advert(struct uloop_timeout *event)
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->dprefix > 64 || addr->dprefix == 0) {
+		if (addr->dprefix > 64 || addr->dprefix == 0 ||
+				(addr->dprefix == 64 && addr->prefix == 64)) {
 			continue; // Address not suitable
 		} else if (addr->dprefix > 32) {
 			addr->addr.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));

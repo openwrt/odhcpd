@@ -976,7 +976,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		goto out;
 
 	update(iface);
-	bool update_state = false;
 
 	struct dhcpv6_assignment *first = NULL;
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -1165,7 +1164,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				}
 				a->accept_reconf = accept_reconf;
 				apply_lease(iface, a, true);
-				update_state = true;
 			} else if (!assigned && a && a->managed_size == 0) { // Cleanup failed assignment
 				free_dhcpv6_assignment(a);
 			}
@@ -1184,11 +1182,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
 				a->valid_until = 0;
 				apply_lease(iface, a, false);
-				update_state = true;
 			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
 				a->clid_len = 0;
 				a->valid_until = now + 3600; // Block address for 1h
-				update_state = true;
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
 			// Send NOTONLINK for CONFIRM with addr present so that clients restart connection
@@ -1213,8 +1209,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		response_len += 6;
 	}
 
-	if (update_state)
-		dhcpv6_write_statefile();
+	dhcpv6_write_statefile();
 
 out:
 	return response_len;

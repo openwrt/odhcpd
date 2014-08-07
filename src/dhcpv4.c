@@ -491,7 +491,6 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		}
 	}
 
-	bool update_state = false;
 	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
 		bool assigned = !!a;
 		size_t hostlen = strlen(hostname) + 1;
@@ -530,24 +529,18 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			a = NULL;
 		}
 
-		if (a)
-			update_state = true;
-
 		if (assigned && a)
 			lease = a;
 	} else if (msg == DHCPV4_MSG_RELEASE) {
 		if (a) {
 			a->valid_until = 0;
-			update_state = true;
 		}
 	} else if (msg == DHCPV4_MSG_DECLINE) {
 		memset(a->hwaddr, 0, sizeof(a->hwaddr));
 		a->valid_until = now + 3600; // Block address for 1h
-		update_state = true;
 	}
 
-	if (update_state)
-		dhcpv6_write_statefile();
+	dhcpv6_write_statefile();
 
 	return lease;
 }

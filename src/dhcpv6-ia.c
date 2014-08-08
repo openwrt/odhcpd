@@ -269,7 +269,7 @@ void dhcpv6_write_statefile(void)
 
 						inet_ntop(AF_INET6, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-						if (c->length == 128 && c->hostname && i == 0) {
+						if (c->length == 128 && c->hostname) {
 							fputs(ipbuf, fp);
 
 							char b[256];

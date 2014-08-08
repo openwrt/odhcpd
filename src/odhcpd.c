@@ -172,7 +172,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 
 	ssize_t sent = sendmsg(socket, &msg, MSG_DONTWAIT);
 	if (sent < 0)
-		syslog(LOG_WARNING, "Failed to send to %s%%%s (%s)",
+		syslog(LOG_NOTICE, "Failed to send to %s%%%s (%s)",
 				ipbuf, iface->ifname, strerror(errno));
 	else
 		syslog(LOG_DEBUG, "Sent %li bytes to %s%%%s",

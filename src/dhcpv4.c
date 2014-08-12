@@ -334,7 +334,16 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	} else if (reqmsg == DHCPV4_MSG_REQUEST && reqaddr.s_addr &&
 			reqaddr.s_addr != htonl(lease->addr)) {
 		msg = DHCPV4_MSG_NAK;
-		lease = NULL;
+		/*
+		 * DHCP client requested an IP which we can't offer to him. Probably the
+		 * client changed the network. The reply type is set to DHCPV4_MSG_NAK,
+		 * because the client should not use that IP.
+		 *
+		 * For modern devices we build an answer that includes a valid IP, like
+		 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
+		 * perform additional DHCP round trips.
+		 *
+		 */
 	}
 
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)

@@ -85,6 +85,8 @@ ndp		string	disabled		Neighbor Discovery Proxy
 
 dynamicdhcp	bool	1			dynamically create leases
 						for DHCPv4 and DHCPv6
+router          list    <local address>         Routers to announce
+                                                accepts IPv4 only
 dns		list	<local address>		DNS servers to announce
 						accepts IPv4 and IPv6
 domain		list	<local search domain>	Search domains to announce

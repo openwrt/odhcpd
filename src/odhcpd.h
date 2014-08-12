@@ -147,6 +147,8 @@ struct interface {
 	// DHCPv4
 	struct in_addr dhcpv4_start;
 	struct in_addr dhcpv4_end;
+	struct in_addr *dhcpv4_router;
+	size_t dhcpv4_router_cnt;
 	struct in_addr *dhcpv4_dns;
 	size_t dhcpv4_dns_cnt;
 	uint32_t dhcpv4_leasetime;

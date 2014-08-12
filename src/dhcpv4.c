@@ -384,8 +384,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 					len, search_buf);
 	}
 
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, &ifaddr.sin_addr);
-
+	if (iface->dhcpv4_router_cnt == 0)
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, &ifaddr.sin_addr);
+	else
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER,
+				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
 
 
 	if (iface->dhcpv4_dns_cnt == 0)

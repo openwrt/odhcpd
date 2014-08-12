@@ -45,6 +45,29 @@ int init_dhcpv4(void)
 	return 0;
 }
 
+char *dhcpv4_msg_to_string(uint8_t reqmsg)
+{
+	switch (reqmsg) {
+	case (DHCPV4_MSG_DISCOVER):
+		return "DHCPV4_MSG_DISCOVER";
+	case (DHCPV4_MSG_OFFER):
+		return "DHCPV4_MSG_OFFER";
+	case (DHCPV4_MSG_REQUEST):
+		return "DHCPV4_MSG_REQUEST";
+	case (DHCPV4_MSG_DECLINE):
+		return "DHCPV4_MSG_DECLINE";
+	case (DHCPV4_MSG_ACK):
+		return "DHCPV4_MSG_ACK";
+	case (DHCPV4_MSG_NAK):
+		return "DHCPV4_MSG_NAK";
+	case (DHCPV4_MSG_RELEASE):
+		return "DHCPV4_MSG_RELEASE";
+	case (DHCPV4_MSG_INFORM):
+		return "DHCPV4_MSG_INFORM";
+	default:
+		return "UNKNOWN";
+	}
+}
 
 int setup_dhcpv4_interface(struct interface *iface, bool enable)
 {
@@ -346,6 +369,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		 */
 	}
 
+	syslog(LOG_WARNING, "received %s from %x:%x:%x:%x:%x:%x",
+			dhcpv4_msg_to_string(reqmsg),
+			req->chaddr[0],req->chaddr[1],req->chaddr[2],
+			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
+
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
 
@@ -430,6 +458,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
 		ioctl(sock, SIOCSARP, &arp);
 	}
+
+	syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x",
+			dhcpv4_msg_to_string(msg),
+			req->chaddr[0],req->chaddr[1],req->chaddr[2],
+			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
 
 	sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest));

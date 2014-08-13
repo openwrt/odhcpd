@@ -595,7 +595,7 @@ static void update(struct interface *iface)
 	int minprefix = -1;
 
 	for (int i = 0; i < len; ++i) {
-		if (addr[i].prefix > minprefix)
+		if (addr[i].preferred > 0 && addr[i].prefix > minprefix)
 			minprefix = addr[i].prefix;
 
 		addr[i].addr.s6_addr32[3] = 0;

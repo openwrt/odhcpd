@@ -439,16 +439,29 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
 	if (req->giaddr.s_addr) {
+		/*
+		 * relay agent is configured, send reply to the agent
+		 */
 		dest.sin_addr = req->giaddr;
 		dest.sin_port = htons(DHCPV4_SERVER_PORT);
 	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest.sin_addr.s_addr) {
+		/*
+		 * client has existing configuration (ciaddr is set) AND this address is
+		 * not the address it used for the dhcp message
+		 */
 		dest.sin_addr = req->ciaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else if ((ntohs(req->flags) & DHCPV4_FLAG_BROADCAST) ||
 			req->hlen != reply.hlen || !reply.yiaddr.s_addr) {
+		/*
+		 * client requests a broadcast reply OR we can't offer an IP
+		 */
 		dest.sin_addr.s_addr = INADDR_BROADCAST;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else {
+		/*
+		 * send reply to the newly (in this proccess) allocated IP
+		 */
 		dest.sin_addr = reply.yiaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 

@@ -458,6 +458,13 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		 */
 		dest.sin_addr.s_addr = INADDR_BROADCAST;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
+	} else if (!req->ciaddr.s_addr && msg == DHCPV4_MSG_NAK) {
+		/*
+		 * client has no previous configuration -> no IP, so we need to reply
+		 * with a broadcast packet
+		 */
+		dest.sin_addr.s_addr = INADDR_BROADCAST;
+		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else {
 		/*
 		 * send reply to the newly (in this proccess) allocated IP

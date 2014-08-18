@@ -479,10 +479,24 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		ioctl(sock, SIOCSARP, &arp);
 	}
 
-	syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x",
-			dhcpv4_msg_to_string(msg),
-			req->chaddr[0],req->chaddr[1],req->chaddr[2],
-			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
+	if (dest.sin_addr.s_addr == INADDR_BROADCAST) {
+		/*
+		 * reply goes to IP broadcast -> MAC broadcast
+		 */
+		syslog(LOG_WARNING, "sending %s to ff:ff:ff:ff:ff:ff - %s",
+				dhcpv4_msg_to_string(msg),
+				inet_ntoa(dest.sin_addr));
+	} else {
+		/*
+		 * reply is send directly to IP,
+		 * MAC is assumed to be the same as the request
+		 */
+		syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x - %s",
+				dhcpv4_msg_to_string(msg),
+				req->chaddr[0],req->chaddr[1],req->chaddr[2],
+				req->chaddr[3],req->chaddr[4],req->chaddr[5],
+				inet_ntoa(dest.sin_addr));
+	}
 
 	sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest));

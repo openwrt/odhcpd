@@ -137,8 +137,8 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 
 			if (start && end && start < end &&
 					start > ntohl(addr.s_addr & ~mask.s_addr) &&
-					(start & ntohl(mask.s_addr)) == start &&
-					(end & ntohl(mask.s_addr)) == end) {
+					(start & ntohl(~mask.s_addr)) == start &&
+					(end & ntohl(~mask.s_addr)) == end) {
 				iface->dhcpv4_start.s_addr = htonl(start) |
 						(addr.s_addr & mask.s_addr);
 				iface->dhcpv4_end.s_addr = htonl(end) |

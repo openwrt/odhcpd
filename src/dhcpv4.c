@@ -439,16 +439,36 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
 	if (req->giaddr.s_addr) {
+		/*
+		 * relay agent is configured, send reply to the agent
+		 */
 		dest.sin_addr = req->giaddr;
 		dest.sin_port = htons(DHCPV4_SERVER_PORT);
 	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest.sin_addr.s_addr) {
+		/*
+		 * client has existing configuration (ciaddr is set) AND this address is
+		 * not the address it used for the dhcp message
+		 */
 		dest.sin_addr = req->ciaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else if ((ntohs(req->flags) & DHCPV4_FLAG_BROADCAST) ||
 			req->hlen != reply.hlen || !reply.yiaddr.s_addr) {
+		/*
+		 * client requests a broadcast reply OR we can't offer an IP
+		 */
+		dest.sin_addr.s_addr = INADDR_BROADCAST;
+		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
+	} else if (!req->ciaddr.s_addr && msg == DHCPV4_MSG_NAK) {
+		/*
+		 * client has no previous configuration -> no IP, so we need to reply
+		 * with a broadcast packet
+		 */
 		dest.sin_addr.s_addr = INADDR_BROADCAST;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else {
+		/*
+		 * send reply to the newly (in this proccess) allocated IP
+		 */
 		dest.sin_addr = reply.yiaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 
@@ -459,10 +479,24 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		ioctl(sock, SIOCSARP, &arp);
 	}
 
-	syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x",
-			dhcpv4_msg_to_string(msg),
-			req->chaddr[0],req->chaddr[1],req->chaddr[2],
-			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
+	if (dest.sin_addr.s_addr == INADDR_BROADCAST) {
+		/*
+		 * reply goes to IP broadcast -> MAC broadcast
+		 */
+		syslog(LOG_WARNING, "sending %s to ff:ff:ff:ff:ff:ff - %s",
+				dhcpv4_msg_to_string(msg),
+				inet_ntoa(dest.sin_addr));
+	} else {
+		/*
+		 * reply is send directly to IP,
+		 * MAC is assumed to be the same as the request
+		 */
+		syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x - %s",
+				dhcpv4_msg_to_string(msg),
+				req->chaddr[0],req->chaddr[1],req->chaddr[2],
+				req->chaddr[3],req->chaddr[4],req->chaddr[5],
+				inet_ntoa(dest.sin_addr));
+	}
 
 	sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest));

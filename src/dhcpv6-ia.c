@@ -977,25 +977,28 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		break;
 	}
 
-	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
-	size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
 	char leasebuf[256] = "";
-	size_t lbsize = 0;
-	char addrbuf[INET6_ADDRSTRLEN];
 
-	for (size_t i = 0; i < addrlen; ++i) {
-		if (addrs[i].prefix > 96 || addrs[i].preferred <= now)
-			continue;
+	if (a) {
+		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
+		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
+		size_t lbsize = 0;
+		char addrbuf[INET6_ADDRSTRLEN];
 
-		struct in6_addr addr = addrs[i].addr;
-		int prefix = a->managed ? addrs[i].prefix : a->length;
-		if (prefix == 128)
-			addr.s6_addr32[3] = htonl(a->assigned);
-		else
-			addr.s6_addr32[1] |= htonl(a->assigned);
+		for (size_t i = 0; i < addrlen; ++i) {
+			if (addrs[i].prefix > 96 || addrs[i].preferred <= (uint32_t)now)
+				continue;
 
-		inet_ntop(AF_INET6, &addr, addrbuf, sizeof(addrbuf));
-		lbsize += snprintf(leasebuf + lbsize, sizeof(leasebuf) - lbsize, "%s/%d ", addrbuf, prefix);
+			struct in6_addr addr = addrs[i].addr;
+			int prefix = a->managed ? addrs[i].prefix : a->length;
+			if (prefix == 128)
+				addr.s6_addr32[3] = htonl(a->assigned);
+			else
+				addr.s6_addr32[1] |= htonl(a->assigned);
+
+			inet_ntop(AF_INET6, &addr, addrbuf, sizeof(addrbuf));
+			lbsize += snprintf(leasebuf + lbsize, sizeof(leasebuf) - lbsize, "%s/%d ", addrbuf, prefix);
+		}
 	}
 
 	syslog(LOG_WARNING, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",

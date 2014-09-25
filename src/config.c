@@ -480,7 +480,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				domain[domainlen - 1] = 0;
 
 			int len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
-			free(domain);
 			if (len <= 0)
 				goto err;
 

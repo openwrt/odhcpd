@@ -800,6 +800,9 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 #endif
 					datalen += entrlen + 4;
 				} else {
+					if (!a->accept_reconf && iface->managed < RELAYD_MANAGED_NO_AFLAG)
+						prefix_pref = 1;
+
 					struct dhcpv6_ia_addr n = {
 						.type = htons(DHCPV6_OPT_IA_ADDR),
 						.len = htons(sizeof(n) - 4),

@@ -137,6 +137,7 @@ struct interface {
 	bool ignore;
 	bool always_rewrite_dns;
 	bool ra_not_onlink;
+	bool ra_advrouter;
 	bool no_dynamic_dhcp;
 
 	int learn_routes;

@@ -39,6 +39,7 @@ enum {
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_OFFLINK,
 	IFACE_ATTR_RA_PREFERENCE,
+	IFACE_ATTR_RA_ADVROUTER,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
@@ -73,6 +74,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_PREFERENCE] = { .name = "ra_preference", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_RA_ADVROUTER] = { .name = "ra_advrouter", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_STATIC] = { .name = "ndproxy_static", .type = BLOBMSG_TYPE_ARRAY },
@@ -513,6 +515,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_OFFLINK]))
 		iface->ra_not_onlink = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_RA_ADVROUTER]))
+		iface->ra_advrouter = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
 		const char *prio = blobmsg_get_string(c);

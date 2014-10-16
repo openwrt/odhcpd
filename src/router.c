@@ -293,7 +293,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 				maxpreferred = 1000 * addr->preferred;
 		}
 
-		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr, addr->prefix);
+		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,
+				(iface->ra_advrouter) ? 128 : addr->prefix);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
 		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
@@ -302,6 +303,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
 		if (iface->managed < RELAYD_MANAGED_NO_AFLAG && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
+		if (iface->ra_advrouter)
+			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
 		p->nd_opt_pi_valid_time = htonl(addr->valid);
 		p->nd_opt_pi_preferred_time = htonl(addr->preferred);
 
@@ -410,12 +413,37 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		++routes_cnt;
 	}
 
+	// Calculate periodic transmit
+	int msecs = 0;
+	uint32_t maxival = MaxRtrAdvInterval * 1000;
+	uint32_t minival = MinRtrAdvInterval * 1000;
+
+	if (maxpreferred > 0 && maxival > maxpreferred / 2) {
+		maxival = maxpreferred / 2;
+		if (maxival < 4000)
+			maxival = 4000;
+
+		if (maxival >= 9000)
+			minival = maxival / 3;
+		else
+			minival = (maxival * 3) / 4;
+	}
+
+	odhcpd_urandom(&msecs, sizeof(msecs));
+	msecs = (labs(msecs) % (maxival - minival)) + minival;
+
+	struct icmpv6_opt adv_interval = {
+		.type = ND_OPT_RTR_ADV_INTERVAL,
+		.len = 1,
+		.data = {0, 0, maxival >> 24, maxival >> 16, maxival >> 8, maxival}
+	};
 
 	struct iovec iov[] = {{&adv, (uint8_t*)&adv.prefix[cnt] - (uint8_t*)&adv},
 			{&routes, routes_cnt * sizeof(*routes)},
 			{&dns, (dns_cnt) ? sizeof(dns) : 0},
 			{dns_addr, dns_cnt * sizeof(*dns_addr)},
-			{search, search->len * 8}};
+			{search, search->len * 8},
+			{&adv_interval, adv_interval.len * 8}};
 	struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
 
 	if (from && !IN6_IS_ADDR_UNSPECIFIED(from))
@@ -424,36 +452,18 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);
 
-	return maxpreferred;
+	return msecs;
 }
 
 
 static void trigger_router_advert(struct uloop_timeout *event)
 {
 	struct interface *iface = container_of(event, struct interface, timer_rs);
-	uint64_t maxpreferred = send_router_advert(iface, NULL);
+	int msecs = send_router_advert(iface, NULL);
 
 	// Rearm timer if not shut down
-	if (event->cb) {
-		uint32_t maxinterval = MaxRtrAdvInterval * 1000;
-		uint32_t mininterval = MinRtrAdvInterval * 1000;
-
-		if (maxpreferred > 0 && maxinterval > maxpreferred / 2) {
-			maxinterval = maxpreferred / 2;
-			if (maxinterval < 4000)
-				maxinterval = 4000;
-
-			if (maxinterval >= 9000)
-				mininterval = maxinterval / 3;
-			else
-				mininterval = (maxinterval * 3) / 4;
-		}
-
-		int msecs;
-		odhcpd_urandom(&msecs, sizeof(msecs));
-		msecs = (labs(msecs) % (maxinterval - mininterval)) + mininterval;
+	if (event->cb)
 		uloop_timeout_set(event, msecs);
-	}
 }
 
 

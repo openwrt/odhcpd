@@ -125,7 +125,7 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 	int procfd = open(procbuf, O_WRONLY);
 	bool dump_neigh = false;
 
-	if (iface->ndp_event.uloop.fd >= 0) {
+	if (iface->ndp_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->ndp_event.uloop);
 		close(iface->ndp_event.uloop.fd);
 		iface->ndp_event.uloop.fd = -1;
@@ -136,7 +136,8 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 		dump_neigh = true;
 	}
 
-	if (enable && (iface->ra == RELAYD_SERVER || iface->dhcpv6 == RELAYD_SERVER)) {
+	if (enable && (iface->ra == RELAYD_SERVER ||
+			iface->dhcpv6 == RELAYD_SERVER || iface->ndp == RELAYD_RELAY)) {
 		// Synthesize initial address events
 		struct {
 			struct nlmsghdr nh;
@@ -257,7 +258,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	struct interface *c;
 	list_for_each_entry(c, &interfaces, head)
 		if (iface->ndp == RELAYD_RELAY && iface != c &&
-				(!ns_is_dad || !c->external == false))
+				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
 }
 
@@ -295,7 +296,7 @@ void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 	if (add) {
 		req.nh.nlmsg_type = RTM_NEWROUTE;
 		req.nh.nlmsg_flags |= (NLM_F_CREATE | NLM_F_REPLACE);
-		req.rtm.rtm_protocol = RTPROT_BOOT;
+		req.rtm.rtm_protocol = RTPROT_STATIC;
 		req.rtm.rtm_scope = (gw) ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
 		req.rtm.rtm_type = RTN_UNICAST;
 	} else {
@@ -303,8 +304,8 @@ void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 		req.rtm.rtm_scope = RT_SCOPE_NOWHERE;
 	}
 
-	size_t reqlen = (gw) ? sizeof(req) : offsetof(struct req, rta_gw);
-	send(rtnl_event.uloop.fd, &req, reqlen, MSG_DONTWAIT);
+	req.nh.nlmsg_len = (gw) ? sizeof(req) : offsetof(struct req, rta_gw);
+	send(rtnl_event.uloop.fd, &req, req.nh.nlmsg_len, MSG_DONTWAIT);
 }
 
 // Use rtnetlink to modify kernel routes

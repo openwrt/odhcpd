@@ -104,7 +104,6 @@ ra_preference	string	medium			Route(r) preference
 		[medium|high|low]
 ndproxy_routing	bool	1			Learn routes from NDP
 ndproxy_slave	bool	0			NDProxy external slave
-ndproxy_static	list				Static NDProxy prefixes
 
 
 Sections of type host (static leases)

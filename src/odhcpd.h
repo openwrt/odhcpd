@@ -179,6 +179,7 @@ extern struct list_head interfaces;
 // Exported main functions
 int odhcpd_open_rtnl(void);
 int odhcpd_register(struct odhcpd_event *event);
+void odhcpd_process(struct odhcpd_event *event);
 
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,

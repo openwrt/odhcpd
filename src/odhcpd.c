@@ -49,6 +49,12 @@ static int rtnl_seq = 0;
 static int urandom_fd = -1;
 
 
+static void sighandler(_unused int signal)
+{
+	uloop_end();
+}
+
+
 int main()
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
@@ -71,6 +77,8 @@ int main()
 		return 4;
 
 	signal(SIGUSR1, SIG_IGN);
+	signal(SIGINT, sighandler);
+	signal(SIGTERM, sighandler);
 
 	if (init_router())
 		return 4;
@@ -375,6 +383,11 @@ int odhcpd_register(struct odhcpd_event *event)
 {
 	event->uloop.cb = odhcpd_receive_packets;
 	return uloop_fd_add(&event->uloop, ULOOP_READ);
+}
+
+void odhcpd_process(struct odhcpd_event *event)
+{
+	odhcpd_receive_packets(&event->uloop, 0);
 }
 
 void odhcpd_urandom(void *data, size_t len)

@@ -717,5 +717,8 @@ void odhcpd_run(void)
 
 	odhcpd_reload();
 	uloop_run();
+
+	while (!list_empty(&interfaces))
+		close_interface(list_first_entry(&interfaces, struct interface, head));
 }
 

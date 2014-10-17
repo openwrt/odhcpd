@@ -115,6 +115,7 @@ static void dump_neigh_table(bool proxy)
 		{.ndm_family = AF_INET6, .ndm_flags = (proxy) ? NTF_PROXY : 0}
 	};
 	send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
+	odhcpd_process(&rtnl_event);
 }
 
 
@@ -309,18 +310,15 @@ void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 }
 
 // Use rtnetlink to modify kernel routes
-static void setup_route(struct in6_addr *addr, struct interface *iface,
-		bool add)
+static void setup_route(struct in6_addr *addr, struct interface *iface, bool add)
 {
 	char namebuf[INET6_ADDRSTRLEN];
 	inet_ntop(AF_INET6, addr, namebuf, sizeof(namebuf));
-	syslog(LOG_NOTICE, "%s about %s on %s", (add) ? "Learned" : "Forgot",
-			namebuf, (iface) ? iface->ifname : "<pending>");
+	syslog(LOG_NOTICE, "%s about %s on %s",
+			(add) ? "Learned" : "Forgot", namebuf, iface->ifname);
 
-	if (!iface || !iface->learn_routes)
-		return;
-
-	odhcpd_setup_route(addr, 128, iface, NULL, add);
+	if (iface->learn_routes)
+		odhcpd_setup_route(addr, 128, iface, NULL, add);
 }
 
 
@@ -406,6 +404,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 				if (nh->nlmsg_type == RTM_NEWNEIGH) {
 					req.ndm.ndm_ifindex = iface->ifindex;
 					send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
+					setup_route(addr, iface, false);
 					dump_neigh = true;
 				}
 			} else if (add) {

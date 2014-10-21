@@ -502,50 +502,74 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			(struct sockaddr*)&dest, sizeof(dest));
 }
 
+static bool dhcpv4_test(struct interface *iface, uint32_t try)
+{
+	struct dhcpv4_assignment *c;
+	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+		if (c->addr == try) {
+			return false;
+		}
+	}
+	return true;
+}
 
 static bool dhcpv4_assign(struct interface *iface,
 		struct dhcpv4_assignment *assign, uint32_t raddr)
 {
-	const unsigned tries = 100;
 	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
 	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
 	uint32_t count = end - start + 1;
 
-	// Seed RNG with checksum of hwaddress
-	uint32_t seed = 0;
-	for (size_t i = 0; i < sizeof(assign->hwaddr); ++i)
-		seed += assign->hwaddr[i];
-	srand(seed);
-
-	// Try to assign up to 100x
-	for (unsigned i = 0; i < tries; ++i) {
-		uint32_t try = (((uint32_t)rand()) % count) + start;
-		if (i == 0 && raddr >= start && raddr <= end)
-			try = raddr;
-		else if (i == tries - 1)
-			try = start;
-
-		if (list_empty(&iface->dhcpv4_assignments)) {
-			assign->addr = try;
-			list_add(&assign->head, &iface->dhcpv4_assignments);
-			return true;
-		}
-
-		struct dhcpv4_assignment *c;
-		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (c->addr > try) {
-				assign->addr = try;
-				list_add_tail(&assign->head, &c->head);
-				return true;
-			} else if (c->addr == try) {
-				if (i < tries - 1)
-					break;
-				else
-					++try;
-			}
-		}
+	// try to assign the IP the client asked for
+	if (start <= raddr && raddr <= end && dhcpv4_test(iface, raddr)) {
+		assign->addr = raddr;
+		list_add(&assign->head, &iface->dhcpv4_assignments);
+		syslog(LOG_DEBUG, "assigning the IP the client asked for: %u.%u.%u.%u",
+				(assign->addr & 0xff000000) >> 24,
+				(assign->addr & 0x00ff0000) >> 16,
+				(assign->addr & 0x0000ff00) >> 8,
+				(assign->addr & 0x000000ff));
+		return true;
 	}
 
+	// Seed RNG with checksum of hwaddress
+	uint32_t seed = 0;
+	for (size_t i = 0; i < sizeof(assign->hwaddr); ++i) {
+		// Knuth's multiplicative method
+		uint8_t o = assign->hwaddr[i];
+		seed += (o*2654435761) % UINT32_MAX;
+	}
+	srand(seed);
+
+	uint32_t try = (((uint32_t)rand()) % count) + start;
+
+	if (list_empty(&iface->dhcpv4_assignments)) {
+		assign->addr = try;
+		list_add(&assign->head, &iface->dhcpv4_assignments);
+		syslog(LOG_DEBUG, "assigning mapped IP (empty list): %u.%u.%u.%u",
+				(assign->addr & 0xff000000) >> 24,
+				(assign->addr & 0x00ff0000) >> 16,
+				(assign->addr & 0x0000ff00) >> 8,
+				(assign->addr & 0x000000ff));
+		return true;
+	}
+
+	for (size_t i = 0; i < count; ++i) {
+		if (dhcpv4_test(iface, try)) {
+			/* test was successful: IP address is not assigned, assign it */
+			assign->addr = try;
+			list_add(&assign->head, &iface->dhcpv4_assignments);
+			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %d of %d)",
+					(assign->addr & 0xff000000) >> 24,
+					(assign->addr & 0x00ff0000) >> 16,
+					(assign->addr & 0x0000ff00) >> 8,
+					(assign->addr & 0x000000ff), i, count);
+			return true;
+		}
+		try = (((try - start) + 1) % count) + start;
+	}
+
+	syslog(LOG_DEBUG, "can't assign any IP address -> address space is full");
 	return false;
 }
 

@@ -506,12 +506,12 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 static bool dhcpv4_assign(struct interface *iface,
 		struct dhcpv4_assignment *assign, uint32_t raddr)
 {
-	const unsigned tries = 10;
+	const unsigned tries = 100;
 	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
 	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
 	uint32_t count = end - start + 1;
 
-	// Seed RNG with checksum of DUID
+	// Seed RNG with checksum of hwaddress
 	uint32_t seed = 0;
 	for (size_t i = 0; i < sizeof(assign->hwaddr); ++i)
 		seed += assign->hwaddr[i];

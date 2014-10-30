@@ -537,7 +537,6 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 	struct sockaddr_in6 all_nodes = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
 	struct iovec iov = {data, len};
 
-	struct odhcpd_ipaddr addr;
 	struct interface *iface;
 	list_for_each_entry(iface, &interfaces, head) {
 		if (iface->ra != RELAYD_RELAY || iface->master)
@@ -550,13 +549,14 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 		// If we have to rewrite DNS entries
 		if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
 			const struct in6_addr *rewrite = iface->dns;
+			struct in6_addr addr;
 			size_t rewrite_cnt = iface->dns_cnt;
 
 			if (rewrite_cnt == 0) {
-				if (odhcpd_get_interface_addresses(iface->ifindex, &addr, 1) < 1)
+				if (odhcpd_get_preferred_interface_address(iface->ifindex, &addr) < 1)
 					continue; // Unable to comply
 
-				rewrite = &addr.addr;
+				rewrite = &addr;
 				rewrite_cnt = 1;
 			}
 

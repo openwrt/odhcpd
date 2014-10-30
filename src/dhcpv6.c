@@ -224,19 +224,19 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} refresh = {htons(DHCPV6_OPT_INFO_REFRESH), htons(sizeof(uint32_t)),
 			htonl(600)};
 
-	struct odhcpd_ipaddr ipaddr;
-	struct in6_addr *dns_addr = iface->dns;
+	struct in6_addr dns_addr, *dns_addr_ptr = iface->dns;
 	size_t dns_cnt = iface->dns_cnt;
 
-	if (dns_cnt == 0 && odhcpd_get_interface_addresses(iface->ifindex, &ipaddr, 1) == 1) {
-		dns_addr = &ipaddr.addr;
+	if ((dns_cnt == 0) &&
+		odhcpd_get_preferred_interface_address(iface->ifindex, &dns_addr)) {
+		dns_addr_ptr = &dns_addr;
 		dns_cnt = 1;
 	}
 
 	struct {
 		uint16_t type;
 		uint16_t len;
-	} dns = {htons(DHCPV6_OPT_DNS_SERVERS), htons(dns_cnt * sizeof(*dns_addr))};
+	} dns = {htons(DHCPV6_OPT_DNS_SERVERS), htons(dns_cnt * sizeof(*dns_addr_ptr))};
 
 
 
@@ -274,7 +274,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DEST] = {&dest, (uint8_t*)&dest.clientid_type - (uint8_t*)&dest},
 		[IOV_MAXRT] = {&maxrt, sizeof(maxrt)},
 		[IOV_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
-		[IOV_DNS_ADDR] = {dns_addr, dns_cnt * sizeof(*dns_addr)},
+		[IOV_DNS_ADDR] = {dns_addr_ptr, dns_cnt * sizeof(*dns_addr_ptr)},
 		[IOV_SEARCH] = {&search, (search_len) ? sizeof(search) : 0},
 		[IOV_SEARCH_DOMAIN] = {search_domain, search_len},
 		[IOV_PDBUF] = {pdbuf, 0},
@@ -333,7 +333,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
 				struct odhcpd_ipaddr addrs[32];
 				ssize_t len = odhcpd_get_interface_addresses(0, addrs,
-						sizeof(addrs) / sizeof(*addrs));
+						ARRAY_SIZE(addrs));
 
 				for (ssize_t i = 0; i < len; ++i)
 					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
@@ -455,15 +455,15 @@ static void relay_server_response(uint8_t *data, size_t len)
 		if (is_authenticated)
 			return; // Impossible to rewrite
 
-		struct odhcpd_ipaddr ip;
 		const struct in6_addr *rewrite = iface->dns;
+		struct in6_addr addr;
 		size_t rewrite_cnt = iface->dns_cnt;
 
 		if (rewrite_cnt == 0) {
-			if (odhcpd_get_interface_addresses(iface->ifindex, &ip, 1) < 1)
+			if (odhcpd_get_preferred_interface_address(iface->ifindex, &addr) < 1)
 				return; // Unable to get interface address
 
-			rewrite = &ip.addr;
+			rewrite = &addr;
 			rewrite_cnt = 1;
 		}
 

@@ -40,6 +40,7 @@ enum {
 	IFACE_ATTR_RA_OFFLINK,
 	IFACE_ATTR_RA_PREFERENCE,
 	IFACE_ATTR_RA_ADVROUTER,
+	IFACE_ATTR_RA_UNREACHABLE,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
@@ -74,6 +75,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_PREFERENCE] = { .name = "ra_preference", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_ADVROUTER] = { .name = "ra_advrouter", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_RA_UNREACHABLE] = { .name = "ra_unreachable", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 };
@@ -528,6 +530,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			goto err;
 	}
 
+	if ((c = tb[IFACE_ATTR_RA_UNREACHABLE]))
+		iface->no_ra_unreachable = !blobmsg_get_bool(c);
+
 	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
 		strncpy(iface->dhcpv6_pd_manager, blobmsg_get_string(c),
 				sizeof(iface->dhcpv6_pd_manager) - 1);
@@ -721,4 +726,3 @@ void odhcpd_run(void)
 	while (!list_empty(&interfaces))
 		close_interface(list_first_entry(&interfaces, struct interface, head));
 }
-

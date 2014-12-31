@@ -384,7 +384,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		uint32_t addr[4];
 	} routes[RELAYD_MAX_PREFIXES];
 
-	for (ssize_t i = 0; i < ipcnt; ++i) {
+	for (ssize_t i = 0; !iface->no_ra_unreachable && i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		if (addr->dprefix > 64 || addr->dprefix == 0 ||
 				(addr->dprefix == 64 && addr->prefix == 64)) {

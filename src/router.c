@@ -375,14 +375,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 
 	size_t routes_cnt = 0;
-	struct {
-		uint8_t type;
-		uint8_t len;
-		uint8_t prefix;
-		uint8_t flags;
-		uint32_t lifetime;
-		uint32_t addr[4];
-	} routes[RELAYD_MAX_PREFIXES];
+	struct ra_route routes[RELAYD_MAX_PREFIXES];
 
 	for (ssize_t i = 0; !iface->no_ra_unreachable && i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
@@ -413,6 +406,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		++routes_cnt;
 	}
 
+	// Update lifetime in routes obtained from configuration
+	for (size_t i = 0; i < iface->ra_routes_cnt; ++i)
+		iface->ra_routes[i].lifetime = htonl(MaxValidTime);
+
 	// Calculate periodic transmit
 	int msecs = 0;
 	uint32_t maxival = MaxRtrAdvInterval * 1000;
@@ -440,6 +437,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	struct iovec iov[] = {{&adv, (uint8_t*)&adv.prefix[cnt] - (uint8_t*)&adv},
 			{&routes, routes_cnt * sizeof(*routes)},
+			{iface->ra_routes, iface->ra_routes_cnt * sizeof(iface->ra_routes[0])},
 			{&dns, (dns_cnt) ? sizeof(dns) : 0},
 			{dns_addr, dns_cnt * sizeof(*dns_addr)},
 			{search, search->len * 8},

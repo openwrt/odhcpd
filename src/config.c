@@ -3,11 +3,14 @@
 #include <signal.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include <uci.h>
 #include <uci_blob.h>
 
 #include "odhcpd.h"
+#include "router.h"
 
 static struct blob_buf b;
 static int reload_pipe[2];
@@ -41,6 +44,7 @@ enum {
 	IFACE_ATTR_RA_PREFERENCE,
 	IFACE_ATTR_RA_ADVROUTER,
 	IFACE_ATTR_RA_UNREACHABLE,
+	IFACE_ATTR_RA_ROUTE,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
@@ -76,6 +80,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_PREFERENCE] = { .name = "ra_preference", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_ADVROUTER] = { .name = "ra_advrouter", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_UNREACHABLE] = { .name = "ra_unreachable", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_RA_ROUTE] = { .name = "ra_route", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 };
@@ -274,6 +279,47 @@ err:
 		free(lease);
 	}
 	return -1;
+}
+
+
+int config_parse_ra_route(struct in6_addr *addr, uint8_t *bits, int *pref,
+			  char *src)
+{
+	int n;
+	char *p, *sep = " \t/";
+
+	*pref = 0;
+	for(n = 0, p = strtok(src, sep); p; n++, p = strtok(NULL, sep)) {
+		switch(n) {
+		case 0: /* IPv6 address */
+			if (inet_pton(AF_INET6, p, addr) <= 0) return 0;
+			break;
+
+		case 1: /* Network bits */
+			*bits = strtol(p, (char **)NULL, 10);
+			if (((*bits) == 0 && errno != 0) || (*bits) > 128)
+				return 0;
+			break;
+
+		case 2: /* Preference */
+			if (!strcasecmp(p, "low")) {
+				*pref = -1;
+			} else if (!strcasecmp(p, "medium")) {
+				*pref = 0;
+			} else if (!strcasecmp(p, "high")) {
+				*pref = 1;
+			} else {
+				return 0; /* Uknown preference name, report error */
+			}
+			break;
+
+		default:
+			return 0; /* Unexpected tokens found, report error */
+		}
+	}
+	if (n < 2) return 0; /* Not all required tokens found, report error */
+
+	return 1;
 }
 
 
@@ -532,6 +578,48 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_UNREACHABLE]))
 		iface->no_ra_unreachable = !blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_RA_ROUTE])) {
+		int pref, i, j;
+		unsigned rem;
+		uint8_t bits;
+		uint32_t mask;
+		struct blob_attr *cur;
+		struct in6_addr addr;
+		struct ra_route *dst;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING
+			    || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			if (config_parse_ra_route(&addr, &bits, &pref,
+						  blobmsg_get_string(cur))) {
+				iface->ra_routes = realloc(iface->ra_routes,
+				    (++iface->ra_routes_cnt) * sizeof(*iface->ra_routes));
+				if (!iface->ra_routes) goto err;
+
+				dst = &iface->ra_routes[iface->ra_routes_cnt - 1];
+				dst->type = ND_OPT_ROUTE_INFO;
+				dst->len = sizeof(struct ra_route) / 8;
+				dst->prefix = bits;
+				dst->flags = 0;
+				if (pref < 0) dst->flags |= ND_RA_PREF_LOW;
+				if (pref > 0) dst->flags |= ND_RA_PREF_HIGH;
+
+				i = 3;
+				memcpy(dst->addr, addr.s6_addr32, 4 * sizeof(dst->addr[0]));
+				if (bits <= 96) dst->addr[i--] = 0;
+				if (bits <= 64) dst->addr[i--] = 0;
+				if (bits <= 32) dst->addr[i--] = 0;
+				for(j = 0, mask = 0; j < (bits - i * 32); j++)
+					mask |= 1 << (31 - j);
+				dst->addr[i] &= htonl(mask);
+			} else {
+				goto err;
+			}
+		}
+	}
 
 	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
 		strncpy(iface->dhcpv6_pd_manager, blobmsg_get_string(c),

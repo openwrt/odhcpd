@@ -104,6 +104,9 @@ ra_preference	string	medium			Route(r) preference
 		[medium|high|low]
 ra_unreachable  bool    1                       Announce router's unreachable
                                                 routes via Route Info Option
+ra_route        list    <IPv6/bits [low|medium|high]> Announce manually
+                                                configured routes via the RA
+						Route Info Option
 ndproxy_routing	bool	1			Learn routes from NDP
 ndproxy_slave	bool	0			NDProxy external slave
 

@@ -554,12 +554,12 @@ static bool dhcpv4_assign(struct interface *iface,
 		return true;
 	}
 
-	for (size_t i = 0; i < count; ++i) {
+	for (uint32_t i = 0; i < count; ++i) {
 		if (dhcpv4_test(iface, try)) {
 			/* test was successful: IP address is not assigned, assign it */
 			assign->addr = try;
 			list_add(&assign->head, &iface->dhcpv4_assignments);
-			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %d of %d)",
+			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
 					(assign->addr & 0xff000000) >> 24,
 					(assign->addr & 0x00ff0000) >> 16,
 					(assign->addr & 0x0000ff00) >> 8,

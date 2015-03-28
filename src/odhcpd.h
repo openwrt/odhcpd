@@ -190,7 +190,7 @@ int odhcpd_get_interface_mtu(const char *ifname);
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);
 struct interface* odhcpd_get_interface_by_index(int ifindex);
 struct interface* odhcpd_get_master_interface(void);
-void odhcpd_urandom(void *data, size_t len);
+int odhcpd_urandom(void *data, size_t len);
 void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 		const struct interface *iface, const struct in6_addr *gw, bool add);
 

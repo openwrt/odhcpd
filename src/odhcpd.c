@@ -415,9 +415,9 @@ void odhcpd_process(struct odhcpd_event *event)
 	odhcpd_receive_packets(&event->uloop, 0);
 }
 
-void odhcpd_urandom(void *data, size_t len)
+int odhcpd_urandom(void *data, size_t len)
 {
-	read(urandom_fd, data, len);
+	return read(urandom_fd, data, len);
 }
 
 

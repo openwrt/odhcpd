@@ -132,7 +132,7 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 		iface->ndp_event.uloop.fd = -1;
 
 		if (!enable || iface->ndp != RELAYD_RELAY)
-			write(procfd, "0\n", 2);
+			if (write(procfd, "0\n", 2) < 0) {}
 
 		dump_neigh = true;
 	}
@@ -152,7 +152,7 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 	}
 
 	if (enable && iface->ndp == RELAYD_RELAY) {
-		write(procfd, "1\n", 2);
+		if (write(procfd, "1\n", 2) < 0) {}
 		close(procfd);
 
 		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));

@@ -219,7 +219,7 @@ void dhcpv6_write_statefile(void)
 			return;
 
 		lockf(fd, F_LOCK, 0);
-		ftruncate(fd, 0);
+		if (ftruncate(fd, 0) < 0) {}
 
 		FILE *fp = fdopen(fd, "w");
 		if (!fp) {

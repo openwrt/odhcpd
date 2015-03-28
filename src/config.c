@@ -683,9 +683,10 @@ void odhcpd_reload(void)
 static void handle_signal(int signal)
 {
 	char b[1] = {0};
-	if (signal == SIGHUP)
-		write(reload_pipe[1], b, sizeof(b));
-	else
+
+	if (signal == SIGHUP) {
+		if (write(reload_pipe[1], b, sizeof(b)) < 0) {}
+	} else
 		uloop_end();
 }
 
@@ -694,7 +695,7 @@ static void handle_signal(int signal)
 static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
 {
 	char b[512];
-	read(u->fd, b, sizeof(b));
+	if (read(u->fd, b, sizeof(b) < 0)) {}
 	odhcpd_reload();
 }
 
@@ -702,7 +703,7 @@ static struct uloop_fd reload_fd = { .cb = reload_cb };
 
 void odhcpd_run(void)
 {
-	pipe2(reload_pipe, O_NONBLOCK | O_CLOEXEC);
+	if (pipe2(reload_pipe, O_NONBLOCK | O_CLOEXEC) < 0) {}
 	reload_fd.fd = reload_pipe[0];
 	uloop_fd_add(&reload_fd, ULOOP_READ);
 

@@ -254,11 +254,15 @@ void dhcpv6_write_statefile(void)
 					struct in6_addr addr;
 					struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->ia_addr;
 					size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->ia_addr_len;
+					size_t mostpref = 0;
+
+					for (size_t i = 0; i < addrlen; ++i)
+						if (addrs[i].preferred > addrs[mostpref].preferred)
+							mostpref = i;
 
 					for (size_t i = 0; i < addrlen; ++i) {
-						if (addrs[i].prefix > 96)
-							continue;
-						if (c->valid_until <= now)
+						if (addrs[i].prefix > 96 || c->valid_until <= now ||
+								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != mostpref))
 							continue;
 
 						addr = addrs[i].addr;

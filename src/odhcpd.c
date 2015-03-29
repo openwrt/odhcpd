@@ -153,8 +153,15 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 {
 	// Construct headers
 	uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
-	struct msghdr msg = {(void*)dest, sizeof(*dest), iov, iov_len,
-				cmsg_buf, sizeof(cmsg_buf), 0};
+	struct msghdr msg = {
+		.msg_name = (void *) dest,
+		.msg_namelen = sizeof(*dest),
+		.msg_iov = iov,
+		.msg_iovlen = iov_len,
+		.msg_control = cmsg_buf,
+		.msg_controllen = sizeof(cmsg_buf),
+		.msg_flags = 0
+	};
 
 	// Set control data (define destination interface)
 	struct cmsghdr *chdr = CMSG_FIRSTHDR(&msg);
@@ -331,8 +338,15 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 
 	while (true) {
 		struct iovec iov = {data_buf, sizeof(data_buf)};
-		struct msghdr msg = {&addr, sizeof(addr), &iov, 1,
-				cmsg_buf, sizeof(cmsg_buf), 0};
+		struct msghdr msg = {
+			.msg_name = (void *) &addr,
+			.msg_namelen = sizeof(addr),
+			.msg_iov = &iov,
+			.msg_iovlen = 1,
+			.msg_control = cmsg_buf,
+			.msg_controllen = sizeof(cmsg_buf),
+			.msg_flags = 0
+		};
 
 		ssize_t len = recvmsg(u->fd, &msg, MSG_DONTWAIT);
 		if (len < 0) {

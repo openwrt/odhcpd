@@ -176,7 +176,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 
 	char line[512], ifname[16];
 	bool found_default = false;
-	struct odhcpd_ipaddr p = {IN6ADDR_ANY_INIT, 0, 0, false, 0, 0, 0};
+	struct odhcpd_ipaddr p = {IN6ADDR_ANY_INIT, 0, 0, 0, 0};
 	while (fgets(line, sizeof(line), fp_route)) {
 		uint32_t rflags;
 		if (sscanf(line, "00000000000000000000000000000000 00 "
@@ -262,7 +262,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 96 || addr->has_class)
+		if (addr->prefix > 96)
 			continue; // Address not suitable
 
 		if (addr->preferred > MaxPreferredTime)

@@ -256,14 +256,6 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 		if (ifa->ifa_flags & IFA_F_DEPRECATED)
 			addrs[ret].preferred = 0;
 
-		addrs[ret].has_class = false;
-		addrs[ret].class = 0;
-#ifdef WITH_UBUS
-		struct interface *iface = odhcpd_get_interface_by_index(ifindex);
-		if (iface)
-			addrs[ret].has_class = ubus_get_class(iface->ifname,
-					&addrs[ret].addr, &addrs[ret].class);
-#endif
 		++ret;
 	}
 

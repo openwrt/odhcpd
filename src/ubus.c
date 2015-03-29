@@ -360,68 +360,6 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 }
 
 
-enum {
-	ADDR_ATTR_ADDR,
-	ADDR_ATTR_CLASS,
-	ADDR_ATTR_MAX
-};
-
-static const struct blobmsg_policy addr_attrs[ADDR_ATTR_MAX] = {
-	[ADDR_ATTR_ADDR] = { .name = "address", .type = BLOBMSG_TYPE_STRING },
-	[ADDR_ATTR_CLASS] = { .name = "class", .type = BLOBMSG_TYPE_STRING },
-};
-
-bool ubus_get_class(const char *ifname, const struct in6_addr *addr, uint16_t *pclass)
-{
-	struct blob_attr *c, *cur;
-	unsigned rem;
-
-	if (!dump)
-		return false;
-
-	blobmsg_for_each_attr(c, dump, rem) {
-		struct blob_attr *tb[IFACE_ATTR_MAX];
-		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
-
-		if (!tb[IFACE_ATTR_IFNAME])
-			continue;
-
-		if (strcmp(ifname, blobmsg_get_string(tb[IFACE_ATTR_IFNAME])))
-			continue;
-
-		if ((cur = tb[IFACE_ATTR_ADDRESS])) {
-			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
-				continue;
-
-			struct blob_attr *d;
-			unsigned drem;
-			blobmsg_for_each_attr(d, cur, drem) {
-				struct blob_attr *t[ADDR_ATTR_MAX];
-				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, t, blobmsg_data(d), blobmsg_data_len(d));
-
-				if (!t[ADDR_ATTR_ADDR] || !t[ADDR_ATTR_CLASS])
-					continue;
-
-				const char *addrs = blobmsg_get_string(t[ADDR_ATTR_ADDR]);
-				const char *class = blobmsg_get_string(t[ADDR_ATTR_CLASS]);
-
-				struct in6_addr ip6addr;
-				inet_pton(AF_INET6, addrs, &ip6addr);
-
-				if (IN6_ARE_ADDR_EQUAL(&ip6addr, addr)) {
-					*pclass = atoi(class);
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	return false;
-}
-
-
 int init_ubus(void)
 {
 	if (!(ubus = ubus_connect(NULL))) {

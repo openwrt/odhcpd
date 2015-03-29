@@ -419,8 +419,6 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 			else
 				n->valid += now;
 
-			n->has_class = false;
-			n->class = 0;
 			n->dprefix = 0;
 
 			++c->managed_size;
@@ -524,23 +522,6 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 
 static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 {
-	bool match = false;
-	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-		if (!iface->ia_addr[i].has_class) {
-			match = true;
-			continue;
-		} else if (assign->classes_cnt) {
-			for (size_t j = 0; j < assign->classes_cnt; ++j)
-				if (assign->classes[j] == iface->ia_addr[i].class)
-					match = true;
-		} else if (assign->all_class) {
-			match = true;
-		}
-	}
-
-	if (!match)
-		return false;
-
 	// Seed RNG with checksum of DUID
 	uint32_t seed = 0;
 	for (size_t i = 0; i < assign->clid_len; ++i)
@@ -731,44 +712,19 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
 			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
+			size_t mostpref = 0;
+
+			for (size_t i = 0; i < addrlen; ++i)
+				if (addrs[i].preferred > addrs[mostpref].preferred)
+					mostpref = i;
 
 			for (size_t i = 0; i < addrlen; ++i) {
-				bool match = true;
-				if (addrs[i].has_class) {
-					match = false;
-					if (a->classes_cnt) {
-						for (size_t j = 0; j < a->classes_cnt; ++j)
-							if (a->classes[j] == addrs[i].class)
-								match = true;
-					} else if (a->all_class) {
-						match = true;
-					}
-				}
-
-				if (!match)
-					continue;
-
 				uint32_t prefix_pref = addrs[i].preferred - now;
 				uint32_t prefix_valid = addrs[i].valid - now;
 
 				if (addrs[i].prefix > 96 ||
 						addrs[i].preferred <= (uint32_t)now)
 					continue;
-
-				if (prefix_pref > 86400)
-					prefix_pref = 86400;
-
-				if (prefix_valid > 86400)
-					prefix_valid = 86400;
-
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-				struct {
-					uint16_t code;
-					uint16_t length;
-					uint16_t class;
-				} pclass = {htons(DHCPV6_OPT_PREFIX_CLASS),
-					htons(2), htons(iface->ia_addr[i].class)};
-#endif
 
 				if (a->length < 128) {
 					struct dhcpv6_ia_prefix p = {
@@ -783,21 +739,11 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 					size_t entrlen = sizeof(p) - 4;
 
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-					if (iface->ia_addr[i].has_class) {
-						entrlen += sizeof(pclass);
-						p.len = htons(entrlen);
-					}
-#endif
-
 					if (datalen + entrlen + 4 > buflen ||
 							(a->assigned == 0 && a->managed_size == 0))
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-					memcpy(buf + datalen + sizeof(p), &pclass, sizeof(pclass));
-#endif
 					datalen += entrlen + 4;
 				} else {
 					struct dhcpv6_ia_addr n = {
@@ -810,24 +756,13 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					n.addr.s6_addr32[3] = htonl(a->assigned);
 					size_t entrlen = sizeof(n) - 4;
 
-					if (!a->accept_reconf && iface->managed < RELAYD_MANAGED_NO_AFLAG &&
-							addrs[i].prefix == 64)
-						n.preferred = htonl(1);
-
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-					if (iface->ia_addr[i].has_class) {
-						entrlen += sizeof(pclass);
-						n.len = htons(entrlen);
-					}
-#endif
+					if (iface->managed < RELAYD_MANAGED_NO_AFLAG && i != mostpref)
+						continue;
 
 					if (datalen + entrlen + 4 > buflen || a->assigned == 0)
 						continue;
 
 					memcpy(buf + datalen, &n, sizeof(n));
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-					memcpy(buf + datalen + sizeof(n), &pclass, sizeof(pclass));
-#endif
 					datalen += entrlen + 4;
 				}
 
@@ -1025,7 +960,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 	uint8_t *clid_data = NULL, clid_len = 0, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	char hostname[256];
 	size_t hostname_len = 0;
-	bool class_oro = false;
 	bool notonlink = false;
 	char duidbuf[261];
 
@@ -1048,14 +982,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
 				hostname_len = strcspn(hostname, ".");
-		} else if (otype == DHCPV6_OPT_ORO) {
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-			for (size_t i = 0; i + 1 < olen; i += 2) {
-				if (odata[i] == (DHCPV6_OPT_PREFIX_CLASS >> 8) &&
-						odata[i + 1] == (DHCPV6_OPT_PREFIX_CLASS & 0xff))
-					class_oro = true;
-			}
-#endif
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT) {
 			accept_reconf = true;
 		}
@@ -1079,10 +1005,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
 
-		const uint8_t classes_max = 32;
-		uint8_t classes_cnt = 0;
-		uint16_t classes[classes_max];
-
 		// Parse request hint for IA-PD
 		if (is_pd) {
 			uint8_t *sdata;
@@ -1098,20 +1020,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					if (reqlen > 32 && reqlen <= 64)
 						reqhint &= (1U << (64 - reqlen)) - 1;
 				}
-
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-				uint8_t *xdata;
-				uint16_t xtype, xlen;
-				dhcpv6_for_each_option(&p[1], sdata + slen, xtype, xlen, xdata) {
-					if (xtype != DHCPV6_OPT_PREFIX_CLASS || xlen != 2)
-						continue;
-
-					if (classes_cnt >= classes_max)
-						continue;
-
-					classes[classes_cnt++] = (uint16_t)xdata[0] << 8 | (uint16_t)xdata[1];
-				}
-#endif
 			}
 
 			if (reqlen > 64)
@@ -1124,20 +1032,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					continue;
 
 				ia_addr_present = true;
-#ifdef DHCPV6_OPT_PREFIX_CLASS
-				uint8_t *xdata;
-				uint16_t xtype, xlen;
-				struct dhcpv6_ia_addr *p = (struct dhcpv6_ia_addr*)&sdata[-4];
-				dhcpv6_for_each_option(&p[1], sdata + slen, xtype, xlen, xdata) {
-					if (xtype != DHCPV6_OPT_PREFIX_CLASS || xlen != 2)
-						continue;
-
-					if (classes_cnt >= classes_max)
-						continue;
-
-					classes[classes_cnt++] = (uint16_t)xdata[0] << 8 | (uint16_t)xdata[1];
-				}
-#endif
 			}
 		}
 
@@ -1159,11 +1053,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->peer = *addr;
 				a->reconf_cnt = 0;
 				a->reconf_sent = 0;
-				a->all_class = class_oro;
-				a->classes_cnt = classes_cnt;
-				a->classes = realloc(a->classes, classes_cnt * sizeof(uint16_t));
-				if (a->classes)
-					memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
 				break;
 			}
 		}
@@ -1183,13 +1072,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					a->length = reqlen;
 					a->peer = *addr;
 					a->assigned = reqhint;
-					a->all_class = class_oro;
-					a->classes_cnt = classes_cnt;
-					if (classes_cnt) {
-						a->classes = malloc(classes_cnt * sizeof(uint16_t));
-						if (a->classes)
-							memcpy(a->classes, classes, classes_cnt * sizeof(uint16_t));
-					}
 
 					if (first)
 						memcpy(a->key, first->key, sizeof(a->key));

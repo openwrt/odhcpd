@@ -10,10 +10,6 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
 
 add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra)
 
-if(${EXT_PREFIX_CLASS})
-	add_definitions(-DEXT_PREFIX_CLASS=${EXT_PREFIX_CLASS})
-endif(${EXT_PREFIX_CLASS})
-
 if (${EXT_CER_ID})
 	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})
 endif(${EXT_CER_ID})

@@ -264,7 +264,8 @@ void dhcpv6_write_statefile(void)
 
 					for (size_t i = 0; i < addrlen; ++i) {
 						if (addrs[i].prefix > 96 || c->valid_until <= now ||
-								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m))
+								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
+										addrs[i].prefix == 64))
 							continue;
 
 						addr = addrs[i].addr;
@@ -764,7 +765,8 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					n.addr.s6_addr32[3] = htonl(a->assigned);
 					size_t entrlen = sizeof(n) - 4;
 
-					if (iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m)
+					if (iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
+							addrs[i].prefix == 64)
 						continue;
 
 					if (datalen + entrlen + 4 > buflen || a->assigned == 0)

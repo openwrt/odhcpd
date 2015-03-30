@@ -204,6 +204,13 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
+#ifdef WITH_UBUS
+int init_ubus(void);
+const char* ubus_get_ifname(const char *name);
+void ubus_apply_network(void);
+bool ubus_has_prefix(const char *name, const char *ifname);
+#endif
+
 
 // Exported module initializers
 int init_router(void);

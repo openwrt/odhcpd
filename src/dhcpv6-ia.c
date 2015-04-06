@@ -728,12 +728,18 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					m = i;
 
 			for (size_t i = 0; i < addrlen; ++i) {
-				uint32_t prefix_pref = addrs[i].preferred - now;
-				uint32_t prefix_valid = addrs[i].valid - now;
+				uint32_t prefix_pref = addrs[i].preferred;
+				uint32_t prefix_valid = addrs[i].valid;
 
 				if (addrs[i].prefix > 96 ||
 						addrs[i].preferred <= (uint32_t)now)
 					continue;
+
+				if (prefix_pref != UINT32_MAX)
+					prefix_pref -= now;
+
+				if (prefix_valid != UINT32_MAX)
+					prefix_valid -= now;
 
 				if (a->length < 128) {
 					struct dhcpv6_ia_prefix p = {

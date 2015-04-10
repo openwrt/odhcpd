@@ -113,11 +113,11 @@ int odhcpd_open_rtnl(void)
 
 
 // Read IPv6 MTU for interface
-int odhcpd_get_interface_mtu(const char *ifname)
+int odhcpd_get_interface_config(const char *ifname, const char *what)
 {
 	char buf[64];
-	const char *sysctl_pattern = "/proc/sys/net/ipv6/conf/%s/mtu";
-	snprintf(buf, sizeof(buf), sysctl_pattern, ifname);
+	const char *sysctl_pattern = "/proc/sys/net/ipv6/conf/%s/%s";
+	snprintf(buf, sizeof(buf), sysctl_pattern, ifname, what);
 
 	int fd = open(buf, O_RDONLY);
 	ssize_t len = read(fd, buf, sizeof(buf) - 1);
@@ -126,10 +126,8 @@ int odhcpd_get_interface_mtu(const char *ifname)
 	if (len < 0)
 		return -1;
 
-
 	buf[len] = 0;
 	return atoi(buf);
-
 }
 
 

@@ -209,9 +209,11 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 // Router Advert server mode
 static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
-	int mtu = odhcpd_get_interface_mtu(iface->ifname);
-	if (mtu < 0)
-		mtu = 1500;
+	int mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
+	int hlim = odhcpd_get_interface_config(iface->ifname, "hop_limit");
+
+	if (mtu < 1280)
+		mtu = 1280;
 
 	struct {
 		struct nd_router_advert h;
@@ -223,6 +225,9 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
 		.mtu = {ND_OPT_MTU, 1, 0, htonl(mtu)},
 	};
+
+	if (hlim > 0)
+		adv.h.nd_ra_curhoplimit = hlim;
 
 	if (iface->dhcpv6)
 		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;

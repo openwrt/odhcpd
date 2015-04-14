@@ -596,7 +596,7 @@ static void update(struct interface *iface)
 	}
 
 	struct dhcpv6_assignment *border = list_last_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
-	if (minprefix <= 32 || minprefix > 64)
+	if (minprefix > 32 && minprefix <= 64)
 		border->assigned = 1U << (64 - minprefix);
 	else
 		border->assigned = 0;

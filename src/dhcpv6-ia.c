@@ -596,7 +596,10 @@ static void update(struct interface *iface)
 	}
 
 	struct dhcpv6_assignment *border = list_last_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
-	border->assigned = 1 << (64 - minprefix);
+	if (minprefix <= 32 || minprefix > 64)
+		border->assigned = 1U << (64 - minprefix);
+	else
+		border->assigned = 0;
 
 	bool change = len != (int)iface->ia_addr_len;
 	for (int i = 0; !change && i < len; ++i)

@@ -637,7 +637,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 	} else if (msg == DHCPV4_MSG_RELEASE) {
 		if (a && a->valid_until != LONG_MAX)
 			a->valid_until = 0;
-	} else if (msg == DHCPV4_MSG_DECLINE && a->valid_until != LONG_MAX) {
+	} else if (msg == DHCPV4_MSG_DECLINE && a && a->valid_until != LONG_MAX) {
 		memset(a->hwaddr, 0, sizeof(a->hwaddr));
 		a->valid_until = now + 3600; // Block address for 1h
 	}

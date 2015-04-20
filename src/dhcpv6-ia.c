@@ -74,7 +74,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		}
 	}
 
-	if (iface->dhcpv6 == RELAYD_SERVER) {
+	if (enable && iface->dhcpv6 == RELAYD_SERVER) {
 		if (!iface->ia_assignments.next)
 			INIT_LIST_HEAD(&iface->ia_assignments);
 

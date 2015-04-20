@@ -60,7 +60,6 @@ void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 
 	free(c->managed);
 	free(c->hostname);
-	free(c->classes);
 	free(c);
 }
 
@@ -133,7 +132,6 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 					a->hostname = strdup(lease->hostname);
 				}
 			} else {
-				free(a->classes);
 				free(a->hostname);
 				free(a);
 			}

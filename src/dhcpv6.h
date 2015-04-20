@@ -59,11 +59,6 @@
 #define DHCPV6_OPT_SOL_MAX_RT 82
 #define DHCPV6_OPT_INF_MAX_RT 83
 
-#ifdef EXT_PREFIX_CLASS
-/* draft-bhandari-dhc-class-based-prefix, not yet standardized */
-#define DHCPV6_OPT_PREFIX_CLASS EXT_PREFIX_CLASS
-#endif
-
 #define DHCPV6_DUID_VENDOR 2
 
 #define DHCPV6_STATUS_OK 0
@@ -146,9 +141,6 @@ struct dhcpv6_assignment {
 	struct sockaddr_in6 peer;
 	time_t valid_until;
 	time_t reconf_sent;
-	bool all_class;
-	uint8_t classes_cnt;
-	uint16_t *classes;
 	int reconf_cnt;
 	char *hostname;
 	uint8_t key[16];

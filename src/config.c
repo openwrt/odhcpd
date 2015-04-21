@@ -695,7 +695,7 @@ static void handle_signal(int signal)
 static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
 {
 	char b[512];
-	if (read(u->fd, b, sizeof(b) < 0)) {}
+	if (read(u->fd, b, sizeof(b)) < 0) {}
 	odhcpd_reload();
 }
 

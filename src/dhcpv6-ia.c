@@ -581,7 +581,8 @@ static void update(struct interface *iface)
 	int minprefix = -1;
 
 	for (int i = 0; i < len; ++i) {
-		if (addr[i].preferred > 0 && addr[i].prefix > minprefix)
+		if (addr[i].preferred > 0 && addr[i].prefix < 64 &&
+				addr[i].prefix > minprefix)
 			minprefix = addr[i].prefix;
 
 		addr[i].addr.s6_addr32[3] = 0;
@@ -756,7 +757,8 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					size_t entrlen = sizeof(p) - 4;
 
 					if (datalen + entrlen + 4 > buflen ||
-							(a->assigned == 0 && a->managed_size == 0))
+							(a->assigned == 0 && a->managed_size == 0) ||
+							(!a->managed_size && a->length < p.preferred))
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));

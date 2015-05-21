@@ -758,7 +758,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 					if (datalen + entrlen + 4 > buflen ||
 							(a->assigned == 0 && a->managed_size == 0) ||
-							(!a->managed_size && a->length < p.preferred))
+							(!a->managed_size && a->length <= addrs[i].prefix))
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));

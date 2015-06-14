@@ -163,6 +163,7 @@ enum {
 	IFACE_ATTR_DATA,
 	IFACE_ATTR_PREFIX,
 	IFACE_ATTR_ADDRESS,
+	IFACE_ATTR_ADDRESS4,
 	IFACE_ATTR_MAX,
 };
 
@@ -173,6 +174,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
 	[IFACE_ATTR_PREFIX] = { .name = "ipv6-prefix", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_ADDRESS] = { .name = "ipv6-address", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_ADDRESS4] = { .name = "ipv4-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)

@@ -177,6 +177,17 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_ADDRESS4] = { .name = "ipv4-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
+enum {
+	ADDR_ATTR_ADDRESS,
+	ADDR_ATTR_MASK,
+	ADDR_ATTR_MAX,
+};
+
+static const struct blobmsg_policy addr_attrs[ADDR_ATTR_MAX] = {
+	[ADDR_ATTR_ADDRESS] = { .name = "address", .type = BLOBMSG_TYPE_ARRAY },
+	[ADDR_ATTR_MASK] = { .name = "mask", .type = BLOBMSG_TYPE_INT32 },
+};
+
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[DUMP_ATTR_MAX];
@@ -363,7 +374,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 
 struct in_addr ubus_get_address4(const char *name)
 {
-	struct blob_attr *c;
+	struct blob_attr *c, *cur;
 	unsigned rem;
 
 	if (!dump)
@@ -377,10 +388,19 @@ struct in_addr ubus_get_address4(const char *name)
 				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
 			continue;
 
-		if (tb[IFACE_ATTR_IFNAME]) {
-			struct in_addr addr4;
-			if (inet_pton(AF_INET, blobmsg_get_string(tb[IFACE_ATTR_ADDRESS4]), &addr4) == 1)
-				return addr4;
+		if ((cur = tb[IFACE_ATTR_ADDRESS4])) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			struct blob_attr *d;
+			unsigned drem;
+			blobmsg_for_each_attr(d, cur, drem) {
+				struct blob_attr *addr[ADDR_ATTR_MAX];
+				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, addr, blobmsg_data(d), blobmsg_data_len(d));
+				struct in_addr addr4;
+				if (inet_pton(AF_INET, blobmsg_get_string(addr[ADDR_ATTR_ADDRESS]), &addr4) == 1)
+					return addr4;
+			}
 		}
 	}
 
@@ -389,7 +409,7 @@ struct in_addr ubus_get_address4(const char *name)
 
 struct in_addr ubus_get_mask4(const char *name)
 {
-	struct blob_attr *c;
+	struct blob_attr *c, *cur;
 	unsigned rem;
 
 	if (!dump)
@@ -403,10 +423,19 @@ struct in_addr ubus_get_mask4(const char *name)
 				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
 			continue;
 
-		if (tb[IFACE_ATTR_IFNAME]) {
-			struct in_addr mask4;
-			if (inet_pton(AF_INET, blobmsg_get_string(tb[IFACE_ATTR_MASK4]), &mask4) == 1)
-				return mask4;
+		if ((cur = tb[IFACE_ATTR_ADDRESS4])) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
+				continue;
+
+			struct blob_attr *d;
+			unsigned drem;
+			blobmsg_for_each_attr(d, cur, drem) {
+				struct blob_attr *addr[ADDR_ATTR_MAX];
+				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, addr, blobmsg_data(d), blobmsg_data_len(d));
+				struct in_addr addr4;
+				if (inet_pton(AF_INET, blobmsg_get_string(addr[ADDR_ATTR_MASK]), &addr4) == 1)
+					return addr4;
+			}
 		}
 	}
 

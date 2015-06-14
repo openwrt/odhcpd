@@ -119,21 +119,10 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 		}
 
 		// Create a range if not specified
-		//struct ifreq ifreq;
-		//strncpy(ifreq.ifr_name, iface->ifname, sizeof(ifreq.ifr_name));
-
-		//struct sockaddr_in *saddr = (struct sockaddr_in*)&ifreq.ifr_addr;
-		//struct sockaddr_in *smask = (struct sockaddr_in*)&ifreq.ifr_netmask;
-		//if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&
-		//		!(iface->dhcpv4_end.s_addr & htonl(0xffff0000)) &&
-		//		!ioctl(sock, SIOCGIFADDR, &ifreq)) {
 		if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&
 				!(iface->dhcpv4_end.s_addr & htonl(0xffff0000))) {
-			//struct in_addr addr = saddr->sin_addr;
 			struct in_addr addr = ubus_get_address4(iface->ifname);
 
-			//ioctl(sock, SIOCGIFNETMASK, &ifreq);
-			//struct in_addr mask = smask->sin_addr;
 			struct in_addr mask = ubus_get_mask4(iface->ifname);
 
 			uint32_t start = ntohl(iface->dhcpv4_start.s_addr);

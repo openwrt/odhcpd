@@ -361,6 +361,57 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 	return false;
 }
 
+struct in_addr ubus_get_address4(const char *name)
+{
+	struct blob_attr *c;
+	unsigned rem;
+
+	if (!dump)
+		return NULL;
+
+	blobmsg_for_each_attr(c, dump, rem) {
+		struct blob_attr *tb[IFACE_ATTR_MAX];
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
+
+		if (!tb[IFACE_ATTR_INTERFACE] || strcmp(name,
+				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
+			continue;
+
+		if (tb[IFACE_ATTR_IFNAME]) {
+			struct in_addr addr4;
+			if (inet_pton(AF_INET, blobmsg_get_string(tb[IFACE_ATTR_ADDRESS4]), &addr4) == 1)
+				return addr4;
+		}
+	}
+
+	return NULL;
+}
+
+struct in_addr ubus_get_mask4(const char *name)
+{
+	struct blob_attr *c;
+	unsigned rem;
+
+	if (!dump)
+		return NULL;
+
+	blobmsg_for_each_attr(c, dump, rem) {
+		struct blob_attr *tb[IFACE_ATTR_MAX];
+		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
+
+		if (!tb[IFACE_ATTR_INTERFACE] || strcmp(name,
+				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
+			continue;
+
+		if (tb[IFACE_ATTR_IFNAME]) {
+			struct in_addr mask4;
+			if (inet_pton(AF_INET, blobmsg_get_string(tb[IFACE_ATTR_MASK4]), &mask4) == 1)
+				return mask4;
+		}
+	}
+
+	return NULL;
+}
 
 int init_ubus(void)
 {

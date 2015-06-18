@@ -145,6 +145,8 @@ struct interface {
 	int route_preference;
 
 	// DHCPv4
+	struct in_addr dhcpv4_addr;
+	struct in_addr dhcpv4_mask;
 	struct in_addr dhcpv4_start;
 	struct in_addr dhcpv4_end;
 	struct in_addr *dhcpv4_router;

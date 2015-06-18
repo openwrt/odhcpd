@@ -209,8 +209,8 @@ int init_ubus(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
-struct in_addr* ubus_get_address4(const char *name);
-struct in_addr* ubus_get_mask4(const char *name);
+const char* ubus_get_address4(const char *name);
+int ubus_get_mask4(const char *name);
 #endif
 
 

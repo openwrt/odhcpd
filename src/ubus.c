@@ -372,7 +372,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 	return false;
 }
 
-struct in_addr* ubus_get_address4(const char *name)
+const char* ubus_get_address4(const char *name)
 {
 	struct blob_attr *c, *cur;
 	unsigned rem;
@@ -395,11 +395,13 @@ struct in_addr* ubus_get_address4(const char *name)
 			struct blob_attr *d;
 			unsigned drem;
 			blobmsg_for_each_attr(d, cur, drem) {
-				struct blob_attr *addr[ADDR_ATTR_MAX];
-				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, addr, blobmsg_data(d), blobmsg_data_len(d));
-				struct in_addr *addr4;
-				if (inet_pton(AF_INET, blobmsg_get_string(addr[ADDR_ATTR_ADDRESS]), &addr4) == 1)
-					return addr4;
+				struct blob_attr *ccur;
+				unsigned ddrem;
+				struct blob_attr *dict = blobmsg_data(cur);
+				blobmsg_for_each_attr(ccur, dict, ddrem) {
+					if (!strcmp(blobmsg_name(ccur), "address"))
+						return blobmsg_get_string(ccur);
+				}
 			}
 		}
 	}
@@ -407,13 +409,12 @@ struct in_addr* ubus_get_address4(const char *name)
 	return NULL;
 }
 
-struct in_addr* ubus_get_mask4(const char *name)
+int ubus_get_mask4(const char *name)
 {
 	struct blob_attr *c, *cur;
 	unsigned rem;
-
 	if (!dump)
-		return NULL;
+		return 0;
 
 	blobmsg_for_each_attr(c, dump, rem) {
 		struct blob_attr *tb[IFACE_ATTR_MAX];
@@ -430,16 +431,18 @@ struct in_addr* ubus_get_mask4(const char *name)
 			struct blob_attr *d;
 			unsigned drem;
 			blobmsg_for_each_attr(d, cur, drem) {
-				struct blob_attr *addr[ADDR_ATTR_MAX];
-				blobmsg_parse(addr_attrs, ADDR_ATTR_MAX, addr, blobmsg_data(d), blobmsg_data_len(d));
-				struct in_addr *addr4;
-				if (inet_pton(AF_INET, blobmsg_get_string(addr[ADDR_ATTR_MASK]), &addr4) == 1)
-					return addr4;
+				struct blob_attr *ccur;
+				unsigned ddrem;
+				struct blob_attr *dict = blobmsg_data(cur);
+				blobmsg_for_each_attr(ccur, dict, ddrem) {
+					if (!strcmp(blobmsg_name(ccur), "mask"))
+						return blobmsg_get_u32(ccur);
+				}
 			}
 		}
 	}
 
-	return NULL;
+	return 0;
 }
 
 int init_ubus(void)

@@ -118,14 +118,22 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			return -1;
 		}
 
+		const char* saddr = ubus_get_address4(iface->name);
+		struct in_addr addr;
+		inet_pton(AF_INET,saddr, &addr);
+		int bits = ubus_get_mask4(iface->name);
+		struct in_addr mask;
+		if (!(bits < -32 || bits > 32)) {
+			mask.s_addr = bits ? htonl(~((1 << (32 - abs(bits))) - 1)) : 0;
+			if (bits < 0)
+				mask.s_addr = ~mask.s_addr;
+		}
+
+
 		// Create a range if not specified
 		if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&
 				!(iface->dhcpv4_end.s_addr & htonl(0xffff0000))) {
 
-			struct in_addr *saddr = ubus_get_address4(iface->name);
-			struct in_addr addr = { .s_addr = saddr->s_addr } ;
-			struct in_addr *smask = ubus_get_mask4(iface->name);
-			struct in_addr mask = { .s_addr = smask->s_addr } ;
 
 			uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
 			uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
@@ -197,8 +205,6 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 
 		// Clean invalid assignments
 		struct dhcpv4_assignment *a, *n;
-		struct in_addr *smask = ubus_get_mask4(iface->name);
-		struct in_addr mask = { .s_addr = smask->s_addr } ;
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
 			if ((htonl(a->addr) & mask.s_addr) !=
 					(iface->dhcpv4_start.s_addr & mask.s_addr)) {

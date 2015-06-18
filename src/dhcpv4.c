@@ -123,11 +123,12 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 		inet_pton(AF_INET,saddr, &addr);
 		int bits = ubus_get_mask4(iface->name);
 		struct in_addr mask;
-		if (!(bits < -32 || bits > 32)) {
-			mask.s_addr = bits ? htonl(~((1 << (32 - abs(bits))) - 1)) : 0;
-			if (bits < 0)
-				mask.s_addr = ~mask.s_addr;
-		}
+		if (bits < -32 || bits > 32)
+			bits = 0;
+
+		mask.s_addr = bits ? htonl(~((1 << (32 - abs(bits))) - 1)) : 0;
+		if (bits < 0)
+			mask.s_addr = ~mask.s_addr;
 
 
 		// Create a range if not specified

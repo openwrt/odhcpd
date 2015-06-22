@@ -118,6 +118,21 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			return -1;
 		}
 
+#ifndef WITH_UBUS
+		struct ifreq ifreq;
+		strncpy(ifreq.ifr_name, iface->ifname, sizeof(ifreq.ifr_name));
+
+		struct sockaddr_in *saddr = (struct sockaddr_in*)&ifreq.ifr_addr;
+		struct sockaddr_in *smask = (struct sockaddr_in*)&ifreq.ifr_netmask;
+
+		if (!ioctl(sock, SIOCGIFADDR, &ifreq)) {
+			struct in_addr addr = saddr->sin_addr;
+			iface->dhcpv4_addr.s_addr = addr.s_addr;
+			ioctl(sock, SIOCGIFNETMASK, &ifreq);
+			struct in_addr mask = smask->sin_addr;
+			iface->dhcpv4_mask.s_addr = mask.s_addr;
+		}
+#else
 		const char* saddr = ubus_get_address4(iface->name);
 		struct in_addr addr;
 		inet_pton(AF_INET,saddr, &addr);
@@ -132,11 +147,12 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			mask.s_addr = ~mask.s_addr;
 
 		iface->dhcpv4_mask.s_addr = mask.s_addr;
+#endif
 
 		// Create a range if not specified
 		if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&
-				!(iface->dhcpv4_end.s_addr & htonl(0xffff0000))) {
-
+				!(iface->dhcpv4_end.s_addr & htonl(0xffff0000)) &&
+				iface->dhcpv4_addr.s_addr) {
 
 			uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
 			uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
@@ -270,7 +286,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	int sock = iface->dhcpv4_event.uloop.fd;
 
-	syslog(LOG_WARNING, "Got DHCPv4 request");
+	syslog(LOG_NOTICE, "Got DHCPv4 request");
 
 	struct ifreq ifreq;
 	memcpy(ifreq.ifr_name, iface->ifname, sizeof(ifreq.ifr_name));

@@ -177,17 +177,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_ADDRESS4] = { .name = "ipv4-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
-enum {
-	ADDR_ATTR_ADDRESS,
-	ADDR_ATTR_MASK,
-	ADDR_ATTR_MAX,
-};
-
-static const struct blobmsg_policy addr_attrs[ADDR_ATTR_MAX] = {
-	[ADDR_ATTR_ADDRESS] = { .name = "address", .type = BLOBMSG_TYPE_ARRAY },
-	[ADDR_ATTR_MASK] = { .name = "mask", .type = BLOBMSG_TYPE_INT32 },
-};
-
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[DUMP_ATTR_MAX];

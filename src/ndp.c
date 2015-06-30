@@ -212,7 +212,7 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 static ssize_t ping6(struct in6_addr *addr,
 		const struct interface *iface)
 {
-	struct sockaddr_in6 dest = {AF_INET6, 0, 0, *addr, 0};
+	struct sockaddr_in6 dest = {AF_INET6, 0, 0, *addr, iface->ifindex};
 	struct icmp6_hdr echo = {.icmp6_type = ICMP6_ECHO_REQUEST};
 	struct iovec iov = {&echo, sizeof(echo)};
 
@@ -369,6 +369,11 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 			if (rta->rta_type == atype &&
 					RTA_PAYLOAD(rta) >= sizeof(*addr))
 				addr = RTA_DATA(rta);
+
+		// Keep-alive neighbor entries for RA sending
+		if (nh->nlmsg_type == RTM_DELNEIGH && !(ndm->ndm_state & NUD_FAILED) &&
+				addr && IN6_IS_ADDR_LINKLOCAL(addr) && iface->ra == RELAYD_SERVER)
+			ping6(addr, iface);
 
 		// Address not specified or unrelated
 		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||

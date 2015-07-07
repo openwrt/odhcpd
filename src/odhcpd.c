@@ -234,9 +234,9 @@ int odhcpd_iterate_interface_neighbors(const struct interface *iface,
 		size_t alen = NLMSG_PAYLOAD(nhm, sizeof(*ndm));
 
 		while (RTA_OK(rta, alen)) {
-			if (rta->rta_type == NDA_DST) {
-				// TODO
-				cb_neigh(NULL, iface, data);
+			if (rta->rta_type == NDA_DST &&
+					RTA_PAYLOAD(rta) == sizeof(struct in6_addr)) {
+				cb_neigh(RTA_DATA(rta), iface, data);
 				break;
 			} else {
 				rta = RTA_NEXT(rta, alen);

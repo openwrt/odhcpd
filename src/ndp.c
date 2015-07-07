@@ -356,7 +356,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 		// Data to retrieve
 		size_t rta_offset = (is_route) ? sizeof(*rtm) : (is_addr) ?
-				sizeof(*ifa) : sizeof(*ndm);
+				sizeof(struct ifaddrmsg) : sizeof(*ndm);
 		uint16_t atype = (is_route) ? RTA_DST : (is_addr) ? IFA_ADDRESS : NDA_DST;
 		ssize_t alen = NLMSG_PAYLOAD(nh, rta_offset);
 		struct in6_addr *addr = NULL;

@@ -37,6 +37,7 @@ static void sigusr1_refresh(int signal);
 static struct odhcpd_event router_event = {{.fd = -1}, handle_icmpv6};
 
 static FILE *fp_route = NULL;
+#define RA_IOV_LEN 6
 
 
 int init_router(void)
@@ -203,6 +204,18 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 	}
 
 	return found_default;
+}
+
+// Unicsat RAs
+static void send_neigh_ra(const struct in6_addr *addr,
+		const struct interface *iface, void *data)
+{
+	struct sockaddr_in6 dest = {
+		.sin6_family = AF_INET6,
+		.sin6_addr = *addr,
+		.sin6_scope_id = iface->ifindex,
+	};
+	odhcpd_send(router_event.uloop.fd, &dest, data, RA_IOV_LEN, iface);
 }
 
 
@@ -443,7 +456,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		.data = {0, 0, maxival >> 24, maxival >> 16, maxival >> 8, maxival}
 	};
 
-	struct iovec iov[] = {{&adv, (uint8_t*)&adv.prefix[cnt] - (uint8_t*)&adv},
+	struct iovec iov[RA_IOV_LEN] = {
+			{&adv, (uint8_t*)&adv.prefix[cnt] - (uint8_t*)&adv},
 			{&routes, routes_cnt * sizeof(*routes)},
 			{&dns, (dns_cnt) ? sizeof(dns) : 0},
 			{dns_addr, dns_cnt * sizeof(*dns_addr)},
@@ -457,6 +471,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);
 
+	odhcpd_iterate_interface_neighbors(iface, send_neigh_ra, iov);
 	return msecs;
 }
 

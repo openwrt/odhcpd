@@ -202,6 +202,10 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
+int odhcpd_iterate_interface_neighbors(const struct interface *iface,
+		void(*cb_neigh)(const struct in6_addr *addr,
+				const struct interface *iface, void *data), void *data);
+
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
 #ifdef WITH_UBUS

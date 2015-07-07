@@ -332,43 +332,54 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 	for (struct nlmsghdr *nh = data; NLMSG_OK(nh, len);
 			nh = NLMSG_NEXT(nh, len)) {
-		struct rtmsg *rtm = NLMSG_DATA(nh);
-		if ((nh->nlmsg_type == RTM_NEWROUTE ||
-				nh->nlmsg_type == RTM_DELROUTE) &&
-				rtm->rtm_dst_len == 0)
-			raise(SIGUSR1); // Inform about a change in default route
-
 		struct ndmsg *ndm = NLMSG_DATA(nh);
-		struct ifaddrmsg *ifa = NLMSG_DATA(nh);
-		if (nh->nlmsg_type != RTM_NEWNEIGH
-				&& nh->nlmsg_type != RTM_DELNEIGH
-				&& nh->nlmsg_type != RTM_NEWADDR
-				&& nh->nlmsg_type != RTM_DELADDR)
-			continue; // Unrelated message type
+		struct rtmsg *rtm = NLMSG_DATA(nh);
+
 		bool is_addr = (nh->nlmsg_type == RTM_NEWADDR
 				|| nh->nlmsg_type == RTM_DELADDR);
+		bool is_route = (nh->nlmsg_type == RTM_NEWROUTE
+				|| nh->nlmsg_type == RTM_DELROUTE);
+		bool is_neigh = (nh->nlmsg_type == RTM_NEWNEIGH
+				|| nh->nlmsg_type == RTM_DELNEIGH);
 
 		// Family and ifindex are on the same offset for NEIGH and ADDR
-		if (NLMSG_PAYLOAD(nh, 0) < sizeof(*ndm)
+		if ((!is_addr && !is_route && !is_neigh)
+				|| NLMSG_PAYLOAD(nh, 0) < sizeof(*ndm)
 				|| ndm->ndm_family != AF_INET6)
-			continue; //
+			continue;
 
-		// Lookup interface
-		struct interface *iface;
-		if (!(iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex)))
+		// Inform about a change in default route
+		if (is_route && rtm->rtm_dst_len == 0)
+			raise(SIGUSR1);
+		else if (is_route && rtm->rtm_dst_len == 128)
 			continue;
 
 		// Data to retrieve
-		size_t rta_offset = (is_addr) ? sizeof(*ifa) : sizeof(*ndm);
-		uint16_t atype = (is_addr) ? IFA_ADDRESS : NDA_DST;
+		size_t rta_offset = (is_route) ? sizeof(*rtm) : (is_addr) ?
+				sizeof(*ifa) : sizeof(*ndm);
+		uint16_t atype = (is_route) ? RTA_DST : (is_addr) ? IFA_ADDRESS : NDA_DST;
 		ssize_t alen = NLMSG_PAYLOAD(nh, rta_offset);
 		struct in6_addr *addr = NULL;
+		int *ifindex = (!is_route) ? &ndm->ndm_ifindex : NULL;
 
 		for (struct rtattr *rta = (void*)(((uint8_t*)ndm) + rta_offset);
-				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen))
+				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
 			if (rta->rta_type == atype &&
-					RTA_PAYLOAD(rta) >= sizeof(*addr))
+					RTA_PAYLOAD(rta) >= sizeof(*addr)) {
 				addr = RTA_DATA(rta);
+			} else if (is_route && rta->rta_type == RTA_OIF &&
+					RTA_PAYLOAD(rta) == sizeof(int)) {
+				ifindex = (int*)RTA_DATA(rta);
+			} else if (is_route && rta->rta_type == RTA_GATEWAY) {
+				ifindex = NULL;
+				break;
+			}
+		}
+
+		// Lookup interface
+		struct interface *iface = ifindex ? odhcpd_get_interface_by_index(*ifindex) : NULL;
+		if (!iface)
+			continue;
 
 		// Keep-alive neighbor entries for RA sending
 		if (nh->nlmsg_type == RTM_DELNEIGH && !(ndm->ndm_state & NUD_FAILED) &&
@@ -389,7 +400,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 				(NUD_REACHABLE | NUD_STALE | NUD_DELAY | NUD_PROBE
 						| NUD_PERMANENT | NUD_NOARP)));
 
-		if (iface->ndp == RELAYD_RELAY) {
+		if (iface->ndp == RELAYD_RELAY && !is_route) {
 			// Replay change to all neighbor cache
 			struct {
 				struct nlmsghdr nh;
@@ -468,18 +479,18 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 			if (iface->dhcpv6 == RELAYD_SERVER)
 				iface->ia_reconf = true;
-
+		} else if (is_route) {
 			if (iface->ndp == RELAYD_RELAY && iface->master) {
-				// Replay address changes on all slave interfaces
+				// Replay on-link route changes on all slave interfaces
 				nh->nlmsg_flags = NLM_F_REQUEST;
 
-				if (nh->nlmsg_type == RTM_NEWADDR)
+				if (nh->nlmsg_type == RTM_NEWROUTE)
 					nh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
 
 				struct interface *c;
 				list_for_each_entry(c, &interfaces, head) {
 					if (c->ndp == RELAYD_RELAY && !c->master) {
-						ifa->ifa_index = c->ifindex;
+						*ifindex = c->ifindex;
 						send(rtnl_event.uloop.fd, nh, nh->nlmsg_len, MSG_DONTWAIT);
 					}
 				}

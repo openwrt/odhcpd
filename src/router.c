@@ -468,11 +468,12 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	if (from && !IN6_IS_ADDR_UNSPECIFIED(from))
 		dest.sin6_addr = *from;
+	else
+		odhcpd_iterate_interface_neighbors(iface, send_neigh_ra, iov);
 
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);
 
-	odhcpd_iterate_interface_neighbors(iface, send_neigh_ra, iov);
 	return msecs;
 }
 

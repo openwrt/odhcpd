@@ -361,6 +361,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 		ssize_t alen = NLMSG_PAYLOAD(nh, rta_offset);
 		struct in6_addr *addr = NULL;
 		int *ifindex = (!is_route) ? &ndm->ndm_ifindex : NULL;
+		int *metric = NULL;
 
 		for (struct rtattr *rta = (void*)(((uint8_t*)ndm) + rta_offset);
 				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
@@ -373,6 +374,8 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 			} else if (is_route && rta->rta_type == RTA_GATEWAY) {
 				ifindex = NULL;
 				break;
+			} else if (is_route && rta->rta_type == RTA_PRIORITY) {
+				metric = (int*)RTA_DATA(rta);
 			}
 		}
 
@@ -491,6 +494,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 				list_for_each_entry(c, &interfaces, head) {
 					if (c->ndp == RELAYD_RELAY && !c->master) {
 						*ifindex = c->ifindex;
+						*metric = (*metric & 0xffff) | (c->ifindex << 16);
 						send(rtnl_event.uloop.fd, nh, nh->nlmsg_len, MSG_DONTWAIT);
 					}
 				}

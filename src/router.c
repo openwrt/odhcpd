@@ -215,7 +215,8 @@ static void send_neigh_ra(const struct in6_addr *addr,
 		.sin6_addr = *addr,
 		.sin6_scope_id = iface->ifindex,
 	};
-	odhcpd_send(router_event.uloop.fd, &dest, data, RA_IOV_LEN, iface);
+	if (IN6_IS_ADDR_LINKLOCAL(addr))
+		odhcpd_send(router_event.uloop.fd, &dest, data, RA_IOV_LEN, iface);
 }
 
 

@@ -215,10 +215,6 @@ static ssize_t ping6(struct in6_addr *addr,
 	struct sockaddr_in6 dest = {AF_INET6, 0, 0, *addr, iface->ifindex};
 	struct icmp6_hdr echo = {.icmp6_type = ICMP6_ECHO_REQUEST};
 	struct iovec iov = {&echo, sizeof(echo)};
-
-	// Linux seems to not honor IPV6_PKTINFO on raw-sockets, so work around
-	setsockopt(ping_socket, SOL_SOCKET, SO_BINDTODEVICE,
-			iface->ifname, sizeof(iface->ifname));
 	return odhcpd_send(ping_socket, &dest, &iov, 1, iface);
 }
 

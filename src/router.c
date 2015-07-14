@@ -437,7 +437,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	minival = (maxival * 3) / 4;
 	if (adv.h.nd_ra_router_lifetime)
-		adv.h.nd_ra_router_lifetime = htons(maxvalid);
+		adv.h.nd_ra_router_lifetime = htons(maxvalid / 1000);
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % (maxival - minival)) + minival;

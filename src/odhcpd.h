@@ -99,6 +99,16 @@ struct lease {
 };
 
 
+struct ra_route {
+	uint8_t type;
+	uint8_t len;
+	uint8_t prefix;
+	uint8_t flags;
+	uint32_t lifetime;
+	uint32_t addr[4];
+};
+
+
 struct interface {
 	struct list_head head;
 
@@ -137,6 +147,9 @@ struct interface {
 	bool always_rewrite_dns;
 	bool ra_not_onlink;
 	bool ra_advrouter;
+	bool no_ra_unreachable;
+	struct ra_route *ra_routes;
+	size_t ra_routes_cnt;
 	bool no_dynamic_dhcp;
 
 	int learn_routes;

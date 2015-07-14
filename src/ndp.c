@@ -417,6 +417,22 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 			if (iface->dhcpv6 == RELAYD_SERVER)
 				iface->ia_reconf = true;
+
+			if (iface->ndp == RELAYD_RELAY && iface->master) {
+				// Replay address changes on all slave interfaces
+				nh->nlmsg_flags = NLM_F_REQUEST;
+
+				if (nh->nlmsg_type == RTM_NEWADDR)
+					nh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
+
+				struct interface *c;
+				list_for_each_entry(c, &interfaces, head) {
+					if (c->ndp == RELAYD_RELAY && !c->master) {
+						ndm->ndm_ifindex = c->ifindex;
+						send(rtnl_event.uloop.fd, nh, nh->nlmsg_len, MSG_DONTWAIT);
+					}
+				}
+			}
 		}
 	}
 

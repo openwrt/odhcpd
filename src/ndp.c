@@ -37,8 +37,6 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 static void handle_rtnetlink(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
-static ssize_t ping6(struct in6_addr *addr,
-		const struct interface *iface);
 
 static uint32_t rtnl_seqid = 0;
 static int ping_socket = -1;
@@ -209,13 +207,16 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 
 // Send an ICMP-ECHO. This is less for actually pinging but for the
 // neighbor cache to be kept up-to-date.
-static ssize_t ping6(struct in6_addr *addr,
+static void ping6(struct in6_addr *addr,
 		const struct interface *iface)
 {
 	struct sockaddr_in6 dest = {AF_INET6, 0, 0, *addr, iface->ifindex};
 	struct icmp6_hdr echo = {.icmp6_type = ICMP6_ECHO_REQUEST};
 	struct iovec iov = {&echo, sizeof(echo)};
-	return odhcpd_send(ping_socket, &dest, &iov, 1, iface);
+
+	odhcpd_setup_route(addr, 128, iface, NULL, 128, true);
+	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
+	odhcpd_setup_route(addr, 128, iface, NULL, 128, false);
 }
 
 
@@ -259,52 +260,6 @@ static void handle_solicit(void *addr, void *data, size_t len,
 			ping6(&req->nd_ns_target, c);
 }
 
-
-void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
-		const struct interface *iface, const struct in6_addr *gw, bool add)
-{
-	struct req {
-		struct nlmsghdr nh;
-		struct rtmsg rtm;
-		struct rtattr rta_dst;
-		struct in6_addr dst_addr;
-		struct rtattr rta_oif;
-		uint32_t ifindex;
-		struct rtattr rta_table;
-		uint32_t table;
-		struct rtattr rta_gw;
-		struct in6_addr gw;
-	} req = {
-		{sizeof(req), 0, NLM_F_REQUEST, ++rtnl_seqid, 0},
-		{AF_INET6, prefixlen, 0, 0, 0, 0, 0, 0, 0},
-		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_DST},
-		*addr,
-		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_OIF},
-		iface->ifindex,
-		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_TABLE},
-		RT_TABLE_MAIN,
-		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_GATEWAY},
-		IN6ADDR_ANY_INIT,
-	};
-
-	if (gw)
-		req.gw = *gw;
-
-	if (add) {
-		req.nh.nlmsg_type = RTM_NEWROUTE;
-		req.nh.nlmsg_flags |= (NLM_F_CREATE | NLM_F_REPLACE);
-		req.rtm.rtm_protocol = RTPROT_STATIC;
-		req.rtm.rtm_scope = (gw) ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
-		req.rtm.rtm_type = RTN_UNICAST;
-	} else {
-		req.nh.nlmsg_type = RTM_DELROUTE;
-		req.rtm.rtm_scope = RT_SCOPE_NOWHERE;
-	}
-
-	req.nh.nlmsg_len = (gw) ? sizeof(req) : offsetof(struct req, rta_gw);
-	send(rtnl_event.uloop.fd, &req, req.nh.nlmsg_len, MSG_DONTWAIT);
-}
-
 // Use rtnetlink to modify kernel routes
 static void setup_route(struct in6_addr *addr, struct interface *iface, bool add)
 {
@@ -314,7 +269,7 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 			(add) ? "Learned" : "Forgot", namebuf, iface->ifname);
 
 	if (iface->learn_routes)
-		odhcpd_setup_route(addr, 128, iface, NULL, add);
+		odhcpd_setup_route(addr, 128, iface, NULL, 1024, add);
 }
 
 
@@ -347,36 +302,25 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 		// Inform about a change in default route
 		if (is_route && rtm->rtm_dst_len == 0)
 			raise(SIGUSR1);
-		else if (is_route && rtm->rtm_dst_len == 128)
+		else if (is_route)
 			continue;
 
 		// Data to retrieve
-		size_t rta_offset = (is_route) ? sizeof(*rtm) : (is_addr) ?
-				sizeof(struct ifaddrmsg) : sizeof(*ndm);
-		uint16_t atype = (is_route) ? RTA_DST : (is_addr) ? IFA_ADDRESS : NDA_DST;
+		size_t rta_offset = (is_addr) ?	sizeof(struct ifaddrmsg) : sizeof(*ndm);
+		uint16_t atype = (is_addr) ? IFA_ADDRESS : NDA_DST;
 		ssize_t alen = NLMSG_PAYLOAD(nh, rta_offset);
 		struct in6_addr *addr = NULL;
-		int *ifindex = (!is_route) ? &ndm->ndm_ifindex : NULL;
-		int *metric = NULL;
 
 		for (struct rtattr *rta = (void*)(((uint8_t*)ndm) + rta_offset);
 				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
 			if (rta->rta_type == atype &&
 					RTA_PAYLOAD(rta) >= sizeof(*addr)) {
 				addr = RTA_DATA(rta);
-			} else if (is_route && rta->rta_type == RTA_OIF &&
-					RTA_PAYLOAD(rta) == sizeof(int)) {
-				ifindex = (int*)RTA_DATA(rta);
-			} else if (is_route && rta->rta_type == RTA_GATEWAY) {
-				ifindex = NULL;
-				break;
-			} else if (is_route && rta->rta_type == RTA_PRIORITY) {
-				metric = (int*)RTA_DATA(rta);
 			}
 		}
 
 		// Lookup interface
-		struct interface *iface = ifindex ? odhcpd_get_interface_by_index(*ifindex) : NULL;
+		struct interface *iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
 		if (!iface)
 			continue;
 
@@ -399,7 +343,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 				(NUD_REACHABLE | NUD_STALE | NUD_DELAY | NUD_PROBE
 						| NUD_PERMANENT | NUD_NOARP)));
 
-		if (iface->ndp == RELAYD_RELAY && !is_route) {
+		if (iface->ndp == RELAYD_RELAY) {
 			// Replay change to all neighbor cache
 			struct {
 				struct nlmsghdr nh;
@@ -478,23 +422,6 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 			if (iface->dhcpv6 == RELAYD_SERVER)
 				iface->ia_reconf = true;
-		} else if (is_route) {
-			if (iface->ndp == RELAYD_RELAY && iface->master) {
-				// Replay on-link route changes on all slave interfaces
-				nh->nlmsg_flags = NLM_F_REQUEST;
-
-				if (nh->nlmsg_type == RTM_NEWROUTE)
-					nh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
-
-				struct interface *c;
-				list_for_each_entry(c, &interfaces, head) {
-					if (c->ndp == RELAYD_RELAY && !c->master) {
-						*ifindex = c->ifindex;
-						*metric = (*metric & 0xffff) | (c->ifindex << 16);
-						send(rtnl_event.uloop.fd, nh, nh->nlmsg_len, MSG_DONTWAIT);
-					}
-				}
-			}
 		}
 	}
 

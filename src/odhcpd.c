@@ -221,7 +221,7 @@ int odhcpd_iterate_interface_neighbors(const struct interface *iface,
 
 		struct ndmsg *ndm = NLMSG_DATA(nhm);
 		if (ndm->ndm_ifindex != iface->ifindex ||
-				(ndm->ndm_state & NUD_FAILED))
+				!(ndm->ndm_state & (NUD_STALE | NUD_REACHABLE | NUD_PERMANENT)))
 			continue;
 
 		struct rtattr *rta = (struct rtattr*)&ndm[1];
@@ -327,6 +327,56 @@ int odhcpd_get_preferred_interface_address(int ifindex, struct in6_addr *addr)
 	}
 
 	return ret;
+}
+
+void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
+		const struct interface *iface, const struct in6_addr *gw,
+		int metric, bool add)
+{
+	struct req {
+		struct nlmsghdr nh;
+		struct rtmsg rtm;
+		struct rtattr rta_dst;
+		struct in6_addr dst_addr;
+		struct rtattr rta_oif;
+		uint32_t ifindex;
+		struct rtattr rta_table;
+		uint32_t table;
+		struct rtattr rta_prio;
+		uint32_t prio;
+		struct rtattr rta_gw;
+		struct in6_addr gw;
+	} req = {
+		{sizeof(req), 0, NLM_F_REQUEST, ++rtnl_seq, 0},
+		{AF_INET6, prefixlen, 0, 0, 0, 0, 0, 0, 0},
+		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_DST},
+		*addr,
+		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_OIF},
+		iface->ifindex,
+		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_TABLE},
+		RT_TABLE_MAIN,
+		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_PRIORITY},
+		metric,
+		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_GATEWAY},
+		IN6ADDR_ANY_INIT,
+	};
+
+	if (gw)
+		req.gw = *gw;
+
+	if (add) {
+		req.nh.nlmsg_type = RTM_NEWROUTE;
+		req.nh.nlmsg_flags |= (NLM_F_CREATE | NLM_F_REPLACE);
+		req.rtm.rtm_protocol = RTPROT_STATIC;
+		req.rtm.rtm_scope = (gw) ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
+		req.rtm.rtm_type = RTN_UNICAST;
+	} else {
+		req.nh.nlmsg_type = RTM_DELROUTE;
+		req.rtm.rtm_scope = RT_SCOPE_NOWHERE;
+	}
+
+	req.nh.nlmsg_len = (gw) ? sizeof(req) : offsetof(struct req, rta_gw);
+	send(rtnl_socket, &req, req.nh.nlmsg_len, MSG_DONTWAIT);
 }
 
 struct interface* odhcpd_get_interface_by_index(int ifindex)

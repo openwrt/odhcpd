@@ -363,7 +363,7 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 		struct in6_addr prefix = addrs[i].addr;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		odhcpd_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
-				iface, &a->peer.sin6_addr, add);
+				iface, &a->peer.sin6_addr, 1024, add);
 	}
 }
 

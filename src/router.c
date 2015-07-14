@@ -321,7 +321,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		}
 	}
 
-	if (maxvalid && !iface->default_router && adv.h.nd_ra_router_lifetime) {
+	if (!maxvalid && !iface->default_router && adv.h.nd_ra_router_lifetime) {
 		syslog(LOG_WARNING, "A default route is present but there is no public prefix "
 				"on %s thus we don't announce a default route!", iface->ifname);
 		adv.h.nd_ra_router_lifetime = 0;

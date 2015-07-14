@@ -188,61 +188,6 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 }
 
 
-int odhcpd_iterate_interface_neighbors(const struct interface *iface,
-		void(*cb_neigh)(const struct in6_addr *addr,
-				const struct interface *iface, void *data), void *data)
-{
-	struct {
-		struct nlmsghdr nhm;
-		struct ndmsg ndm;
-	} req = {{sizeof(req), RTM_GETNEIGH, NLM_F_REQUEST | NLM_F_DUMP,
-			++rtnl_seq, 0}, {AF_INET6, 0, 0, iface->ifindex, 0, 0, 0}};
-
-	if (send(rtnl_socket, &req, sizeof(req), 0) < (ssize_t)sizeof(req))
-		return -1;
-
-	uint8_t buf[8192];
-	ssize_t len = 0;
-
-	for (struct nlmsghdr *nhm = NULL; ; nhm = NLMSG_NEXT(nhm, len)) {
-		while (len < 0 || !NLMSG_OK(nhm, (size_t)len)) {
-			len = recv(rtnl_socket, buf, sizeof(buf), 0);
-			nhm = (struct nlmsghdr*)buf;
-			if (len < 0 || !NLMSG_OK(nhm, (size_t)len)) {
-				if (errno == EINTR)
-					continue;
-				else
-					return -1;
-			}
-		}
-
-		if (nhm->nlmsg_type != RTM_NEWNEIGH)
-			break;
-
-		struct ndmsg *ndm = NLMSG_DATA(nhm);
-		if (ndm->ndm_ifindex != iface->ifindex ||
-				!(ndm->ndm_state & (NUD_STALE | NUD_REACHABLE | NUD_PERMANENT)))
-			continue;
-
-		struct rtattr *rta = (struct rtattr*)&ndm[1];
-		size_t alen = NLMSG_PAYLOAD(nhm, sizeof(*ndm));
-
-		while (RTA_OK(rta, alen)) {
-			if (rta->rta_type == NDA_DST &&
-					RTA_PAYLOAD(rta) == sizeof(struct in6_addr)) {
-				cb_neigh(RTA_DATA(rta), iface, data);
-				break;
-			} else {
-				rta = RTA_NEXT(rta, alen);
-			}
-		}
-
-	}
-
-	return 0;
-}
-
-
 // Detect an IPV6-address currently assigned to the given interface
 ssize_t odhcpd_get_interface_addresses(int ifindex,
 		struct odhcpd_ipaddr *addrs, size_t cnt)

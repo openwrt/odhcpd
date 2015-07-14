@@ -324,11 +324,6 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 		if (!iface)
 			continue;
 
-		// Keep-alive neighbor entries for RA sending
-		if (nh->nlmsg_type == RTM_DELNEIGH && !(ndm->ndm_state & NUD_FAILED) &&
-				addr && IN6_IS_ADDR_LINKLOCAL(addr) && iface->ra == RELAYD_SERVER)
-			ping6(addr, iface);
-
 		// Address not specified or unrelated
 		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
 				IN6_IS_ADDR_MULTICAST(addr))

@@ -206,20 +206,6 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 	return found_default;
 }
 
-// Unicsat RAs
-static void send_neigh_ra(const struct in6_addr *addr,
-		const struct interface *iface, void *data)
-{
-	struct sockaddr_in6 dest = {
-		.sin6_family = AF_INET6,
-		.sin6_addr = *addr,
-		.sin6_scope_id = iface->ifindex,
-	};
-	if (IN6_IS_ADDR_LINKLOCAL(addr))
-		odhcpd_send(router_event.uloop.fd, &dest, data, RA_IOV_LEN, iface);
-}
-
-
 // Router Advert server mode
 static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
@@ -258,7 +244,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	// If not currently shutting down
 	struct odhcpd_ipaddr addrs[RELAYD_MAX_PREFIXES];
 	ssize_t ipcnt = 0;
-	uint64_t maxpreferred = 0;
+	uint64_t minvalid = UINT64_MAX;
+	uint64_t maxvalid = 0;
 
 	// If not shutdown
 	if (iface->timer_rs.cb) {
@@ -267,12 +254,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 		// Check default route
 		if (parse_routes(addrs, ipcnt) || iface->default_router > 1)
-			adv.h.nd_ra_router_lifetime =
-					htons(3 * MaxRtrAdvInterval);
+			adv.h.nd_ra_router_lifetime = 1;
 	}
 
 	// Construct Prefix Information options
-	bool have_public = false;
 	size_t cnt = 0;
 
 	struct in6_addr dns_pref = IN6ADDR_ANY_INIT, *dns_addr = &dns_pref;
@@ -284,8 +269,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		if (addr->prefix > 96)
 			continue; // Address not suitable
 
-		if (addr->preferred > MaxPreferredTime)
-			addr->preferred = MaxPreferredTime;
+		if (addr->preferred > MaxValidTime)
+			addr->preferred = MaxValidTime;
 
 		if (addr->valid > MaxValidTime)
 			addr->valid = MaxValidTime;
@@ -305,12 +290,15 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p = &adv.prefix[cnt++];
 		}
 
-		if ((addr->addr.s6_addr[0] & 0xfe) != 0xfc && addr->preferred > 0) {
-			have_public = true;
+		if (addr->preferred > 0) {
+			if (minvalid > 1000ULL * addr->valid)
+				minvalid = 1000ULL * addr->valid;
 
-			if (maxpreferred < 1000 * addr->preferred)
-				maxpreferred = 1000 * addr->preferred;
+			if (maxvalid < 1000ULL * addr->valid && (iface->default_router ||
+					(addr->addr.s6_addr[0] & 0xfe) != 0xfc))
+				maxvalid = 1000ULL * addr->valid;
 		}
+
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,
 				(iface->ra_advrouter) ? 128 : addr->prefix);
@@ -333,7 +321,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		}
 	}
 
-	if (!have_public && !iface->default_router && adv.h.nd_ra_router_lifetime) {
+	if (maxvalid && !iface->default_router && adv.h.nd_ra_router_lifetime) {
 		syslog(LOG_WARNING, "A default route is present but there is no public prefix "
 				"on %s thus we don't announce a default route!", iface->ifname);
 		adv.h.nd_ra_router_lifetime = 0;
@@ -434,19 +422,22 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	// Calculate periodic transmit
 	int msecs = 0;
-	uint32_t maxival = MaxRtrAdvInterval * 1000;
-	uint32_t minival = MinRtrAdvInterval * 1000;
+	uint32_t maxival = iface->ra_maxinterval * 1000;
+	uint32_t minival;
 
-	if (maxpreferred > 0 && maxival > maxpreferred / 2) {
-		maxival = maxpreferred / 2;
+	if (maxival < 4000 || maxival > MaxRtrAdvInterval * 1000)
+		maxival = MaxRtrAdvInterval * 1000;
+
+	if (minvalid < maxival / 3) {
+		maxival = minvalid / 3;
+
 		if (maxival < 4000)
 			maxival = 4000;
-
-		if (maxival >= 9000)
-			minival = maxival / 3;
-		else
-			minival = (maxival * 3) / 4;
 	}
+
+	minival = (maxival * 3) / 4;
+	if (adv.h.nd_ra_router_lifetime)
+		adv.h.nd_ra_router_lifetime = htons(maxvalid);
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % (maxival - minival)) + minival;
@@ -468,8 +459,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	if (from && !IN6_IS_ADDR_UNSPECIFIED(from))
 		dest.sin6_addr = *from;
-	else
-		odhcpd_iterate_interface_neighbors(iface, send_neigh_ra, iov);
 
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);

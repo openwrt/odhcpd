@@ -331,7 +331,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (iface->dns_cnt > 0) {
 		dns_addr = iface->dns;
 		dns_cnt = iface->dns_cnt;
-		dns_time = 2 * MaxRtrAdvInterval;
+		dns_time = 0;
 	}
 
 	if (!dns_addr || IN6_IS_ADDR_UNSPECIFIED(dns_addr))
@@ -376,7 +376,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
 	search->pad = 0;
 	search->pad2 = 0;
-	search->lifetime = htonl(2 * MaxRtrAdvInterval);;
 	memcpy(search->name, search_domain, search_len);
 	memset(&search->name[search_len], 0, search_padded - search_len);
 
@@ -428,7 +427,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (maxival < 4000 || maxival > MaxRtrAdvInterval * 1000)
 		maxival = MaxRtrAdvInterval * 1000;
 
-	if (minvalid < maxival / 3) {
+	if (maxival > minvalid / 3) {
 		maxival = minvalid / 3;
 
 		if (maxival < 4000)
@@ -438,6 +437,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	minival = (maxival * 3) / 4;
 	if (adv.h.nd_ra_router_lifetime)
 		adv.h.nd_ra_router_lifetime = htons(maxvalid / 1000);
+
+	search->lifetime = htonl((maxival * 3) / 1000);
+
+	if (!dns.lifetime)
+		dns.lifetime = search->lifetime;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % (maxival - minival)) + minival;

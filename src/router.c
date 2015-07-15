@@ -438,7 +438,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (adv.h.nd_ra_router_lifetime)
 		adv.h.nd_ra_router_lifetime = htons(maxvalid / 1000);
 
-	search->lifetime = htonl((maxival * 3) / 1000);
+	search->lifetime = htonl(maxvalid / 1000);
 
 	if (!dns.lifetime)
 		dns.lifetime = search->lifetime;

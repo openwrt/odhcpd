@@ -51,7 +51,7 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 	}
 
 	// Configure multicast settings
-	if (enable && iface->dhcpv6 && !iface->master) {
+	if (enable && iface->dhcpv6) {
 		int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (sock < 0) {
 			syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %s",

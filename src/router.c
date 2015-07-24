@@ -253,8 +253,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 				addrs, ARRAY_SIZE(addrs));
 
 		// Check default route
-		if (parse_routes(addrs, ipcnt) || iface->default_router > 1)
-			adv.h.nd_ra_router_lifetime = 1;
+		if (iface->default_router > 1)
+			adv.h.nd_ra_router_lifetime = htons(iface->default_router);
+		if (parse_routes(addrs, ipcnt))
+			adv.h.nd_ra_router_lifetime = htons(1);
 	}
 
 	// Construct Prefix Information options
@@ -290,15 +292,16 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p = &adv.prefix[cnt++];
 		}
 
-		if (addr->preferred > 0) {
-			if (minvalid > 1000ULL * addr->valid)
-				minvalid = 1000ULL * addr->valid;
+		if (addr->preferred > 0 &&
+				minvalid > 1000ULL * addr->valid)
+			minvalid = 1000ULL * addr->valid;
 
-			if (maxvalid < 1000ULL * addr->valid && (iface->default_router ||
-					(addr->addr.s6_addr[0] & 0xfe) != 0xfc))
-				maxvalid = 1000ULL * addr->valid;
-		}
+		if (maxvalid < 1000ULL * addr->valid)
+			maxvalid = 1000ULL * addr->valid;
 
+		if (((addr->addr.s6_addr[0] & 0xfe) != 0xfc || iface->default_router)
+				&& ntohs(adv.h.nd_ra_router_lifetime) < addr->valid)
+			adv.h.nd_ra_router_lifetime = htons(addr->valid);
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,
 				(iface->ra_advrouter) ? 128 : addr->prefix);
@@ -321,7 +324,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		}
 	}
 
-	if (!maxvalid && !iface->default_router && adv.h.nd_ra_router_lifetime) {
+	if (!iface->default_router && ntohs(adv.h.nd_ra_router_lifetime) == 1) {
 		syslog(LOG_WARNING, "A default route is present but there is no public prefix "
 				"on %s thus we don't announce a default route!", iface->ifname);
 		adv.h.nd_ra_router_lifetime = 0;
@@ -435,8 +438,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	}
 
 	minival = (maxival * 3) / 4;
-	if (adv.h.nd_ra_router_lifetime)
-		adv.h.nd_ra_router_lifetime = htons(maxvalid / 1000);
 
 	search->lifetime = htonl(maxvalid / 1000);
 

@@ -29,6 +29,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/filter.h>
 #include "router.h"
+#include "dhcpv6.h"
 #include "ndp.h"
 
 
@@ -272,6 +273,58 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 		odhcpd_setup_route(addr, 128, iface, NULL, 1024, add);
 }
 
+// compare prefixes
+static int prefixcmp(const void *va, const void *vb)
+{
+	const struct odhcpd_ipaddr *a = va, *b = vb;
+	uint32_t a_pref = ((a->addr.s6_addr[0] & 0xfe) != 0xfc) ? a->preferred : 1;
+	uint32_t b_pref = ((b->addr.s6_addr[0] & 0xfe) != 0xfc) ? b->preferred : 1;
+	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
+}
+
+// Check address update
+static void check_updates(struct interface *iface)
+{
+	struct odhcpd_ipaddr addr[8] = {{IN6ADDR_ANY_INIT, 0, 0, 0, 0}};
+	time_t now = odhcpd_time();
+	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, addr, 8);
+
+	if (len < 0)
+		return;
+
+	qsort(addr, len, sizeof(*addr), prefixcmp);
+
+	for (int i = 0; i < len; ++i) {
+		addr[i].addr.s6_addr32[3] = 0;
+
+		if (addr[i].preferred < UINT32_MAX - now)
+			addr[i].preferred += now;
+
+		if (addr[i].valid < UINT32_MAX - now)
+			addr[i].valid += now;
+	}
+
+	bool change = len != (ssize_t)iface->ia_addr_len;
+	for (ssize_t i = 0; !change && i < len; ++i)
+		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr, &iface->ia_addr[i].addr) ||
+				(addr[i].preferred > 0) != (iface->ia_addr[i].preferred > 0) ||
+				addr[i].valid < iface->ia_addr[i].valid ||
+				addr[i].preferred < iface->ia_addr[i].preferred)
+			change = true;
+
+	if (change)
+		dhcpv6_ia_preupdate(iface);
+
+	memcpy(iface->ia_addr, addr, len * sizeof(*addr));
+	iface->ia_addr_len = len;
+
+	if (change)
+		dhcpv6_ia_postupdate(iface, now);
+
+	if (change)
+		raise(SIGUSR1);
+}
+
 
 // Handler for neighbor cache entries from the kernel. This is our source
 // to learn and unlearn hosts on interfaces.
@@ -412,8 +465,7 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 		}
 
 		if (is_addr) {
-			if (iface->ra == RELAYD_SERVER)
-				raise(SIGUSR1); // Inform about a change in addresses
+			check_updates(iface);
 
 			if (iface->dhcpv6 == RELAYD_SERVER)
 				iface->ia_reconf = true;

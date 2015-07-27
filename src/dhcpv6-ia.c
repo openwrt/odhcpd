@@ -34,7 +34,6 @@
 #include <sys/timerfd.h>
 
 
-static void update(struct interface *iface);
 static void reconf_timer(struct uloop_timeout *event);
 static struct uloop_timeout reconf_event = {.cb = reconf_timer};
 static uint32_t serial = 0;
@@ -88,8 +87,6 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 			border->length = 64;
 			list_add(&border->head, &iface->ia_assignments);
 		}
-
-		update(iface);
 
 		// Parse static entries
 		struct lease *lease;
@@ -556,106 +553,73 @@ static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 	return false;
 }
 
-
-static int prefixcmp(const void *va, const void *vb)
+void dhcpv6_ia_preupdate(struct interface *iface)
 {
-	const struct odhcpd_ipaddr *a = va, *b = vb;
-	uint32_t a_pref = ((a->addr.s6_addr[0] & 0xfe) != 0xfc) ? a->preferred : 1;
-	uint32_t b_pref = ((b->addr.s6_addr[0] & 0xfe) != 0xfc) ? b->preferred : 1;
-	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
-}
-
-
-static void update(struct interface *iface)
-{
-	struct odhcpd_ipaddr addr[8];
-	memset(addr, 0, sizeof(addr));
-	int len = odhcpd_get_interface_addresses(iface->ifindex, addr, 8);
-
-	if (len < 0)
+	if (iface->dhcpv6 != RELAYD_SERVER)
 		return;
 
-	qsort(addr, len, sizeof(*addr), prefixcmp);
+	struct dhcpv6_assignment *c, *border = list_last_entry(
+			&iface->ia_assignments, struct dhcpv6_assignment, head);
+	list_for_each_entry(c, &iface->ia_assignments, head)
+		if (c != border && !iface->managed)
+			apply_lease(iface, c, false);
+}
 
-	time_t now = odhcpd_time();
+void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
+{
+	if (iface->dhcpv6 != RELAYD_SERVER)
+		return;
+
 	int minprefix = -1;
-
-	for (int i = 0; i < len; ++i) {
-		if (addr[i].preferred > 0 && addr[i].prefix < 64 &&
-				addr[i].prefix > minprefix)
-			minprefix = addr[i].prefix;
-
-		addr[i].addr.s6_addr32[3] = 0;
-
-		if (addr[i].preferred < UINT32_MAX - now)
-			addr[i].preferred += now;
-
-		if (addr[i].valid < UINT32_MAX - now)
-			addr[i].valid += now;
+	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
+		if (iface->ia_addr[i].preferred > now &&
+				iface->ia_addr[i].prefix < 64 &&
+				iface->ia_addr[i].prefix > minprefix)
+			minprefix = iface->ia_addr[i].prefix;
 	}
 
-	struct dhcpv6_assignment *border = list_last_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
+	struct dhcpv6_assignment *border = list_last_entry(
+			&iface->ia_assignments, struct dhcpv6_assignment, head);
 	if (minprefix > 32 && minprefix <= 64)
 		border->assigned = 1U << (64 - minprefix);
 	else
 		border->assigned = 0;
 
-	bool change = len != (int)iface->ia_addr_len;
-	for (int i = 0; !change && i < len; ++i)
-		if (addr[i].addr.s6_addr32[0] != iface->ia_addr[i].addr.s6_addr32[0] ||
-				addr[i].addr.s6_addr32[1] != iface->ia_addr[i].addr.s6_addr32[1] ||
-				(addr[i].preferred > 0) != (iface->ia_addr[i].preferred > 0) ||
-				(addr[i].valid > (uint32_t)now + 7200) !=
-						(iface->ia_addr[i].valid > (uint32_t)now + 7200))
-			change = true;
+	struct list_head reassign = LIST_HEAD_INIT(reassign);
+	struct dhcpv6_assignment *c, *d;
+	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
+		if (c->clid_len == 0 || c->valid_until < now || c->managed_size)
+			continue;
 
-	if (change) {
-		struct dhcpv6_assignment *c;
-		list_for_each_entry(c, &iface->ia_assignments, head)
-			if (c != border && !iface->managed)
-				apply_lease(iface, c, false);
+		if (c->length < 128 && c->assigned >= border->assigned && c != border)
+			list_move(&c->head, &reassign);
+		else if (c != border)
+			apply_lease(iface, c, true);
+
+		if (c->accept_reconf && c->reconf_cnt == 0) {
+			c->reconf_cnt = 1;
+			c->reconf_sent = now;
+			send_reconf(iface, c);
+
+			// Leave all other assignments of that client alone
+			struct dhcpv6_assignment *a;
+			list_for_each_entry(a, &iface->ia_assignments, head)
+				if (a != c && a->clid_len == c->clid_len &&
+						!memcmp(a->clid_data, c->clid_data, a->clid_len))
+					c->reconf_cnt = INT_MAX;
+		}
 	}
 
-	memcpy(iface->ia_addr, addr, len * sizeof(*addr));
-	iface->ia_addr_len = len;
-
-	if (change) { // Addresses / prefixes have changed
-		struct list_head reassign = LIST_HEAD_INIT(reassign);
-		struct dhcpv6_assignment *c, *d;
-		list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
-			if (c->clid_len == 0 || c->valid_until < now || c->managed_size)
-				continue;
-
-			if (c->length < 128 && c->assigned >= border->assigned && c != border)
-				list_move(&c->head, &reassign);
-			else if (c != border)
-				apply_lease(iface, c, true);
-
-			if (c->accept_reconf && c->reconf_cnt == 0) {
-				c->reconf_cnt = 1;
-				c->reconf_sent = now;
-				send_reconf(iface, c);
-
-				// Leave all other assignments of that client alone
-				struct dhcpv6_assignment *a;
-				list_for_each_entry(a, &iface->ia_assignments, head)
-					if (a != c && a->clid_len == c->clid_len &&
-							!memcmp(a->clid_data, c->clid_data, a->clid_len))
-						c->reconf_cnt = INT_MAX;
-			}
+	while (!list_empty(&reassign)) {
+		c = list_first_entry(&reassign, struct dhcpv6_assignment, head);
+		list_del(&c->head);
+		if (!assign_pd(iface, c)) {
+			c->assigned = 0;
+			list_add(&c->head, &iface->ia_assignments);
 		}
-
-		while (!list_empty(&reassign)) {
-			c = list_first_entry(&reassign, struct dhcpv6_assignment, head);
-			list_del(&c->head);
-			if (!assign_pd(iface, c)) {
-				c->assigned = 0;
-				list_add(&c->head, &iface->ia_assignments);
-			}
-		}
-
-		dhcpv6_write_statefile();
 	}
+
+	dhcpv6_write_statefile();
 }
 
 
@@ -1008,8 +972,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 	if (!clid_data || !clid_len || clid_len > 130)
 		goto out;
-
-	update(iface);
 
 	struct dhcpv6_assignment *first = NULL;
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {

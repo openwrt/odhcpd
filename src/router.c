@@ -114,7 +114,7 @@ int setup_router_interface(struct interface *iface, bool enable)
 			forward_router_solicitation(iface);
 		} else if (iface->ra == RELAYD_SERVER && !iface->master) {
 			iface->timer_rs.cb = trigger_router_advert;
-			trigger_router_advert(&iface->timer_rs);
+			uloop_timeout_set(&iface->timer_rs, 1000);
 		}
 
 		if (iface->ra == RELAYD_RELAY || (iface->ra == RELAYD_SERVER && !iface->master))
@@ -209,6 +209,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 // Router Advert server mode
 static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
+	time_t now = odhcpd_time();
 	int mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
 	int hlim = odhcpd_get_interface_config(iface->ifname, "hop_limit");
 
@@ -219,7 +220,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		struct nd_router_advert h;
 		struct icmpv6_opt lladdr;
 		struct nd_opt_mtu mtu;
-		struct nd_opt_prefix_info prefix[RELAYD_MAX_PREFIXES];
+		struct nd_opt_prefix_info prefix[sizeof(iface->ia_addr) / sizeof(*iface->ia_addr)];
 	} adv = {
 		.h = {{.icmp6_type = ND_ROUTER_ADVERT, .icmp6_code = 0}, 0, 0},
 		.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
@@ -242,21 +243,21 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
 	// If not currently shutting down
-	struct odhcpd_ipaddr addrs[RELAYD_MAX_PREFIXES];
+	struct odhcpd_ipaddr *addrs = NULL;
 	ssize_t ipcnt = 0;
-	uint64_t minvalid = UINT64_MAX;
-	uint64_t maxvalid = 0;
+	int64_t minvalid = INT64_MAX;
+	int64_t maxvalid = 0;
 
 	// If not shutdown
 	if (iface->timer_rs.cb) {
-		ipcnt = odhcpd_get_interface_addresses(iface->ifindex,
-				addrs, ARRAY_SIZE(addrs));
+		addrs = iface->ia_addr;
+		ipcnt = iface->ia_addr_len;
 
 		// Check default route
-		if (iface->default_router > 1)
-			adv.h.nd_ra_router_lifetime = htons(iface->default_router);
 		if (parse_routes(addrs, ipcnt))
 			adv.h.nd_ra_router_lifetime = htons(1);
+		if (iface->default_router > 1)
+			adv.h.nd_ra_router_lifetime = htons(iface->default_router);
 	}
 
 	// Construct Prefix Information options
@@ -268,14 +269,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 96)
+		if (addr->prefix > 96 || addr->valid <= now)
 			continue; // Address not suitable
-
-		if (addr->preferred > MaxValidTime)
-			addr->preferred = MaxValidTime;
-
-		if (addr->valid > MaxValidTime)
-			addr->valid = MaxValidTime;
 
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < cnt; ++i) {
@@ -292,16 +287,16 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p = &adv.prefix[cnt++];
 		}
 
-		if (addr->preferred > 0 &&
-				minvalid > 1000ULL * addr->valid)
-			minvalid = 1000ULL * addr->valid;
+		if (addr->preferred > now &&
+				minvalid > 1000LL * (addr->valid - now))
+			minvalid = 1000LL * (addr->valid - now);
 
-		if (maxvalid < 1000ULL * addr->valid)
-			maxvalid = 1000ULL * addr->valid;
+		if (maxvalid < 1000LL * (addr->valid - now))
+			maxvalid = 1000LL * (addr->valid - now);
 
 		if (((addr->addr.s6_addr[0] & 0xfe) != 0xfc || iface->default_router)
-				&& ntohs(adv.h.nd_ra_router_lifetime) < addr->valid)
-			adv.h.nd_ra_router_lifetime = htons(addr->valid);
+				&& ntohs(adv.h.nd_ra_router_lifetime) < addr->valid - now)
+			adv.h.nd_ra_router_lifetime = htons(addr->valid - now);
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,
 				(iface->ra_advrouter) ? 128 : addr->prefix);
@@ -315,11 +310,13 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
-		p->nd_opt_pi_valid_time = htonl(addr->valid);
-		p->nd_opt_pi_preferred_time = htonl(addr->preferred);
+		p->nd_opt_pi_valid_time = htonl(addr->valid - now);
+		if (addr->preferred > now)
+			p->nd_opt_pi_preferred_time = htonl(addr->preferred - now);
 
-		if (addr->preferred > dns_time) {
-			dns_time = addr->preferred;
+
+		if (addr->preferred - now > dns_time) {
+			dns_time = addr->preferred - now;
 			dns_pref = addr->addr;
 		}
 	}
@@ -395,7 +392,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->dprefix > 64 || addr->dprefix == 0 ||
+		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= now ||
 				(addr->dprefix == 64 && addr->prefix == 64)) {
 			continue; // Address not suitable
 		} else if (addr->dprefix > 32) {
@@ -413,7 +410,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			routes[routes_cnt].flags |= ND_RA_PREF_LOW;
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
-		routes[routes_cnt].lifetime = htonl(addr->valid);
+		routes[routes_cnt].lifetime = htonl(addr->valid - now);
 		routes[routes_cnt].addr[0] = addr->addr.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.s6_addr32[1];
 		routes[routes_cnt].addr[2] = 0;

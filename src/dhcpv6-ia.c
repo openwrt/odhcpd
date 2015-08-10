@@ -572,7 +572,7 @@ void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
 
 	int minprefix = -1;
 	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-		if (iface->ia_addr[i].preferred > now &&
+		if (iface->ia_addr[i].preferred > (uint32_t)now &&
 				iface->ia_addr[i].prefix < 64 &&
 				iface->ia_addr[i].prefix > minprefix)
 			minprefix = iface->ia_addr[i].prefix;

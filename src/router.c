@@ -269,7 +269,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 96 || addr->valid <= now)
+		if (addr->prefix > 96 || addr->valid <= (uint32_t)now)
 			continue; // Address not suitable
 
 		struct nd_opt_prefix_info *p = NULL;
@@ -287,7 +287,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p = &adv.prefix[cnt++];
 		}
 
-		if (addr->preferred > now &&
+		if (addr->preferred > (uint32_t)now &&
 				minvalid > 1000LL * (addr->valid - now))
 			minvalid = 1000LL * (addr->valid - now);
 
@@ -311,7 +311,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
 		p->nd_opt_pi_valid_time = htonl(addr->valid - now);
-		if (addr->preferred > now)
+		if (addr->preferred > (uint32_t)now)
 			p->nd_opt_pi_preferred_time = htonl(addr->preferred - now);
 
 
@@ -392,7 +392,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= now ||
+		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now ||
 				(addr->dprefix == 64 && addr->prefix == 64)) {
 			continue; // Address not suitable
 		} else if (addr->dprefix > 32) {

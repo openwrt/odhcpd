@@ -163,7 +163,6 @@ enum {
 	IFACE_ATTR_DATA,
 	IFACE_ATTR_PREFIX,
 	IFACE_ATTR_ADDRESS,
-	IFACE_ATTR_ADDRESS4,
 	IFACE_ATTR_MAX,
 };
 
@@ -174,7 +173,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DATA] = { .name = "data", .type = BLOBMSG_TYPE_TABLE },
 	[IFACE_ATTR_PREFIX] = { .name = "ipv6-prefix", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_ADDRESS] = { .name = "ipv6-address", .type = BLOBMSG_TYPE_ARRAY },
-	[IFACE_ATTR_ADDRESS4] = { .name = "ipv4-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
@@ -361,78 +359,6 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 	return false;
 }
 
-const char* ubus_get_address4(const char *name)
-{
-	struct blob_attr *c, *cur;
-	unsigned rem;
-
-	if (!dump)
-		return NULL;
-
-	blobmsg_for_each_attr(c, dump, rem) {
-		struct blob_attr *tb[IFACE_ATTR_MAX];
-		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
-
-		if (!tb[IFACE_ATTR_INTERFACE] || strcmp(name,
-				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
-			continue;
-
-		if ((cur = tb[IFACE_ATTR_ADDRESS4])) {
-			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
-				continue;
-
-			struct blob_attr *d;
-			unsigned drem;
-			blobmsg_for_each_attr(d, cur, drem) {
-				struct blob_attr *ccur;
-				unsigned ddrem;
-				struct blob_attr *dict = blobmsg_data(cur);
-				blobmsg_for_each_attr(ccur, dict, ddrem) {
-					if (!strcmp(blobmsg_name(ccur), "address"))
-						return blobmsg_get_string(ccur);
-				}
-			}
-		}
-	}
-
-	return NULL;
-}
-
-int ubus_get_mask4(const char *name)
-{
-	struct blob_attr *c, *cur;
-	unsigned rem;
-	if (!dump)
-		return 0;
-
-	blobmsg_for_each_attr(c, dump, rem) {
-		struct blob_attr *tb[IFACE_ATTR_MAX];
-		blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blobmsg_data(c), blobmsg_data_len(c));
-
-		if (!tb[IFACE_ATTR_INTERFACE] || strcmp(name,
-				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE])))
-			continue;
-
-		if ((cur = tb[IFACE_ATTR_ADDRESS4])) {
-			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
-				continue;
-
-			struct blob_attr *d;
-			unsigned drem;
-			blobmsg_for_each_attr(d, cur, drem) {
-				struct blob_attr *ccur;
-				unsigned ddrem;
-				struct blob_attr *dict = blobmsg_data(cur);
-				blobmsg_for_each_attr(ccur, dict, ddrem) {
-					if (!strcmp(blobmsg_name(ccur), "mask"))
-						return blobmsg_get_u32(ccur);
-				}
-			}
-		}
-	}
-
-	return 0;
-}
 
 int init_ubus(void)
 {

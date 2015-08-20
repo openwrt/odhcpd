@@ -254,24 +254,21 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 	return ret;
 }
 
-int odhcpd_get_preferred_interface_address(int ifindex, struct in6_addr *addr)
+int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 {
-	struct odhcpd_ipaddr ipaddrs[8];
-	ssize_t ip_cnt = odhcpd_get_interface_addresses(ifindex, ipaddrs, ARRAY_SIZE(ipaddrs));
-	uint32_t preferred = 0;
-	int ret = 0;
+		int status = -1;
+		struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, ifindex};
+		socklen_t alen = sizeof(addr);
+		int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 
-	for (ssize_t i = 0; i < ip_cnt; i++) {
-		struct odhcpd_ipaddr *ipaddr = &ipaddrs[i];
-
-		if (ipaddr->preferred > preferred || !preferred) {
-			preferred = ipaddr->preferred;
-			*addr = ipaddr->addr;
-			ret = 1;
+		if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
+				!getsockname(sock, (struct sockaddr*)&addr, &alen)) {
+			*lladdr = addr.sin6_addr;
+			status = 0;
 		}
-	}
 
-	return ret;
+		close(sock);
+		return status;
 }
 
 void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,

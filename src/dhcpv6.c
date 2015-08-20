@@ -228,7 +228,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	size_t dns_cnt = iface->dns_cnt;
 
 	if ((dns_cnt == 0) &&
-		odhcpd_get_preferred_interface_address(iface->ifindex, &dns_addr)) {
+		!odhcpd_get_linklocal_interface_address(iface->ifindex, &dns_addr)) {
 		dns_addr_ptr = &dns_addr;
 		dns_cnt = 1;
 	}
@@ -460,7 +460,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 		size_t rewrite_cnt = iface->dns_cnt;
 
 		if (rewrite_cnt == 0) {
-			if (odhcpd_get_preferred_interface_address(iface->ifindex, &addr) < 1)
+			if (odhcpd_get_linklocal_interface_address(iface->ifindex, &addr))
 				return; // Unable to get interface address
 
 			rewrite = &addr;

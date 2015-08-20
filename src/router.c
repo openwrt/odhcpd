@@ -264,9 +264,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	// Construct Prefix Information options
 	size_t cnt = 0;
 
-	struct in6_addr dns_pref = IN6ADDR_ANY_INIT, *dns_addr = &dns_pref;
-	uint32_t dns_time = 0;
+	struct in6_addr dns_pref, *dns_addr = &dns_pref;
 	size_t dns_cnt = 1;
+
+	odhcpd_get_linklocal_interface_address(iface->ifindex, &dns_pref);
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
@@ -316,12 +317,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p->nd_opt_pi_preferred_time = htonl(TIME_LEFT(addr->preferred, now));
 		else if (addr->valid - now < 7200)
 			p->nd_opt_pi_valid_time = 0;
-
-
-		if (TIME_LEFT(addr->preferred, now) > dns_time) {
-			dns_time = TIME_LEFT(addr->preferred, now);
-			dns_pref = addr->addr;
-		}
 	}
 
 	if (!iface->default_router && ntohs(adv.h.nd_ra_router_lifetime) == 1) {
@@ -334,7 +329,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (iface->dns_cnt > 0) {
 		dns_addr = iface->dns;
 		dns_cnt = iface->dns_cnt;
-		dns_time = 0;
 	}
 
 	if (!dns_addr || IN6_IS_ADDR_UNSPECIFIED(dns_addr))
@@ -346,7 +340,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		uint8_t pad;
 		uint8_t pad2;
 		uint32_t lifetime;
-	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, htonl(dns_time)};
+	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, 0};
 
 
 
@@ -440,9 +434,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	minival = (maxival * 3) / 4;
 
 	search->lifetime = htonl(maxvalid / 1000);
-
-	if (!dns.lifetime)
-		dns.lifetime = search->lifetime;
+	dns.lifetime = search->lifetime;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % (maxival - minival)) + minival;
@@ -569,7 +561,7 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 			size_t rewrite_cnt = iface->dns_cnt;
 
 			if (rewrite_cnt == 0) {
-				if (odhcpd_get_preferred_interface_address(iface->ifindex, &addr) < 1)
+				if (odhcpd_get_linklocal_interface_address(iface->ifindex, &addr))
 					continue; // Unable to comply
 
 				rewrite = &addr;

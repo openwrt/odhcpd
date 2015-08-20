@@ -146,8 +146,6 @@ struct interface {
 	int ra_maxinterval;
 
 	// DHCPv4
-	struct in_addr dhcpv4_addr;
-	struct in_addr dhcpv4_mask;
 	struct in_addr dhcpv4_start;
 	struct in_addr dhcpv4_end;
 	struct in_addr *dhcpv4_router;
@@ -213,8 +211,6 @@ int init_ubus(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
-const char* ubus_get_address4(const char *name);
-int ubus_get_mask4(const char *name);
 #endif
 
 

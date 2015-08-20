@@ -314,6 +314,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		p->nd_opt_pi_valid_time = htonl(TIME_LEFT(addr->valid, now));
 		if (addr->preferred > (uint32_t)now)
 			p->nd_opt_pi_preferred_time = htonl(TIME_LEFT(addr->preferred, now));
+		else if (addr->valid - now < 7200)
+			p->nd_opt_pi_valid_time = 0;
 
 
 		if (TIME_LEFT(addr->preferred, now) > dns_time) {

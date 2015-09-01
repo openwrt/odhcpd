@@ -739,7 +739,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					size_t entrlen = sizeof(n) - 4;
 
 					if (iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
-							addrs[i].prefix == 64)
+							addrs[i].prefix <= 64)
 						continue;
 
 					if (datalen + entrlen + 4 > buflen || a->assigned == 0)

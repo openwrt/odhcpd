@@ -244,15 +244,15 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
 	// If not currently shutting down
-	struct odhcpd_ipaddr *addrs = NULL;
+	struct odhcpd_ipaddr addrs[8];
 	ssize_t ipcnt = 0;
 	int64_t minvalid = INT64_MAX;
 	int64_t maxvalid = 0;
 
 	// If not shutdown
 	if (iface->timer_rs.cb) {
-		addrs = iface->ia_addr;
 		ipcnt = iface->ia_addr_len;
+		memcpy(addrs, iface->ia_addr, ipcnt * sizeof(*addrs));
 
 		// Check default route
 		if (parse_routes(addrs, ipcnt))

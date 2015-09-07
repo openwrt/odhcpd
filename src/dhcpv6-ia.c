@@ -92,14 +92,15 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		struct lease *lease;
 		list_for_each_entry(lease, &leases, head) {
 			// Construct entry
-			struct dhcpv6_assignment *a = calloc(1, sizeof(*a) + lease->duid_len);
+			size_t duid_len = lease->duid_len ? lease->duid_len : 14;
+			struct dhcpv6_assignment *a = calloc(1, sizeof(*a) + duid_len);
 			if (!a) {
 				syslog(LOG_ERR, "Calloc failed for static lease assignment on interface %s",
 					iface->ifname);
 				return -1;
 			}
 
-			a->clid_len = lease->duid_len;
+			a->clid_len = duid_len;
 			a->length = 128;
 			if (lease->hostid) {
 				a->assigned = lease->hostid;

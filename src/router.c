@@ -247,7 +247,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	struct odhcpd_ipaddr addrs[8];
 	ssize_t ipcnt = 0;
 	int64_t minvalid = INT64_MAX;
-	int64_t maxvalid = 0;
 
 	// If not shutdown
 	if (iface->timer_rs.cb) {
@@ -292,9 +291,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		if (addr->preferred > (uint32_t)now &&
 				minvalid > 1000LL * TIME_LEFT(addr->valid, now))
 			minvalid = 1000LL * TIME_LEFT(addr->valid, now);
-
-		if (maxvalid < 1000LL * TIME_LEFT(addr->valid, now))
-			maxvalid = 1000LL * TIME_LEFT(addr->valid, now);
 
 		if (((addr->addr.s6_addr[0] & 0xfe) != 0xfc || iface->default_router)
 				&& ntohs(adv.h.nd_ra_router_lifetime) < TIME_LEFT(addr->valid, now))
@@ -433,7 +429,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	minival = (maxival * 3) / 4;
 
-	search->lifetime = htonl(maxvalid / 1000);
+	search->lifetime = maxival / 100;
 	dns.lifetime = search->lifetime;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));

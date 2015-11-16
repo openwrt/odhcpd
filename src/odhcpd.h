@@ -62,6 +62,7 @@ struct odhcpd_event {
 	struct uloop_fd uloop;
 	void (*handle_dgram)(void *addr, void *data, size_t len,
 			struct interface *iface, void *dest_addr);
+	void (*handle_error)(int error);
 };
 
 

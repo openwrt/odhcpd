@@ -38,10 +38,11 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 static void handle_rtnetlink(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
+static void catch_rtnetlink(int error);
 
 static uint32_t rtnl_seqid = 0;
 static int ping_socket = -1;
-static struct odhcpd_event rtnl_event = {{.fd = -1}, handle_rtnetlink};
+static struct odhcpd_event rtnl_event = {{.fd = -1}, handle_rtnetlink, catch_rtnetlink};
 
 
 // Filter ICMPv6 messages of type neighbor soliciation
@@ -60,9 +61,14 @@ static const struct sock_fprog bpf_prog = {sizeof(bpf) / sizeof(*bpf), bpf};
 // Initialize NDP-proxy
 int init_ndp(void)
 {
+	int val = 256 * 1024;
+
 	// Setup netlink socket
 	if ((rtnl_event.uloop.fd = odhcpd_open_rtnl()) < 0)
 		return -1;
+
+	if (setsockopt(rtnl_event.uloop.fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)))
+		setsockopt(rtnl_event.uloop.fd, SOL_SOCKET, SO_RCVBUFFORCE, &val, sizeof(val));
 
 	// Receive netlink neighbor and ip-address events
 	uint32_t group = RTNLGRP_IPV6_IFADDR;
@@ -81,7 +87,7 @@ int init_ndp(void)
 			return -1;
 	}
 
-	int val = 2;
+	val = 2;
 	setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
 
 	// This is required by RFC 4861
@@ -490,4 +496,19 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 	if (dump_neigh)
 		dump_neigh_table(false);
+}
+
+static void catch_rtnetlink(int error)
+{
+	if (error == ENOBUFS) {
+		struct {
+			struct nlmsghdr nh;
+			struct ifaddrmsg ifa;
+		} req2 = {
+			{sizeof(req2), RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP,
+					++rtnl_seqid, 0},
+			{.ifa_family = AF_INET6}
+		};
+		send(rtnl_event.uloop.fd, &req2, sizeof(req2), MSG_DONTWAIT);
+	}
 }

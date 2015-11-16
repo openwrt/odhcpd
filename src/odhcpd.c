@@ -367,6 +367,16 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		struct sockaddr_nl nl;
 	} addr;
 
+	if (u->error) {
+		int ret = -1;
+		socklen_t ret_len = sizeof(ret);
+		getsockopt(u->fd, SOL_SOCKET, SO_ERROR, &ret, &ret_len);
+		u->error = false;
+		if (e->handle_error)
+			e->handle_error(ret);
+		return;
+	}
+
 	while (true) {
 		struct iovec iov = {data_buf, sizeof(data_buf)};
 		struct msghdr msg = {
@@ -446,7 +456,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 int odhcpd_register(struct odhcpd_event *event)
 {
 	event->uloop.cb = odhcpd_receive_packets;
-	return uloop_fd_add(&event->uloop, ULOOP_READ);
+	return uloop_fd_add(&event->uloop, ULOOP_READ |
+			((event->handle_error) ? ULOOP_ERROR_CB : 0));
 }
 
 void odhcpd_process(struct odhcpd_event *event)

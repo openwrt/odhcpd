@@ -374,7 +374,6 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		u->error = false;
 		if (e->handle_error)
 			e->handle_error(ret);
-		return;
 	}
 
 	while (true) {

@@ -313,13 +313,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if (!iface->ifname[0] && !ifname)
-		return -1;
+		goto err;
 
 	if (ifname)
 		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 
 	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
-		return -1;
+		goto err;
 
 	iface->inuse = true;
 

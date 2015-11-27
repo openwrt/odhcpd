@@ -99,6 +99,9 @@ int setup_router_interface(struct interface *iface, bool enable)
 	uloop_timeout_cancel(&iface->timer_rs);
 	iface->timer_rs.cb = NULL;
 
+	if (iface->ifindex <= 0)
+		return -1;
+
 	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
 			&all_nodes, sizeof(all_nodes));
 	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,

@@ -300,11 +300,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	const char *ifname = NULL;
-#ifdef WITH_UBUS
-	if (overwrite || !iface->ifname[0])
-		ifname = ubus_get_ifname(name);
-#endif
-
 	if (overwrite) {
 		if ((c = tb[IFACE_ATTR_IFNAME]))
 			ifname = blobmsg_get_string(c);
@@ -312,14 +307,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			ifname = blobmsg_get_string(c);
 	}
 
+#ifdef WITH_UBUS
+	if (overwrite || !iface->ifname[0])
+		ifname = ubus_get_ifname(name);
+#endif
+
 	if (!iface->ifname[0] && !ifname)
-		return -1;
+		goto err;
 
 	if (ifname)
 		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
 
 	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
-		return -1;
+		goto err;
 
 	iface->inuse = true;
 

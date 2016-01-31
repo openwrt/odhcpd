@@ -345,7 +345,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 			continue;
 
 		if ((cur = tb[IFACE_ATTR_PREFIX])) {
-			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, NULL))
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY || !blobmsg_check_attr(cur, false))
 				continue;
 
 			struct blob_attr *d;

@@ -100,6 +100,9 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 				return -1;
 			}
 
+			if (lease->dhcpv4_leasetime > 0)
+				a->leasetime = lease->dhcpv4_leasetime;
+
 			a->clid_len = duid_len;
 			a->length = 128;
 			if (lease->hostid) {
@@ -675,7 +678,12 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 		datalen += sizeof(stat);
 	} else {
 		if (a) {
-			uint32_t leasetime = iface->dhcpv4_leasetime;
+			uint32_t leasetime;
+			if (a->leasetime > 0) {
+				leasetime = a->leasetime;
+			} else {
+				leasetime = iface->dhcpv4_leasetime;
+			}
 			if (leasetime == 0)
 				leasetime = 3600;
 			else if (leasetime < 60)

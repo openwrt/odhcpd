@@ -176,6 +176,8 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 					iface->ifname);
 				return -1;
 			}
+			if (lease->dhcpv4_leasetime >= 60)
+				a->leasetime = lease->dhcpv4_leasetime;
 			a->addr = ntohl(lease->ipaddr.s_addr);
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
 			memcpy(a->hostname, lease->hostname, hostlen);
@@ -382,13 +384,22 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	if (lease) {
 		reply.yiaddr.s_addr = htonl(lease->addr);
 
-		uint32_t val = htonl(iface->dhcpv4_leasetime);
+		uint32_t val;
+		uint32_t leasetime;
+
+		if (lease->leasetime >= 60) {
+			leasetime = lease->leasetime;
+		} else {
+			leasetime = iface->dhcpv4_leasetime;
+		}
+
+		val = htonl(leasetime);
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_LEASETIME, 4, &val);
 
-		val = htonl(500 * iface->dhcpv4_leasetime / 1000);
+		val = htonl(500 * leasetime / 1000);
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_RENEW, 4, &val);
 
-		val = htonl(875 * iface->dhcpv4_leasetime / 1000);
+		val = htonl(875 * leasetime / 1000);
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
 
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4, &ifnetmask.sin_addr);
@@ -622,10 +633,17 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			a->head.prev->next = &a->head;
 		}
 
+		uint32_t leasetime;
+		if (a->leasetime) {
+			leasetime = a->leasetime;
+		} else {
+			leasetime = iface->dhcpv4_leasetime;
+		}
+
 		// Was only a solicitation: mark binding for removal
 		if (assigned && a->valid_until < now) {
 			a->valid_until = (msg == DHCPV4_MSG_DISCOVER) ? 0 :
-					(now + iface->dhcpv4_leasetime);
+					(now + leasetime);
 		} else if (!assigned && a) { // Cleanup failed assignment
 			free(a);
 			a = NULL;

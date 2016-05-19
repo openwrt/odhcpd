@@ -98,6 +98,7 @@ enum {
 	LEASE_ATTR_MAC,
 	LEASE_ATTR_DUID,
 	LEASE_ATTR_HOSTID,
+	LEASE_ATTR_LEASETIME,
 	LEASE_ATTR_NAME,
 	LEASE_ATTR_MAX
 };
@@ -108,6 +109,7 @@ static const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
 };
 
@@ -215,6 +217,32 @@ static void set_config(struct uci_section *s)
 	}
 }
 
+static double parse_leasetime(struct blob_attr *c) {
+	char *val = blobmsg_get_string(c), *endptr;
+	double time = strtod(val, &endptr);
+	if (time && endptr[0]) {
+		if (endptr[0] == 's')
+			time *= 1;
+		else if (endptr[0] == 'm')
+			time *= 60;
+		else if (endptr[0] == 'h')
+			time *= 3600;
+		else if (endptr[0] == 'd')
+			time *= 24 * 3600;
+		else if (endptr[0] == 'w')
+			time *= 7 * 24 * 3600;
+		else
+			goto err;
+	}
+
+	if (time >= 60)
+		return time;
+
+	return 0;
+
+err:
+	return -1;
+}
 
 static int set_lease(struct uci_section *s)
 {
@@ -263,6 +291,15 @@ static int set_lease(struct uci_section *s)
 		lease->hostid = strtoul(blobmsg_get_string(c), NULL, 16);
 		if (errno)
 			goto err;
+	}
+
+	if ((c = tb[LEASE_ATTR_LEASETIME])) {
+		double time = parse_leasetime(c);
+		if (time < 0)
+			goto err;
+
+		if (time >= 60)
+			lease->dhcpv4_leasetime = time;
 	}
 
 	list_add(&lease->head, &leases);
@@ -330,22 +367,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ignore = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_LEASETIME])) {
-		char *val = blobmsg_get_string(c), *endptr;
-		double time = strtod(val, &endptr);
-		if (time && endptr[0]) {
-			if (endptr[0] == 's')
-				time *= 1;
-			else if (endptr[0] == 'm')
-				time *= 60;
-			else if (endptr[0] == 'h')
-				time *= 3600;
-			else if (endptr[0] == 'd')
-				time *= 24 * 3600;
-			else if (endptr[0] == 'w')
-				time *= 7 * 24 * 3600;
-			else
-				goto err;
-		}
+		double time = parse_leasetime(c);
+		if (time < 0)
+			goto err;
 
 		if (time >= 60)
 			iface->dhcpv4_leasetime = time;

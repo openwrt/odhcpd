@@ -78,6 +78,7 @@ struct dhcpv4_assignment {
 	uint32_t addr;
 	time_t valid_until;
 	uint8_t hwaddr[6];
+	uint32_t leasetime;
 	char hostname[];
 };
 

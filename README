@@ -34,7 +34,7 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
 3. DHCPv4-support
    server: stateless and stateful mode
 
-4. Proxy for Neighbor Discovery messages (solicitations and advertisments)
+4. Proxy for Neighbor Discovery messages (solicitations and advertisements)
    a) support for auto-learning routes to the local routing table
    b) support for marking interfaces "external" not proxying NDP for them
       and only serving NDP for DAD and for traffic to the router itself

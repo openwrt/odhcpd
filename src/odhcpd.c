@@ -443,7 +443,6 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		else if (addr.in.sin_family == AF_INET)
 			inet_ntop(AF_INET, &addr.in.sin_addr, ipbuf, sizeof(ipbuf));
 
-		syslog(LOG_DEBUG, "--");
 		syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
 				ipbuf, (iface) ? iface->ifname : "netlink");
 

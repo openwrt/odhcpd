@@ -58,7 +58,21 @@ static void sighandler(_unused int signal)
 int main()
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
-	setlogmask(LOG_UPTO(LOG_WARNING));
+	char *env_log_level = getenv("ODHCPD_LOG_LEVEL");
+	int log_level = LOG_WARNING;
+	if (env_log_level) {
+		char *end;
+		errno = 0;
+		long temp = strtol(env_log_level, &end, 0);
+		if (end == env_log_level || *end != '\0'
+			|| ((temp == LONG_MIN || temp == LONG_MAX) && errno == ERANGE)
+			|| (log_level > LOG_DEBUG) || log_level < LOG_EMERG) {
+			syslog(LOG_ERR, "ODHCPD_LOG_LEVEL envvar was invalid");
+		} else {
+			log_level = temp;
+		}
+	}
+	setlogmask(LOG_UPTO(log_level));
 	uloop_init();
 
 	if (getuid() != 0) {

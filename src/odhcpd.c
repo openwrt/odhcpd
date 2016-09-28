@@ -54,11 +54,33 @@ static void sighandler(_unused int signal)
 	uloop_end();
 }
 
+static void print_usage(const char *app)
+{
+	printf(
+	"== %s Usage ==\n\n"
+        "  -h, --help   Print this help\n"
+        "  -l level     Specify log level 0..7 (default %d)\n",
+		app, LOG_WARNING
+	);
+}
 
-int main()
+int main(int argc, char **argv)
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
-	setlogmask(LOG_UPTO(LOG_WARNING));
+	int opt;
+	int log_level = LOG_WARNING;
+	while ((opt = getopt(argc, argv, "hl:")) != -1) {
+		switch (opt) {
+		case 'h':
+			print_usage(argv[0]);
+			return 0;
+		case 'l':
+			log_level = atoi(optarg);
+			fprintf(stderr, "Log level set to %d\n", log_level);
+			break;
+		}
+	}
+	setlogmask(LOG_UPTO(log_level));
 	uloop_init();
 
 	if (getuid() != 0) {

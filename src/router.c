@@ -436,7 +436,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	minival = (maxival * 3) / 4;
 
-	search->lifetime = htonl(maxival / 100);
+	search->lifetime = htonl(maxival * 2 / 1000);
 	dns.lifetime = search->lifetime;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));

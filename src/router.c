@@ -257,10 +257,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		memcpy(addrs, iface->ia_addr, ipcnt * sizeof(*addrs));
 
 		// Check default route
-		if (parse_routes(addrs, ipcnt))
-			adv.h.nd_ra_router_lifetime = htons(1);
 		if (iface->default_router > 1)
 			adv.h.nd_ra_router_lifetime = htons(iface->default_router);
+		else if (parse_routes(addrs, ipcnt))
+			adv.h.nd_ra_router_lifetime = htons(1);
 	}
 
 	// Construct Prefix Information options

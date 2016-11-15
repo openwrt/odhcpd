@@ -247,7 +247,8 @@ void dhcpv6_write_statefile(void)
 							iface->ifname, duidbuf, ntohl(c->iaid),
 							(c->hostname ? c->hostname : "-"),
 							(unsigned)(c->valid_until > now ?
-									(c->valid_until - now + wall_time) : 0),
+									(c->valid_until - now + wall_time) :
+									(INFINITE_VALID(c->valid_until) ? INT32_MAX: 0)),
 							c->assigned, (unsigned)c->length);
 
 					struct in6_addr addr;
@@ -309,7 +310,8 @@ void dhcpv6_write_statefile(void)
 							iface->ifname, duidbuf,
 							(c->hostname ? c->hostname : "-"),
 							(unsigned)(c->valid_until > now ?
-									(c->valid_until - now + wall_time) : 0),
+									(c->valid_until - now + wall_time) :
+									(INFINITE_VALID(c->valid_until) ? INT32_MAX: 0)),
 							c->addr);
 
 					struct in_addr addr = {htonl(c->addr)};

@@ -262,7 +262,7 @@ void dhcpv6_write_statefile(void)
 							m = i;
 
 					for (size_t i = 0; i < addrlen; ++i) {
-						if (addrs[i].prefix > 96 || c->valid_until <= now ||
+						if (addrs[i].prefix > 96 || (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
 								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
 										addrs[i].prefix == 64))
 							continue;
@@ -592,7 +592,8 @@ void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
 	struct list_head reassign = LIST_HEAD_INIT(reassign);
 	struct dhcpv6_assignment *c, *d;
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
-		if (c->clid_len == 0 || c->valid_until < now || c->managed_size)
+		if (c->clid_len == 0 || (!INFINITE_VALID(c->valid_until) && c->valid_until < now) ||
+				c->managed_size)
 			continue;
 
 		if (c->length < 128 && c->assigned >= border->assigned && c != border)
@@ -637,7 +638,7 @@ static void reconf_timer(struct uloop_timeout *event)
 
 		struct dhcpv6_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (a->valid_until < now) {
+			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||
 						(a->length == 128 && a->clid_len == 0)) {
 					list_del(&a->head);
@@ -768,9 +769,10 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 				}
 			}
 
-			a->valid_until = valid + now;
-			out.t1 = htonl(pref * 5 / 10);
-			out.t2 = htonl(pref * 8 / 10);
+			/* UINT32_MAX is considered as infinite leasetime */
+			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+			out.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
+			out.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
 
 			if (!out.t1)
 				out.t1 = htonl(1);
@@ -1031,7 +1033,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) ||
 					(c->clid_len >= clid_len && !c->clid_data[0] && !c->clid_data[1]
 					        && !memcmp(c->mac, mac, sizeof(mac)))) &&
-					(c->iaid == ia->iaid || c->valid_until < now) &&
+					(c->iaid == ia->iaid || (!INFINITE_VALID(c->valid_until) && c->valid_until < now)) &&
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;
 
@@ -1114,7 +1116,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			// Was only a solicitation: mark binding for removal
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
-				a->valid_until = 0;
+				a->valid_until = now;
 			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
@@ -1141,7 +1143,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				if (a)
 					apply_lease(iface, a, true);
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
-				a->valid_until = 0;
+				a->valid_until = now - 1;
 				apply_lease(iface, a, false);
 			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
 				a->clid_len = 0;

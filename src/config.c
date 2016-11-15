@@ -218,9 +218,10 @@ static void set_config(struct uci_section *s)
 }
 
 static double parse_leasetime(struct blob_attr *c) {
-	char *val = blobmsg_get_string(c), *endptr;
-	double time = strtod(val, &endptr);
-	if (time && endptr[0]) {
+	char *val = blobmsg_get_string(c), *endptr = NULL;
+	double time = strcmp(val, "infinite") ? strtod(val, &endptr) : UINT32_MAX;
+
+	if (time && endptr && endptr[0]) {
 		if (endptr[0] == 's')
 			time *= 1;
 		else if (endptr[0] == 'm')

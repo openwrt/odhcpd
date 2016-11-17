@@ -618,6 +618,8 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			}
 			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
 			memcpy(a->hostname, hostname, hostlen);
+			// Don't consider new assignment as infinite
+			a->valid_until = now;
 
 			assigned = dhcpv4_assign(iface, a, raddr);
 		}
@@ -642,10 +644,11 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			leasetime = iface->dhcpv4_leasetime;
 		}
 
-		// Was only a discover; mark binding for removal
-		if (assigned && a->valid_until < now) {
-			a->valid_until = ((msg == DHCPV4_MSG_DISCOVER) ? now : ((leasetime == UINT32_MAX) ?
-						0 : (time_t)(now + leasetime)));
+		if (assigned) {
+			if (!INFINITE_VALID(a->valid_until))
+				// Was only a discover; mark binding for removal
+				a->valid_until = ((msg == DHCPV4_MSG_DISCOVER) ? now : ((leasetime == UINT32_MAX) ?
+							0 : (time_t)(now + leasetime)));
 		} else if (!assigned && a) { // Cleanup failed assignment
 			free(a);
 			a = NULL;

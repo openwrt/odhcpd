@@ -44,6 +44,8 @@
 #define RELAYD_BUFFER_SIZE 8192
 #define RELAYD_MAX_PREFIXES 8
 
+#define INFINITE_VALID(x) ((x) == 0)
+
 #define _unused __attribute__((unused))
 #define _packed __attribute__((packed))
 

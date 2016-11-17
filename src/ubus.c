@@ -34,7 +34,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 
 		struct dhcpv4_assignment *lease;
 		list_for_each_entry(lease, &iface->dhcpv4_assignments, head) {
-			if (lease->valid_until < now)
+			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now)
 				continue;
 
 			void *l = blobmsg_open_table(&b, NULL);
@@ -50,7 +50,8 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
 
-			blobmsg_add_u32(&b, "valid", now - lease->valid_until);
+			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
+						INT32_MAX : (uint32_t)(lease->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}
@@ -83,7 +84,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 
 		struct dhcpv6_assignment *lease;
 		list_for_each_entry(lease, &iface->ia_assignments, head) {
-			if (lease->valid_until < now)
+			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now)
 				continue;
 
 			void *l = blobmsg_open_table(&b, NULL);
@@ -115,7 +116,8 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 			}
 			blobmsg_close_table(&b, m);
 
-			blobmsg_add_u32(&b, "valid", now - lease->valid_until);
+			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
+						INT32_MAX : (uint32_t)(lease->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}

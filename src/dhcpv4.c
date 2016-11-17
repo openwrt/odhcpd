@@ -37,7 +37,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
-		const char *hostname);
+		uint32_t *leasetime, const char *hostname);
 
 // Create socket and register events
 int init_dhcpv4(void)
@@ -181,7 +181,8 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			a->addr = ntohl(lease->ipaddr.s_addr);
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
 			memcpy(a->hostname, lease->hostname, hostlen);
-			a->valid_until = LONG_MAX;
+			/* Infinite valid */
+			a->valid_until = 0;
 
 			// Assign to all interfaces
 			struct dhcpv4_assignment *c;
@@ -246,8 +247,7 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 	*cookie = c + len;
 }
 
-
-// Simple DHCPv6-server for information requests
+// Handler for DHCPv4 messages
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr)
 {
@@ -312,6 +312,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	uint8_t msg = DHCPV4_MSG_ACK;
 
 	struct in_addr reqaddr = {INADDR_ANY};
+	uint32_t leasetime = 0;
 	char hostname[256];
 	hostname[0] = 0;
 
@@ -336,7 +337,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 				if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
 					return; // Ignore from homenet
 			}
-		}
+		} else if (opt->type == DHCPV4_OPT_LEASETIME && opt->len == 4)
+			memcpy(&leasetime, opt->data, 4);
 	}
 
 	if (reqmsg != DHCPV4_MSG_DISCOVER && reqmsg != DHCPV4_MSG_REQUEST &&
@@ -346,7 +348,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	struct dhcpv4_assignment *lease = NULL;
 	if (reqmsg != DHCPV4_MSG_INFORM)
-		lease = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr, hostname);
+		lease = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr, &leasetime, hostname);
 
 	if (!lease) {
 		if (reqmsg == DHCPV4_MSG_REQUEST)
@@ -382,25 +384,20 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SERVERID, 4, &ifaddr.sin_addr);
 
 	if (lease) {
-		reply.yiaddr.s_addr = htonl(lease->addr);
-
 		uint32_t val;
-		uint32_t leasetime;
 
-		if (lease->leasetime >= 60) {
-			leasetime = lease->leasetime;
-		} else {
-			leasetime = iface->dhcpv4_leasetime;
-		}
+		reply.yiaddr.s_addr = htonl(lease->addr);
 
 		val = htonl(leasetime);
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_LEASETIME, 4, &val);
 
-		val = htonl(500 * leasetime / 1000);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_RENEW, 4, &val);
+		if (leasetime != UINT32_MAX) {
+			val = htonl(500 * leasetime / 1000);
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_RENEW, 4, &val);
 
-		val = htonl(875 * leasetime / 1000);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
+			val = htonl(875 * leasetime / 1000);
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
+		}
 
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4, &ifnetmask.sin_addr);
 
@@ -586,7 +583,7 @@ static bool dhcpv4_assign(struct interface *iface,
 
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
-		const char *hostname)
+		uint32_t *leasetime, const char *hostname)
 {
 	struct dhcpv4_assignment *lease = NULL;
 	uint32_t raddr = ntohl(reqaddr.s_addr);
@@ -598,7 +595,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			a = c;
 			if (c->addr == raddr)
 				break;
-		} else if (c->valid_until < now) {
+		} else if (!INFINITE_VALID(c->valid_until) && c->valid_until < now) {
 			list_del(&c->head);
 			free(c);
 		}
@@ -607,6 +604,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
 		bool assigned = !!a;
 		size_t hostlen = strlen(hostname) + 1;
+		uint32_t my_leasetime;
 
 		if (!a && !iface->no_dynamic_dhcp) { // Create new binding
 			a = calloc(1, sizeof(*a) + hostlen);
@@ -616,6 +614,8 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			}
 			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
 			memcpy(a->hostname, hostname, hostlen);
+			// Don't consider new assignment as infinite
+			a->valid_until = now;
 
 			assigned = dhcpv4_assign(iface, a, raddr);
 		}
@@ -633,17 +633,20 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			a->head.prev->next = &a->head;
 		}
 
-		uint32_t leasetime;
-		if (a->leasetime) {
-			leasetime = a->leasetime;
+		if (a->leasetime >= 60) {
+			my_leasetime = a->leasetime;
 		} else {
-			leasetime = iface->dhcpv4_leasetime;
+			my_leasetime = iface->dhcpv4_leasetime;
 		}
 
-		// Was only a solicitation: mark binding for removal
-		if (assigned && a->valid_until < now) {
-			a->valid_until = (msg == DHCPV4_MSG_DISCOVER) ? 0 :
-					(now + leasetime);
+		if ((*leasetime == 0) || (my_leasetime < *leasetime))
+			*leasetime = my_leasetime;
+
+		if (assigned) {
+			if (!INFINITE_VALID(a->valid_until))
+				// Was only a discover; mark binding for removal
+				a->valid_until = ((msg == DHCPV4_MSG_DISCOVER) ? now : ((*leasetime == UINT32_MAX) ?
+							0 : (time_t)(now + *leasetime)));
 		} else if (!assigned && a) { // Cleanup failed assignment
 			free(a);
 			a = NULL;
@@ -652,9 +655,9 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		if (assigned && a)
 			lease = a;
 	} else if (msg == DHCPV4_MSG_RELEASE) {
-		if (a && a->valid_until != LONG_MAX)
-			a->valid_until = 0;
-	} else if (msg == DHCPV4_MSG_DECLINE && a && a->valid_until != LONG_MAX) {
+		if (a && !INFINITE_VALID(a->valid_until))
+			a->valid_until = now - 1;
+	} else if (msg == DHCPV4_MSG_DECLINE && a && !INFINITE_VALID(a->valid_until)) {
 		memset(a->hwaddr, 0, sizeof(a->hwaddr));
 		a->valid_until = now + 3600; // Block address for 1h
 	}

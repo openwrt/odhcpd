@@ -243,12 +243,12 @@ void dhcpv6_write_statefile(void)
 					odhcpd_hexlify(duidbuf, c->clid_data, c->clid_len);
 
 					// iface DUID iaid hostname lifetime assigned length [addrs...]
-					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s %x %s %u %x %u ",
+					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s %x %s %ld %x %u ",
 							iface->ifname, duidbuf, ntohl(c->iaid),
 							(c->hostname ? c->hostname : "-"),
-							(unsigned)(c->valid_until > now ?
-									(c->valid_until - now + wall_time) :
-									(INFINITE_VALID(c->valid_until) ? INT32_MAX: 0)),
+							(c->valid_until > now ?
+								(c->valid_until - now + wall_time) :
+								(INFINITE_VALID(c->valid_until) ? -1 : 0)),
 							c->assigned, (unsigned)c->length);
 
 					struct in6_addr addr;
@@ -306,12 +306,12 @@ void dhcpv6_write_statefile(void)
 					odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
 
 					// iface DUID iaid hostname lifetime assigned length [addrs...]
-					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s ipv4 %s %u %x 32 ",
+					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s ipv4 %s %ld %x 32 ",
 							iface->ifname, duidbuf,
 							(c->hostname ? c->hostname : "-"),
-							(unsigned)(c->valid_until > now ?
-									(c->valid_until - now + wall_time) :
-									(INFINITE_VALID(c->valid_until) ? INT32_MAX: 0)),
+							(c->valid_until > now ?
+								(c->valid_until - now + wall_time) :
+								(INFINITE_VALID(c->valid_until) ? -1 : 0)),
 							c->addr);
 
 					struct in_addr addr = {htonl(c->addr)};

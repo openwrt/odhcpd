@@ -51,7 +51,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
-						INT32_MAX : (uint32_t)(lease->valid_until - now));
+						(uint32_t)-1 : (uint32_t)(lease->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}
@@ -117,7 +117,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 			blobmsg_close_table(&b, m);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
-						INT32_MAX : (uint32_t)(lease->valid_until - now));
+						(uint32_t)-1 : (uint32_t)(lease->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}

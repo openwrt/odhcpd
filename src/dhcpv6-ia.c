@@ -773,8 +773,10 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 				}
 			}
 
-			/* UINT32_MAX is considered as infinite leasetime */
-			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+			if (!INFINITE_VALID(a->valid_until))
+				/* UINT32_MAX is considered as infinite leasetime */
+				a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+
 			out.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
 			out.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
 
@@ -1068,6 +1070,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					a->length = reqlen;
 					a->peer = *addr;
 					a->assigned = reqhint;
+					// Set valid time to current time indicating
+					// assignment is not having infinite lifetime
+					a->valid_until = now;
 
 					if (first)
 						memcpy(a->key, first->key, sizeof(a->key));
@@ -1120,7 +1125,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			// Was only a solicitation: mark binding for removal
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
-				a->valid_until = now;
+				if (!INFINITE_VALID(a->valid_until))
+					a->valid_until = now;
 			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
@@ -1147,9 +1153,12 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				if (a)
 					apply_lease(iface, a, true);
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
-				a->valid_until = now - 1;
+				if (!INFINITE_VALID(a->valid_until))
+					a->valid_until = now - 1;
+
 				apply_lease(iface, a, false);
-			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
+			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128 &&
+					!INFINITE_VALID(a->valid_until)) {
 				a->clid_len = 0;
 				a->valid_until = now + 3600; // Block address for 1h
 			}

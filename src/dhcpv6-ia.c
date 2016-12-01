@@ -114,6 +114,8 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 			odhcpd_urandom(a->key, sizeof(a->key));
 			memcpy(a->clid_data, lease->duid, lease->duid_len);
 			memcpy(a->mac, lease->mac.ether_addr_octet, sizeof(a->mac));
+			/* Infinite valid */
+			a->valid_until = 0;
 
 			// Assign to all interfaces
 			struct dhcpv6_assignment *c;
@@ -1035,7 +1037,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) ||
 					(c->clid_len >= clid_len && !c->clid_data[0] && !c->clid_data[1]
 					        && !memcmp(c->mac, mac, sizeof(mac)))) &&
-					(c->iaid == ia->iaid || (!INFINITE_VALID(c->valid_until) && c->valid_until < now)) &&
+					(c->iaid == ia->iaid || INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;
 

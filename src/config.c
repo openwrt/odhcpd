@@ -333,6 +333,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			return -1;
 
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
+
+		/* Default settings */
+		iface->managed = 1;
+		iface->learn_routes = true;
+
 		list_add(&iface->head, &interfaces);
 		overwrite = true;
 	}
@@ -533,8 +538,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_MANAGEMENT]))
 		iface->managed = blobmsg_get_u32(c);
-	else if (overwrite)
-		iface->managed = 1;
 
 	if ((c = tb[IFACE_ATTR_RA_OFFLINK]))
 		iface->ra_not_onlink = blobmsg_get_bool(c);
@@ -568,8 +571,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);
-	else if (overwrite)
-		iface->learn_routes = true;
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);

@@ -84,6 +84,10 @@ enum odhcpd_mode {
 };
 
 
+enum odhcpd_assignment_flags {
+	OAF_BOUND	= (1 << 0),
+};
+
 struct config {
 	bool legacy;
 	char *dhcp_cb;

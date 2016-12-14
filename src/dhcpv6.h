@@ -156,6 +156,7 @@ struct dhcpv6_assignment {
 	struct ustream_fd managed_sock;
 
 	uint32_t leasetime;
+	unsigned int flags;
 
 	uint8_t clid_len;
 	uint8_t clid_data[];

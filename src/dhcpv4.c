@@ -643,10 +643,17 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			*leasetime = my_leasetime;
 
 		if (assigned) {
+			bool is_discover = (msg == DHCPV4_MSG_DISCOVER);
+
 			if (!INFINITE_VALID(a->valid_until))
 				// Was only a discover; mark binding for removal
-				a->valid_until = ((msg == DHCPV4_MSG_DISCOVER) ? now : ((*leasetime == UINT32_MAX) ?
+				a->valid_until = (is_discover ? now : ((*leasetime == UINT32_MAX) ?
 							0 : (time_t)(now + *leasetime)));
+
+			/* Mark assignment as bound */
+			if (!is_discover)
+				a->flags |= OAF_BOUND;
+
 		} else if (!assigned && a) { // Cleanup failed assignment
 			free(a);
 			a = NULL;
@@ -654,12 +661,19 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 
 		if (assigned && a)
 			lease = a;
-	} else if (msg == DHCPV4_MSG_RELEASE) {
-		if (a && !INFINITE_VALID(a->valid_until))
+	} else if (msg == DHCPV4_MSG_RELEASE && a) {
+		a->flags &= ~OAF_BOUND;
+
+		if (!INFINITE_VALID(a->valid_until))
 			a->valid_until = now - 1;
-	} else if (msg == DHCPV4_MSG_DECLINE && a && !INFINITE_VALID(a->valid_until)) {
-		memset(a->hwaddr, 0, sizeof(a->hwaddr));
-		a->valid_until = now + 3600; // Block address for 1h
+
+	} else if (msg == DHCPV4_MSG_DECLINE && a) {
+		a->flags &= ~OAF_BOUND;
+
+		if (!INFINITE_VALID(a->valid_until)) {
+			memset(a->hwaddr, 0, sizeof(a->hwaddr));
+			a->valid_until = now + 3600; // Block address for 1h
+		}
 	}
 
 	dhcpv6_write_statefile();

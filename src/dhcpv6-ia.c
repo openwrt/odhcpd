@@ -83,7 +83,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 				syslog(LOG_ERR, "Calloc failed for border on interface %s", iface->ifname);
 				return -1;
 			}
-			
+
 			border->length = 64;
 			list_add(&border->head, &iface->ia_assignments);
 		}
@@ -236,7 +236,7 @@ void dhcpv6_write_statefile(void)
 			if (iface->dhcpv6 == RELAYD_SERVER && iface->ia_assignments.next) {
 				struct dhcpv6_assignment *c;
 				list_for_each_entry(c, &iface->ia_assignments, head) {
-					if (c->clid_len == 0 || c->managed_size < 0)
+					if (!(c->flags & OAF_BOUND) || c->managed_size < 0)
 						continue;
 
 					char ipbuf[INET6_ADDRSTRLEN];
@@ -282,9 +282,9 @@ void dhcpv6_write_statefile(void)
 							fputs(ipbuf, fp);
 
 							char b[256];
-					                if (dn_expand(iface->search, iface->search + iface->search_len,
-					                		iface->search, b, sizeof(b)) > 0)
-					                	fprintf(fp, "\t%s.%s", c->hostname, b);
+							if (dn_expand(iface->search, iface->search + iface->search_len,
+									iface->search, b, sizeof(b)) > 0)
+								fprintf(fp, "\t%s.%s", c->hostname, b);
 
 							fprintf(fp, "\t%s\n", c->hostname);
 							md5_hash(ipbuf, strlen(ipbuf), &md5);
@@ -302,6 +302,9 @@ void dhcpv6_write_statefile(void)
 			if (iface->dhcpv4 == RELAYD_SERVER && iface->dhcpv4_assignments.next) {
 				struct dhcpv4_assignment *c;
 				list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+					if (!(c->flags & OAF_BOUND))
+						continue;
+
 					char ipbuf[INET6_ADDRSTRLEN];
 					char leasebuf[512];
 					char duidbuf[16];
@@ -323,9 +326,9 @@ void dhcpv6_write_statefile(void)
 						fputs(ipbuf, fp);
 
 						char b[256];
-				                if (dn_expand(iface->search, iface->search + iface->search_len,
-				                		iface->search, b, sizeof(b)) > 0)
-				                	fprintf(fp, "\t%s.%s", c->hostname, b);
+						if (dn_expand(iface->search, iface->search + iface->search_len,
+								iface->search, b, sizeof(b)) > 0)
+							fprintf(fp, "\t%s.%s", c->hostname, b);
 
 						fprintf(fp, "\t%s\n", c->hostname);
 						md5_hash(ipbuf, strlen(ipbuf), &md5);
@@ -1125,6 +1128,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 			// Was only a solicitation: mark binding for removal
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
+				a->flags &= ~OAF_BOUND;
+
 				if (!INFINITE_VALID(a->valid_until))
 					a->valid_until = now;
 			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
@@ -1136,6 +1141,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					}
 				}
 				a->accept_reconf = accept_reconf;
+				a->flags |= OAF_BOUND;
 				apply_lease(iface, a, true);
 			} else if (!assigned && a && a->managed_size == 0) { // Cleanup failed assignment
 				free_dhcpv6_assignment(a);
@@ -1150,17 +1156,23 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
 					hdr->msg_type == DHCPV6_MSG_REBIND) {
 				ia_response_len = append_reply(buf, buflen, status, ia, a, iface, false);
-				if (a)
+				if (a) {
+					a->flags |= OAF_BOUND;
 					apply_lease(iface, a, true);
+				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
 				if (!INFINITE_VALID(a->valid_until))
 					a->valid_until = now - 1;
 
+				a->flags &= ~OAF_BOUND;
 				apply_lease(iface, a, false);
-			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128 &&
-					!INFINITE_VALID(a->valid_until)) {
-				a->clid_len = 0;
-				a->valid_until = now + 3600; // Block address for 1h
+			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
+				a->flags &= ~OAF_BOUND;
+
+				if (!INFINITE_VALID(a->valid_until)) {
+					a->clid_len = 0;
+					a->valid_until = now + 3600; // Block address for 1h
+				}
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
 			// Send NOTONLINK for CONFIRM with addr present so that clients restart connection

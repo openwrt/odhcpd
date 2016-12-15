@@ -86,6 +86,7 @@ enum odhcpd_mode {
 
 enum odhcpd_assignment_flags {
 	OAF_BOUND	= (1 << 0),
+	OAF_STATIC	= (1 << 1),
 };
 
 struct config {

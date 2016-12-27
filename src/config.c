@@ -697,10 +697,10 @@ void odhcpd_reload(void)
 				i->ndp = (master && master->ndp == RELAYD_RELAY) ?
 						RELAYD_RELAY : RELAYD_DISABLED;
 
-			setup_router_interface(i, !i->ignore);
-			setup_dhcpv6_interface(i, !i->ignore);
-			setup_ndp_interface(i, !i->ignore);
-			setup_dhcpv4_interface(i, !i->ignore);
+			setup_router_interface(i, true);
+			setup_dhcpv6_interface(i, true);
+			setup_ndp_interface(i, true);
+			setup_dhcpv4_interface(i, true);
 		} else {
 			close_interface(i);
 		}

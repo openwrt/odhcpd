@@ -1,5 +1,6 @@
 /**
  *   Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ *   Copyright (C) 2016 Hans Dedecker <dedeckeh@gmail.com>
  *
  *   This program is free software; you can redistribute it and/or modify
  *   it under the terms of the GNU General Public License version 2
@@ -80,7 +81,7 @@ struct dhcpv4_assignment {
 	uint8_t hwaddr[6];
 	uint32_t leasetime;
 	unsigned int flags;
-	char hostname[];
+	char *hostname;
 };
 
 struct dhcpv4_option {

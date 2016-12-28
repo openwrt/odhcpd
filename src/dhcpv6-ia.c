@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2013 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2016 Hans Dedecker <dedeckeh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -324,7 +325,7 @@ void dhcpv6_write_statefile(void)
 					struct in_addr addr = {htonl(c->addr)};
 					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-					if (c->hostname[0]) {
+					if (c->hostname) {
 						fputs(ipbuf, fp);
 
 						char b[256];

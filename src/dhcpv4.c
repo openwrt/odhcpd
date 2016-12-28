@@ -46,30 +46,6 @@ int init_dhcpv4(void)
 	return 0;
 }
 
-char *dhcpv4_msg_to_string(uint8_t reqmsg)
-{
-	switch (reqmsg) {
-	case (DHCPV4_MSG_DISCOVER):
-		return "DHCPV4_MSG_DISCOVER";
-	case (DHCPV4_MSG_OFFER):
-		return "DHCPV4_MSG_OFFER";
-	case (DHCPV4_MSG_REQUEST):
-		return "DHCPV4_MSG_REQUEST";
-	case (DHCPV4_MSG_DECLINE):
-		return "DHCPV4_MSG_DECLINE";
-	case (DHCPV4_MSG_ACK):
-		return "DHCPV4_MSG_ACK";
-	case (DHCPV4_MSG_NAK):
-		return "DHCPV4_MSG_NAK";
-	case (DHCPV4_MSG_RELEASE):
-		return "DHCPV4_MSG_RELEASE";
-	case (DHCPV4_MSG_INFORM):
-		return "DHCPV4_MSG_INFORM";
-	default:
-		return "UNKNOWN";
-	}
-}
-
 int setup_dhcpv4_interface(struct interface *iface, bool enable)
 {
 	if (iface->dhcpv4_event.uloop.fd > 0) {
@@ -231,6 +207,30 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 							struct dhcpv4_assignment, head));
 	}
 	return 0;
+}
+
+static char *dhcpv4_msg_to_string(uint8_t reqmsg)
+{
+	switch (reqmsg) {
+	case (DHCPV4_MSG_DISCOVER):
+		return "DHCPV4_MSG_DISCOVER";
+	case (DHCPV4_MSG_OFFER):
+		return "DHCPV4_MSG_OFFER";
+	case (DHCPV4_MSG_REQUEST):
+		return "DHCPV4_MSG_REQUEST";
+	case (DHCPV4_MSG_DECLINE):
+		return "DHCPV4_MSG_DECLINE";
+	case (DHCPV4_MSG_ACK):
+		return "DHCPV4_MSG_ACK";
+	case (DHCPV4_MSG_NAK):
+		return "DHCPV4_MSG_NAK";
+	case (DHCPV4_MSG_RELEASE):
+		return "DHCPV4_MSG_RELEASE";
+	case (DHCPV4_MSG_INFORM):
+		return "DHCPV4_MSG_INFORM";
+	default:
+		return "UNKNOWN";
+	}
 }
 
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a)

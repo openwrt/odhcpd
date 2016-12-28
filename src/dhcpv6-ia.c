@@ -119,10 +119,8 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 					free(a->hostname);
 					a->hostname = strdup(lease->hostname);
 				}
-			} else {
-				free(a->hostname);
-				free(a);
-			}
+			} else
+				free_dhcpv6_assignment(a);
 		}
 	}
 	return 0;

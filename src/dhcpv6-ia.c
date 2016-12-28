@@ -34,35 +34,17 @@
 #include <arpa/inet.h>
 #include <sys/timerfd.h>
 
-
+static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
 static void reconf_timer(struct uloop_timeout *event);
 static struct uloop_timeout reconf_event = {.cb = reconf_timer};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
-
 
 int dhcpv6_ia_init(void)
 {
 	uloop_timeout_set(&reconf_event, 2000);
 	return 0;
 }
-
-
-void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
-{
-	if (c->managed_sock.fd.registered) {
-		ustream_free(&c->managed_sock.stream);
-		close(c->managed_sock.fd.fd);
-	}
-
-	if (c->head.next)
-		list_del(&c->head);
-
-	free(c->managed);
-	free(c->hostname);
-	free(c);
-}
-
 
 int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 {
@@ -146,6 +128,20 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 	return 0;
 }
 
+static void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
+{
+	if (c->managed_sock.fd.registered) {
+		ustream_free(&c->managed_sock.stream);
+		close(c->managed_sock.fd.fd);
+	}
+
+	if (c->head.next)
+		list_del(&c->head);
+
+	free(c->managed);
+	free(c->hostname);
+	free(c);
+}
 
 static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign)
 {
@@ -209,7 +205,6 @@ static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign
 
 	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
 }
-
 
 void dhcpv6_write_statefile(void)
 {
@@ -378,7 +373,6 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 	}
 }
 
-
 // More data was received from TCP connection
 static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 {
@@ -460,8 +454,6 @@ static void managed_handle_pd_done(struct ustream *s)
 		c->reconf_cnt = 1;
 }
 
-
-
 static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 {
 	struct dhcpv6_assignment *c;
@@ -534,7 +526,6 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 
 	return false;
 }
-
 
 static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 {
@@ -637,7 +628,6 @@ void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
 	dhcpv6_write_statefile();
 }
 
-
 static void reconf_timer(struct uloop_timeout *event)
 {
 	time_t now = odhcpd_time();
@@ -664,7 +654,6 @@ static void reconf_timer(struct uloop_timeout *event)
 	}
 	uloop_timeout_set(event, 2000);
 }
-
 
 static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 		const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assignment *a,
@@ -870,7 +859,6 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 	return datalen;
 }
 
-
 static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		const char *duidbuf, bool is_pd, struct dhcpv6_assignment *a, int code)
 {
@@ -949,8 +937,6 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	syslog(LOG_WARNING, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
 			duidbuf, iface->ifname, status, leasebuf);
 }
-
-
 
 ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)

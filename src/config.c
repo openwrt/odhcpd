@@ -95,7 +95,6 @@ const struct uci_blob_param_list interface_attr_list = {
 	.info = iface_attr_info,
 };
 
-
 enum {
 	LEASE_ATTR_IP,
 	LEASE_ATTR_MAC,
@@ -106,7 +105,6 @@ enum {
 	LEASE_ATTR_MAX
 };
 
-
 static const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
@@ -116,12 +114,10 @@ static const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
 };
 
-
 const struct uci_blob_param_list lease_attr_list = {
 	.n_params = LEASE_ATTR_MAX,
 	.params = lease_attrs,
 };
-
 
 enum {
 	ODHCPD_ATTR_MAINDHCP,
@@ -130,13 +126,11 @@ enum {
 	ODHCPD_ATTR_MAX
 };
 
-
 static const struct blobmsg_policy odhcpd_attrs[LEASE_ATTR_MAX] = {
 	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 };
-
 
 const struct uci_blob_param_list odhcpd_attr_list = {
 	.n_params = ODHCPD_ATTR_MAX,
@@ -177,7 +171,6 @@ static struct interface* get_interface(const char *name)
 	return NULL;
 }
 
-
 static void clean_interface(struct interface *iface)
 {
 	free(iface->dns);
@@ -189,7 +182,6 @@ static void clean_interface(struct interface *iface)
 	free(iface->filter_class);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 }
-
 
 static void close_interface(struct interface *iface)
 {
@@ -205,22 +197,19 @@ static void close_interface(struct interface *iface)
 	free(iface);
 }
 
-
 static int parse_mode(const char *mode)
 {
-	if (!strcmp(mode, "disabled")) {
+	if (!strcmp(mode, "disabled"))
 		return RELAYD_DISABLED;
-	} else if (!strcmp(mode, "server")) {
+	else if (!strcmp(mode, "server"))
 		return RELAYD_SERVER;
-	} else if (!strcmp(mode, "relay")) {
+	else if (!strcmp(mode, "relay"))
 		return RELAYD_RELAY;
-	} else if (!strcmp(mode, "hybrid")) {
+	else if (!strcmp(mode, "hybrid"))
 		return RELAYD_HYBRID;
-	} else {
+	else
 		return -1;
-	}
 }
-
 
 static void set_config(struct uci_section *s)
 {
@@ -340,7 +329,6 @@ err:
 	}
 	return -1;
 }
-
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
@@ -485,9 +473,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					goto err;
 
 				iface->dhcpv4_router[iface->dhcpv4_router_cnt - 1] = addr4;
-			} else {
+			} else
 				goto err;
-			}
 		}
 	}
 
@@ -516,9 +503,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					goto err;
 
 				iface->dns[iface->dns_cnt - 1] = addr6;
-			} else {
+			} else
 				goto err;
-			}
 		}
 	}
 
@@ -613,13 +599,14 @@ static int set_interface(struct uci_section *s)
 {
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &interface_attr_list);
+
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
-
 
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
+
 	while (!list_empty(&leases)) {
 		struct lease *l = list_first_entry(&leases, struct lease, head);
 		list_del(&l->head);
@@ -666,7 +653,7 @@ void odhcpd_reload(void)
 
 	bool any_dhcpv6_slave = false, any_ra_slave = false, any_ndp_slave = false;
 
-	// Test for
+	/* Test for */
 	list_for_each_entry(i, &interfaces, head) {
 		if (i->master)
 			continue;
@@ -681,7 +668,7 @@ void odhcpd_reload(void)
 			any_ndp_slave = true;
 	}
 
-	// Evaluate hybrid mode for master
+	/* Evaluate hybrid mode for master */
 	list_for_each_entry(i, &interfaces, head) {
 		if (!i->master)
 			continue;
@@ -717,7 +704,7 @@ void odhcpd_reload(void)
 
 	list_for_each_entry_safe(i, n, &interfaces, head) {
 		if (i->inuse) {
-			// Resolve hybrid mode
+			/* Resolve hybrid mode */
 			if (i->dhcpv6 == RELAYD_HYBRID)
 				i->dhcpv6 = (master && master->dhcpv6 == RELAYD_RELAY) ?
 						RELAYD_RELAY : RELAYD_SERVER;
@@ -743,7 +730,6 @@ void odhcpd_reload(void)
 	uci_free_context(uci);
 }
 
-
 static void handle_signal(int signal)
 {
 	char b[1] = {0};
@@ -754,12 +740,11 @@ static void handle_signal(int signal)
 		uloop_end();
 }
 
-
-
 static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
 {
 	char b[512];
 	if (read(u->fd, b, sizeof(b)) < 0) {}
+
 	odhcpd_reload();
 }
 
@@ -768,6 +753,7 @@ static struct uloop_fd reload_fd = { .cb = reload_cb };
 void odhcpd_run(void)
 {
 	if (pipe2(reload_pipe, O_NONBLOCK | O_CLOEXEC) < 0) {}
+
 	reload_fd.fd = reload_pipe[0];
 	uloop_fd_add(&reload_fd, ULOOP_READ);
 

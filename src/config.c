@@ -3,6 +3,9 @@
 #include <signal.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <libgen.h>
+#include <string.h>
+#include <sys/stat.h>
 
 #include <uci.h>
 #include <uci_blob.h>
@@ -140,6 +143,30 @@ const struct uci_blob_param_list odhcpd_attr_list = {
 	.params = odhcpd_attrs,
 };
 
+static int mkdir_p(char *dir, mode_t mask)
+{
+	char *l = strrchr(dir, '/');
+	int ret;
+
+	if (!l)
+		return 0;
+
+	*l = '\0';
+
+	if (mkdir_p(dir, mask))
+		return -1;
+
+	*l = '/';
+
+	ret = mkdir(dir, mask);
+	if (ret && errno == EEXIST)
+		return 0;
+
+	if (ret)
+		syslog(LOG_ERR, "mkdir(%s, %d) failed: %s\n", dir, mask, strerror(errno));
+
+	return ret;
+}
 
 static struct interface* get_interface(const char *name)
 {
@@ -626,6 +653,12 @@ void odhcpd_reload(void)
 		}
 	}
 
+	if (config.dhcp_statefile) {
+		char *path = strdup(config.dhcp_statefile);
+
+		mkdir_p(dirname(path), 0755);
+		free(path);
+	}
 
 #ifdef WITH_UBUS
 	ubus_apply_network();

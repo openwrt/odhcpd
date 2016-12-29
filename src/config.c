@@ -162,6 +162,15 @@ static int mkdir_p(char *dir, mode_t mask)
 	return ret;
 }
 
+static void free_lease(struct lease *l)
+{
+	if (l->head.next)
+		list_del(&l->head);
+
+	free(l->duid);
+	free(l);
+}
+
 static struct interface* get_interface(const char *name)
 {
 	struct interface *c;
@@ -323,10 +332,9 @@ static int set_lease(struct uci_section *s)
 	return 0;
 
 err:
-	if (lease) {
-		free(lease->duid);
-		free(lease);
-	}
+	if (lease)
+		free_lease(lease);
+
 	return -1;
 }
 
@@ -607,12 +615,8 @@ void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
 
-	while (!list_empty(&leases)) {
-		struct lease *l = list_first_entry(&leases, struct lease, head);
-		list_del(&l->head);
-		free(l->duid);
-		free(l);
-	}
+	while (!list_empty(&leases))
+		free_lease(list_first_entry(&leases, struct lease, head));
 
 	struct interface *master = NULL, *i, *n;
 

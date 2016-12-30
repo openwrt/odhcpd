@@ -141,6 +141,25 @@ static void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 	free(c);
 }
 
+static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
+{
+	return (addr->prefix <= 96 && addr->preferred > (uint32_t)now);
+}
+
+static size_t elect_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen)
+{
+	size_t i, m;
+
+	for (i = 0, m = 0; i < addrlen; ++i) {
+		if (addrs[i].preferred > addrs[m].preferred ||
+			(addrs[i].preferred == addrs[m].preferred &&
+			 memcmp(&addrs[i].addr, &addrs[m].addr, 16) > 0))
+			m = i;
+	}
+
+	return m;
+}
+
 static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign)
 {
 	struct {
@@ -252,18 +271,12 @@ void dhcpv6_write_statefile(void)
 					struct in6_addr addr;
 					struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->ia_addr;
 					size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->ia_addr_len;
-					size_t m = 0;
-
-					for (size_t i = 0; i < addrlen; ++i)
-						if (addrs[i].preferred > addrs[m].preferred ||
-								(addrs[i].preferred == addrs[m].preferred &&
-										memcmp(&addrs[i].addr, &addrs[m].addr, 16) > 0))
-							m = i;
+					size_t m = elect_addr(addrs, addrlen);
 
 					for (size_t i = 0; i < addrlen; ++i) {
-						if (addrs[i].prefix > 96 || (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
+						if (!valid_addr(&addrs[i], now) || (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
 								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
-										addrs[i].prefix == 64))
+										addrs[i].prefix <= 64))
 							continue;
 
 						addr = addrs[i].addr;
@@ -693,20 +706,13 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
 			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
-			size_t m = 0;
-
-			for (size_t i = 0; i < addrlen; ++i)
-				if (addrs[i].preferred > addrs[m].preferred ||
-						(addrs[i].preferred == addrs[m].preferred &&
-								memcmp(&addrs[i].addr, &addrs[m].addr, 16) > 0))
-					m = i;
+			size_t m = elect_addr(addrs, addrlen);
 
 			for (size_t i = 0; i < addrlen; ++i) {
 				uint32_t prefix_pref = addrs[i].preferred;
 				uint32_t prefix_valid = addrs[i].valid;
 
-				if (addrs[i].prefix > 96 ||
-						addrs[i].preferred <= (uint32_t)now)
+				if (!valid_addr(&addrs[i], now))
 					continue;
 
 				if (prefix_pref != UINT32_MAX)
@@ -797,8 +803,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
 
 					for (size_t i = 0; i < addrlen; ++i) {
-						if (addrs[i].prefix > 96 ||
-								addrs[i].preferred <= (uint32_t)now)
+						if (!valid_addr(&addrs[i], now))
 							continue;
 
 						struct in6_addr addr = addrs[i].addr;
@@ -918,7 +923,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		char addrbuf[INET6_ADDRSTRLEN];
 
 		for (size_t i = 0; i < addrlen; ++i) {
-			if (addrs[i].prefix > 96 || addrs[i].preferred <= (uint32_t)now)
+			if (!valid_addr(&addrs[i], now))
 				continue;
 
 			struct in6_addr addr = addrs[i].addr;

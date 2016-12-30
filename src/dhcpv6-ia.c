@@ -640,10 +640,9 @@ static void reconf_timer(struct uloop_timeout *event)
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||
-						(a->length == 128 && a->clid_len == 0)) {
-					list_del(&a->head);
+						(a->length == 128 && a->clid_len == 0))
 					free_dhcpv6_assignment(a);
-				}
+
 			} else if (a->reconf_cnt > 0 && a->reconf_cnt < 8 &&
 					now > a->reconf_sent + (1 << a->reconf_cnt)) {
 				++a->reconf_cnt;

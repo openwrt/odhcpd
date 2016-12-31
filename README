@@ -113,4 +113,5 @@ mac		string				MAC-address
 duid		string				DUID in base16
 hostid		string				IPv6 host identifier
 name		string				Hostname
+leasetime	string				DHCPv4/v6 leasetime
 

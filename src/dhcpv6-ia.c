@@ -450,7 +450,7 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 
 	if (first && c->managed_size == 0)
 		free_dhcpv6_assignment(c);
-	else if (first)
+	else if (first & !(c->flags & OAF_STATIC))
 		c->valid_until = now + 150;
 }
 
@@ -460,7 +460,9 @@ static void managed_handle_pd_done(struct ustream *s)
 {
 	struct dhcpv6_assignment *c = container_of(s, struct dhcpv6_assignment, managed_sock);
 
-	c->valid_until = odhcpd_time() + 15;
+	if (!(c->flags & OAF_STATIC))
+		c->valid_until = odhcpd_time() + 15;
+
 	c->managed_size = 0;
 
 	if (c->accept_reconf)
@@ -484,7 +486,10 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 					iaidbuf, assign->iaid, assign->length);
 			ustream_write_pending(&assign->managed_sock.stream);
 			assign->managed_size = -1;
-			assign->valid_until = odhcpd_time() + 15;
+
+			if (!(assign->flags & OAF_STATIC))
+				assign->valid_until = odhcpd_time() + 15;
+
 			list_add(&assign->head, &iface->ia_assignments);
 
 			/* Wait initial period of up to 250ms for immediate assignment */

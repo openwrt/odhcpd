@@ -50,6 +50,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 {
 	if (!enable && iface->ia_assignments.next) {
 		struct dhcpv6_assignment *c;
+
 		while (!list_empty(&iface->ia_assignments)) {
 			c = list_first_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
 			free_dhcpv6_assignment(c);
@@ -103,7 +104,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 			/* Infinite valid */
 			a->valid_until = 0;
 
-			// Assign to all interfaces
+			/* Assign to all interfaces */
 			struct dhcpv6_assignment *c;
 			list_for_each_entry(c, &iface->ia_assignments, head) {
 				if (c->length != 128 || c->assigned > a->assigned) {
@@ -259,7 +260,7 @@ void dhcpv6_write_statefile(void)
 					char duidbuf[264];
 					odhcpd_hexlify(duidbuf, c->clid_data, c->clid_len);
 
-					// iface DUID iaid hostname lifetime assigned length [addrs...]
+					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
 					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s %x %s %ld %x %u ",
 							iface->ifname, duidbuf, ntohl(c->iaid),
 							(c->hostname ? c->hostname : "-"),
@@ -319,7 +320,7 @@ void dhcpv6_write_statefile(void)
 					char duidbuf[16];
 					odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
 
-					// iface DUID iaid hostname lifetime assigned length [addrs...]
+					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
 					int l = snprintf(leasebuf, sizeof(leasebuf), "# %s %s ipv4 %s %ld %x 32 ",
 							iface->ifname, duidbuf,
 							(c->hostname ? c->hostname : "-"),
@@ -384,7 +385,7 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 	}
 }
 
-// More data was received from TCP connection
+/* More data was received from TCP connection */
 static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 {
 	struct dhcpv6_assignment *c = container_of(s, struct dhcpv6_assignment, managed_sock);
@@ -1037,7 +1038,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) ||
 					(c->clid_len >= clid_len && !c->clid_data[0] && !c->clid_data[1]
-					        && !memcmp(c->mac, mac, sizeof(mac)))) &&
+						&& !memcmp(c->mac, mac, sizeof(mac)))) &&
 					(c->iaid == ia->iaid || INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;

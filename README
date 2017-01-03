@@ -70,7 +70,9 @@ Option		Type	Default			Description
 interface	string	<name of UCI section>	logical OpenWrt interface
 ifname		string	<resolved from logical>	physical network interface
 networkid	string	same as ifname		compat. alias for ifname
-ignore		bool	0			ignore this interface
+ignore		bool	0			do not serve this interface
+						unless overridden by ra, ndp,
+						dhcpv4 or dhcpv6 options
 master		bool	0			is a master interface
 						for relaying
 

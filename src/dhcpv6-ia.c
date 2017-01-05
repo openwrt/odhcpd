@@ -34,6 +34,10 @@
 #include <arpa/inet.h>
 #include <sys/timerfd.h>
 
+#define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
+    ((iface)->managed == RELAYD_MANAGED_NO_AFLAG || (i) == (m) || \
+     (addrs)[(i)].prefix > 64)
+
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
 static void reconf_timer(struct uloop_timeout *event);
 static struct uloop_timeout reconf_event = {.cb = reconf_timer};
@@ -275,9 +279,9 @@ void dhcpv6_write_statefile(void)
 					size_t m = elect_addr(addrs, addrlen);
 
 					for (size_t i = 0; i < addrlen; ++i) {
-						if (!valid_addr(&addrs[i], now) || (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
-								(iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
-										addrs[i].prefix <= 64))
+						if (!valid_addr(&addrs[i], now) ||
+							    (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
+							    !ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 							continue;
 
 						addr = addrs[i].addr;
@@ -758,11 +762,9 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					n.addr.s6_addr32[3] = htonl(a->assigned);
 					size_t entrlen = sizeof(n) - 4;
 
-					if (iface->managed < RELAYD_MANAGED_NO_AFLAG && i != m &&
-							addrs[i].prefix <= 64)
-						continue;
-
-					if (datalen + entrlen + 4 > buflen || a->assigned == 0)
+					if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) ||
+							a->assigned == 0 ||
+							datalen + entrlen + 4 > buflen)
 						continue;
 
 					memcpy(buf + datalen, &n, sizeof(n));
@@ -926,6 +928,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
 		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
 		size_t lbsize = 0;
+		size_t m = elect_addr(addrs, addrlen);
 		char addrbuf[INET6_ADDRSTRLEN];
 
 		for (size_t i = 0; i < addrlen; ++i) {
@@ -934,8 +937,13 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 
 			struct in6_addr addr = addrs[i].addr;
 			int prefix = a->managed ? addrs[i].prefix : a->length;
-			if (prefix == 128)
+			if (prefix == 128) {
+				if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) ||
+						a->assigned == 0)
+					continue;
+
 				addr.s6_addr32[3] = htonl(a->assigned);
+			}
 			else
 				addr.s6_addr32[1] |= htonl(a->assigned);
 

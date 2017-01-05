@@ -1051,7 +1051,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;
 
-				// Reset state
+				/* Reset state */
 				apply_lease(iface, a, false);
 				memcpy(a->clid_data, clid_data, clid_len);
 				a->clid_len = clid_len;
@@ -1151,10 +1151,11 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->accept_reconf = accept_reconf;
 				a->flags |= OAF_BOUND;
 				apply_lease(iface, a, true);
-			} else if (!assigned && a && a->managed_size == 0)
+			} else if (!assigned && a && a->managed_size == 0) {
 				/* Cleanup failed assignment */
 				free_dhcpv6_assignment(a);
-
+				a = NULL;
+			}
 		} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
 				hdr->msg_type == DHCPV6_MSG_RELEASE ||
 				hdr->msg_type == DHCPV6_MSG_REBIND ||

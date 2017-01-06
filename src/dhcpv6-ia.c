@@ -146,6 +146,11 @@ static void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 	free(c);
 }
 
+static inline bool valid_prefix_length(const struct dhcpv6_assignment *a, const uint8_t prefix_length)
+{
+	return (a->managed_size || a->length > prefix_length);
+}
+
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
 {
 	return (addr->prefix <= 96 && addr->preferred > (uint32_t)now);
@@ -280,15 +285,22 @@ void dhcpv6_write_statefile(void)
 
 					for (size_t i = 0; i < addrlen; ++i) {
 						if (!valid_addr(&addrs[i], now) ||
-							    (!INFINITE_VALID(c->valid_until) && c->valid_until <= now) ||
-							    !ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
+							    (!INFINITE_VALID(c->valid_until) && c->valid_until <= now))
 							continue;
 
 						addr = addrs[i].addr;
-						if (c->length == 128)
+						if (c->length == 128) {
+							if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
+								continue;
+
 							addr.s6_addr32[3] = htonl(c->assigned);
-						else
+						}
+						else {
+							if (!valid_prefix_length(c, addrs[i].prefix))
+								continue;
+
 							addr.s6_addr32[1] |= htonl(c->assigned);
+						}
 
 						inet_ntop(AF_INET6, &addr, ipbuf, sizeof(ipbuf) - 1);
 
@@ -746,7 +758,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 					if (datalen + entrlen + 4 > buflen ||
 							(a->assigned == 0 && a->managed_size == 0) ||
-							(!a->managed_size && a->length <= addrs[i].prefix))
+							!valid_prefix_length(a, addrs[i].prefix))
 						continue;
 
 					memcpy(buf + datalen, &p, sizeof(p));
@@ -944,8 +956,12 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 
 				addr.s6_addr32[3] = htonl(a->assigned);
 			}
-			else
+			else {
+				if (!valid_prefix_length(a, addrs[i].prefix))
+					continue;
+
 				addr.s6_addr32[1] |= htonl(a->assigned);
+			}
 
 			inet_ntop(AF_INET6, &addr, addrbuf, sizeof(addrbuf));
 			lbsize += snprintf(leasebuf + lbsize, sizeof(leasebuf) - lbsize, "%s/%d ", addrbuf, prefix);

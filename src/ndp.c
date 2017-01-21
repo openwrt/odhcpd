@@ -291,9 +291,9 @@ static int prefixcmp(const void *va, const void *vb)
 // Check address update
 static void check_updates(struct interface *iface)
 {
-	struct odhcpd_ipaddr addr[8] = {{IN6ADDR_ANY_INIT, 0, 0, 0, 0}};
+	struct odhcpd_ipaddr addr[RELAYD_MAX_ADDRS] = {{IN6ADDR_ANY_INIT, 0, 0, 0, 0}};
 	time_t now = odhcpd_time();
-	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, addr, 8);
+	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, addr, ARRAY_SIZE(addr));
 
 	if (len < 0)
 		return;

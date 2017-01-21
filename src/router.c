@@ -247,7 +247,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
 	// If not currently shutting down
-	struct odhcpd_ipaddr addrs[8];
+	struct odhcpd_ipaddr addrs[RELAYD_MAX_ADDRS];
 	ssize_t ipcnt = 0;
 	int64_t minvalid = INT64_MAX;
 

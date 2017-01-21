@@ -327,8 +327,10 @@ static void check_updates(struct interface *iface)
 	if (change)
 		dhcpv6_ia_postupdate(iface, now);
 
-	if (change)
+	if (change) {
+		syslog(LOG_DEBUG, "Raising SIGUSR1 due to address change");
 		raise(SIGUSR1);
+	}
 }
 
 
@@ -360,8 +362,10 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 
 		if (is_route) {
 			// Inform about a change in default route
-			if (rtm->rtm_dst_len == 0)
+			if (rtm->rtm_dst_len == 0) {
+				syslog(LOG_DEBUG, "Raising SIGUSR1 due to default route change");
 				raise(SIGUSR1);
+			}
 
 			continue;
 		}

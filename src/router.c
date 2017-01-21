@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <arpa/inet.h>
 #include <net/route.h>
 
 #include "router.h"
@@ -261,6 +262,9 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			adv.h.nd_ra_router_lifetime = htons(iface->default_router);
 		else if (parse_routes(addrs, ipcnt))
 			adv.h.nd_ra_router_lifetime = htons(1);
+
+		syslog(LOG_DEBUG, "Initial router lifetime %d, %d address(es) available",
+				ntohs(adv.h.nd_ra_router_lifetime), ipcnt);
 	}
 
 	// Construct Prefix Information options
@@ -273,8 +277,15 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->prefix > 96 || addr->valid <= (uint32_t)now)
-			continue; // Address not suitable
+
+		if (addr->prefix > 96 || addr->valid <= (uint32_t)now) {
+			char namebuf[INET6_ADDRSTRLEN];
+
+			inet_ntop(AF_INET6, addr, namebuf, sizeof(namebuf));
+			syslog(LOG_DEBUG, "Address %s (prefix %d, valid %u) not suitable",
+					namebuf, addr->prefix, addr->valid);
+			continue;
+		}
 
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < cnt; ++i) {
@@ -300,8 +311,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			this_lifetime = UINT16_MAX;
 		if (((addr->addr.s6_addr[0] & 0xfe) != 0xfc || iface->default_router)
 				&& adv.h.nd_ra_router_lifetime
-				&& ntohs(adv.h.nd_ra_router_lifetime) < this_lifetime)
+				&& ntohs(adv.h.nd_ra_router_lifetime) < this_lifetime) {
 			adv.h.nd_ra_router_lifetime = htons(this_lifetime);
+
+			syslog(LOG_DEBUG, "Updating router lifetime to %d", this_lifetime);
+		}
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,
 				(iface->ra_advrouter) ? 128 : addr->prefix);

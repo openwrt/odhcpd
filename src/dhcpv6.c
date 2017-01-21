@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <resolv.h>
 #include <sys/timerfd.h>
+#include <arpa/inet.h>
 
 #include "odhcpd.h"
 #include "dhcpv6.h"

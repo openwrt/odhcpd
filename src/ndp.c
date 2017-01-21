@@ -358,11 +358,13 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 				|| ndm->ndm_family != AF_INET6)
 			continue;
 
-		// Inform about a change in default route
-		if (is_route && rtm->rtm_dst_len == 0)
-			raise(SIGUSR1);
-		else if (is_route)
+		if (is_route) {
+			// Inform about a change in default route
+			if (rtm->rtm_dst_len == 0)
+				raise(SIGUSR1);
+
 			continue;
+		}
 
 		// Data to retrieve
 		size_t rta_offset = (is_addr) ?	sizeof(struct ifaddrmsg) : sizeof(*ndm);

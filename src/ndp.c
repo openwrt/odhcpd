@@ -479,9 +479,6 @@ static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
 		if (is_addr) {
 			check_updates(iface);
 
-			if (iface->dhcpv6 == RELAYD_SERVER)
-				iface->ia_reconf = true;
-
 			if (iface->ndp == RELAYD_RELAY && iface->master) {
 				// Replay address changes on all slave interfaces
 				nh->nlmsg_flags = NLM_F_REQUEST;

@@ -121,7 +121,6 @@ struct interface {
 	struct list_head ia_assignments;
 	struct odhcpd_ipaddr ia_addr[RELAYD_MAX_ADDRS];
 	size_t ia_addr_len;
-	bool ia_reconf;
 
 	// DHCPv4
 	struct odhcpd_event dhcpv6_event;

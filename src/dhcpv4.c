@@ -540,7 +540,7 @@ static bool dhcpv4_assign(struct interface *iface,
 	if (start <= raddr && raddr <= end && dhcpv4_test(iface, raddr)) {
 		assign->addr = raddr;
 		list_add(&assign->head, &iface->dhcpv4_assignments);
-		syslog(LOG_DEBUG, "assigning the IP the client asked for: %u.%u.%u.%u",
+		syslog(LOG_INFO, "assigning the IP the client asked for: %u.%u.%u.%u",
 				(assign->addr & 0xff000000) >> 24,
 				(assign->addr & 0x00ff0000) >> 16,
 				(assign->addr & 0x0000ff00) >> 8,
@@ -563,7 +563,7 @@ static bool dhcpv4_assign(struct interface *iface,
 	if (list_empty(&iface->dhcpv4_assignments)) {
 		assign->addr = try;
 		list_add(&assign->head, &iface->dhcpv4_assignments);
-		syslog(LOG_DEBUG, "assigning mapped IP (empty list): %u.%u.%u.%u",
+		syslog(LOG_INFO, "assigning mapped IP (empty list): %u.%u.%u.%u",
 				(assign->addr & 0xff000000) >> 24,
 				(assign->addr & 0x00ff0000) >> 16,
 				(assign->addr & 0x0000ff00) >> 8,
@@ -586,7 +586,7 @@ static bool dhcpv4_assign(struct interface *iface,
 		try = (((try - start) + 1) % count) + start;
 	}
 
-	syslog(LOG_DEBUG, "can't assign any IP address -> address space is full");
+	syslog(LOG_WARNING, "can't assign any IP address -> address space is full");
 	return false;
 }
 

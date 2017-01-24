@@ -264,7 +264,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			adv.h.nd_ra_router_lifetime = htons(1);
 
 		syslog(LOG_INFO, "Initial router lifetime %d, %d address(es) available",
-				ntohs(adv.h.nd_ra_router_lifetime), ipcnt);
+				ntohs(adv.h.nd_ra_router_lifetime), (int)ipcnt);
 	}
 
 	// Construct Prefix Information options

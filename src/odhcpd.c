@@ -69,7 +69,7 @@ int main(int argc, char **argv)
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
-	int log_level = LOG_WARNING;
+	int log_level = LOG_INFO;
 	while ((opt = getopt(argc, argv, "hl:")) != -1) {
 		switch (opt) {
 		case 'h':

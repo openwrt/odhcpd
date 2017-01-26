@@ -219,8 +219,10 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 		struct ifaddrmsg ifa;
 	} req = {{sizeof(req), RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP,
 			++rtnl_seq, 0}, {AF_INET6, 0, 0, 0, ifindex}};
-	if (send(rtnl_socket, &req, sizeof(req), 0) < (ssize_t)sizeof(req))
+	if (send(rtnl_socket, &req, sizeof(req), 0) < (ssize_t)sizeof(req)) {
+		syslog(LOG_WARNING, "Request failed to dump IPv6 addresses (%s)", strerror(errno));
 		return 0;
+	}
 
 	uint8_t buf[8192];
 	ssize_t len = 0, ret = 0;
@@ -232,13 +234,16 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 			if (len < 0 || !NLMSG_OK(nhm, (size_t)len)) {
 				if (errno == EINTR)
 					continue;
-				else
-					return ret;
+
+				syslog(LOG_WARNING, "Failed to receive IPv6 address rtnetlink message (%s)", strerror(errno));
+				return ret;
 			}
 		}
 
-		if (nhm->nlmsg_type != RTM_NEWADDR)
+		if (nhm->nlmsg_type != RTM_NEWADDR) {
+			syslog(LOG_WARNING, "Unexpected rtnetlink message (%d) in response to IPv6 address dump", nhm->nlmsg_type);
 			break;
+		}
 
 		// Skip address but keep clearing socket buffer
 		if (ret >= (ssize_t)cnt)

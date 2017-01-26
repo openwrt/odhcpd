@@ -263,8 +263,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		else if (parse_routes(addrs, ipcnt))
 			adv.h.nd_ra_router_lifetime = htons(1);
 
-		syslog(LOG_INFO, "Initial router lifetime %d, %d address(es) available",
-				ntohs(adv.h.nd_ra_router_lifetime), (int)ipcnt);
+		syslog(LOG_INFO, "Initial RA router lifetime %d, %d address(es) available on %s",
+				ntohs(adv.h.nd_ra_router_lifetime), (int)ipcnt, iface->ifname);
 	}
 
 	// Construct Prefix Information options
@@ -282,8 +282,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			char namebuf[INET6_ADDRSTRLEN];
 
 			inet_ntop(AF_INET6, addr, namebuf, sizeof(namebuf));
-			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable",
-					namebuf, addr->prefix, addr->valid);
+			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable as RA prefix on %s",
+					namebuf, addr->prefix, addr->valid, iface->ifname);
 			continue;
 		}
 
@@ -314,7 +314,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 				&& ntohs(adv.h.nd_ra_router_lifetime) < this_lifetime) {
 			adv.h.nd_ra_router_lifetime = htons(this_lifetime);
 
-			syslog(LOG_DEBUG, "Updating router lifetime to %d", this_lifetime);
+			syslog(LOG_INFO, "Updating RA router lifetime to %d on %s", this_lifetime, iface->ifname);
 		}
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr,

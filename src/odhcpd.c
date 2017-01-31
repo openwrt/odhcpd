@@ -292,19 +292,20 @@ out:
 
 int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 {
-		int status = -1;
-		struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, ifindex};
-		socklen_t alen = sizeof(addr);
-		int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+	int status = -1;
+	struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, ifindex};
+	socklen_t alen = sizeof(addr);
+	int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 
-		if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
-				!getsockname(sock, (struct sockaddr*)&addr, &alen)) {
-			*lladdr = addr.sin6_addr;
-			status = 0;
-		}
+	if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
+			!getsockname(sock, (struct sockaddr*)&addr, &alen)) {
+		*lladdr = addr.sin6_addr;
+		status = 0;
+	}
 
-		close(sock);
-		return status;
+	close(sock);
+
+	return status;
 }
 
 void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,

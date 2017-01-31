@@ -30,6 +30,7 @@
 #include <netinet/ip6.h>
 #include <netpacket/packet.h>
 #include <linux/netlink.h>
+#include <linux/if_addr.h>
 #include <linux/rtnetlink.h>
 
 #include <sys/socket.h>
@@ -39,14 +40,16 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 
+#include <netlink/msg.h>
+#include <netlink/socket.h>
+#include <netlink/attr.h>
 #include <libubox/uloop.h>
 #include "odhcpd.h"
 
 
 
 static int ioctl_sock;
-static int rtnl_socket = -1;
-static int rtnl_seq = 0;
+static struct nl_sock *rtnl_socket = NULL;
 static int urandom_fd = -1;
 
 
@@ -91,8 +94,8 @@ int main(int argc, char **argv)
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 
-	if ((rtnl_socket = odhcpd_open_rtnl()) < 0) {
-		syslog(LOG_ERR, "Unable to open socket: %s", strerror(errno));
+	if (!(rtnl_socket = odhcpd_create_nl_socket(NETLINK_ROUTE, 0))) {
+		syslog(LOG_ERR, "Unable to open nl socket: %s", strerror(errno));
 		return 2;
 	}
 
@@ -119,19 +122,27 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-int odhcpd_open_rtnl(void)
+struct nl_sock *odhcpd_create_nl_socket(int protocol, int groups)
 {
-	int sock = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+	struct nl_sock *nl_sock;
 
-	// Connect to the kernel netlink interface
-	struct sockaddr_nl nl = {.nl_family = AF_NETLINK};
-	if (connect(sock, (struct sockaddr*)&nl, sizeof(nl))) {
-		syslog(LOG_ERR, "Failed to connect to kernel rtnetlink: %s",
-				strerror(errno));
-		return -1;
-	}
+	nl_sock = nl_socket_alloc();
+	if (!nl_sock)
+		goto err;
 
-	return sock;
+	if (groups)
+		nl_join_groups(nl_sock, groups);
+
+	if (nl_connect(nl_sock, protocol) < 0)
+		goto err;
+
+	return nl_sock;
+
+err:
+	if (nl_sock)
+		nl_socket_free(nl_sock);
+
+	return NULL;
 }
 
 
@@ -210,84 +221,121 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 	return sent;
 }
 
+struct addr_info {
+	int ifindex;
+	struct odhcpd_ipaddr *addrs;
+	size_t addrs_sz;
+	int pending;
+	ssize_t ret;
+};
+
+static int cb_valid_handler(struct nl_msg *msg, void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	struct ifaddrmsg *ifa;
+	struct nlattr *nla[__IFA_MAX];
+
+	if (hdr->nlmsg_type != RTM_NEWADDR || ctxt->ret >= (ssize_t)ctxt->addrs_sz)
+		return NL_SKIP;
+
+	ifa = NLMSG_DATA(hdr);
+	if (ifa->ifa_scope != RT_SCOPE_UNIVERSE ||
+			(ctxt->ifindex && ifa->ifa_index != (unsigned)ctxt->ifindex))
+		return NL_SKIP;
+
+	nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
+	if (!nla[IFA_ADDRESS])
+		return NL_SKIP;
+
+	memset(&ctxt->addrs[ctxt->ret], 0, sizeof(ctxt->addrs[ctxt->ret]));
+	ctxt->addrs[ctxt->ret].prefix = ifa->ifa_prefixlen;
+
+	nla_memcpy(&ctxt->addrs[ctxt->ret].addr, nla[IFA_ADDRESS],
+			sizeof(ctxt->addrs[ctxt->ret].addr));
+
+	if (nla[IFA_CACHEINFO]) {
+		struct ifa_cacheinfo *ifc = nla_data(nla[IFA_CACHEINFO]);
+
+		ctxt->addrs[ctxt->ret].preferred = ifc->ifa_prefered;
+		ctxt->addrs[ctxt->ret].valid = ifc->ifa_valid;
+	}
+
+	if (ifa->ifa_flags & IFA_F_DEPRECATED)
+		ctxt->addrs[ctxt->ret].preferred = 0;
+
+	ctxt->ret++;
+
+	return NL_OK;
+}
+
+static int cb_finish_handler(_unused struct nl_msg *msg, void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+
+	ctxt->pending = 0;
+
+	return NL_STOP;
+}
+
+static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+		void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+
+	ctxt->pending = 0;
+	ctxt->ret = err->error;
+
+	return NL_STOP;
+}
 
 // Detect an IPV6-address currently assigned to the given interface
 ssize_t odhcpd_get_interface_addresses(int ifindex,
 		struct odhcpd_ipaddr *addrs, size_t cnt)
 {
-	struct {
-		struct nlmsghdr nhm;
-		struct ifaddrmsg ifa;
-	} req = {{sizeof(req), RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP,
-			++rtnl_seq, 0}, {AF_INET6, 0, 0, 0, ifindex}};
-	if (send(rtnl_socket, &req, sizeof(req), 0) < (ssize_t)sizeof(req)) {
-		syslog(LOG_WARNING, "Request failed to dump IPv6 addresses (%s)", strerror(errno));
-		return 0;
+	struct nl_msg *msg;
+	struct ifaddrmsg ifa = {
+		.ifa_family = AF_INET6,
+		.ifa_prefixlen = 0,
+		.ifa_flags = 0,
+		.ifa_scope = 0,
+		.ifa_index = ifindex, };
+	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
+	struct addr_info ctxt = {
+		.ifindex = ifindex,
+		.addrs = addrs,
+		.addrs_sz = cnt,
+		.ret = 0,
+		.pending = 1,
+	};
+
+	if (!cb) {
+		ctxt.ret = -1;
+		goto out;
 	}
 
-	uint8_t buf[8192];
-	ssize_t len = 0, ret = 0;
+	msg = nlmsg_alloc_simple(RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP);
 
-	for (struct nlmsghdr *nhm = NULL; ; nhm = NLMSG_NEXT(nhm, len)) {
-		while (len < 0 || !NLMSG_OK(nhm, (size_t)len)) {
-			len = recv(rtnl_socket, buf, sizeof(buf), 0);
-			nhm = (struct nlmsghdr*)buf;
-			if (len < 0 || !NLMSG_OK(nhm, (size_t)len)) {
-				if (errno == EINTR)
-					continue;
-
-				syslog(LOG_WARNING, "Failed to receive IPv6 address rtnetlink message (%s)", strerror(errno));
-				ret = -1;
-				goto out;
-			}
-		}
-
-		switch (nhm->nlmsg_type) {
-		case RTM_NEWADDR: {
-			// Skip address but keep clearing socket buffer
-			if (ret >= (ssize_t)cnt)
-				continue;
-
-			struct ifaddrmsg *ifa = NLMSG_DATA(nhm);
-			if (ifa->ifa_scope != RT_SCOPE_UNIVERSE ||
-					(ifindex && ifa->ifa_index != (unsigned)ifindex))
-				continue;
-
-			struct rtattr *rta = (struct rtattr*)&ifa[1];
-			size_t alen = NLMSG_PAYLOAD(nhm, sizeof(*ifa));
-			memset(&addrs[ret], 0, sizeof(addrs[ret]));
-			addrs[ret].prefix = ifa->ifa_prefixlen;
-
-			while (RTA_OK(rta, alen)) {
-				if (rta->rta_type == IFA_ADDRESS) {
-					memcpy(&addrs[ret].addr, RTA_DATA(rta),
-							sizeof(struct in6_addr));
-				} else if (rta->rta_type == IFA_CACHEINFO) {
-					struct ifa_cacheinfo *ifc = RTA_DATA(rta);
-					addrs[ret].preferred = ifc->ifa_prefered;
-					addrs[ret].valid = ifc->ifa_valid;
-				}
-
-				rta = RTA_NEXT(rta, alen);
-			}
-
-			if (ifa->ifa_flags & IFA_F_DEPRECATED)
-				addrs[ret].preferred = 0;
-
-			++ret;
-			break;
-		}
-		case NLMSG_DONE:
-			goto out;
-		default:
-			syslog(LOG_WARNING, "Unexpected rtnetlink message (%d) in response to IPv6 address dump", nhm->nlmsg_type);
-			ret = -1;
-			goto out;
-		}
-
+	if (!msg) {
+		ctxt.ret = - 1;
+		goto out;
 	}
+
+	nlmsg_append(msg, &ifa, sizeof(ifa), 0);
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_valid_handler, &ctxt);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_finish_handler, &ctxt);
+	nl_cb_err(cb, NL_CB_CUSTOM, cb_error_handler, &ctxt);
+
+	nl_send_auto_complete(rtnl_socket, msg);
+	while (ctxt.pending > 0)
+		nl_recvmsgs(rtnl_socket, cb);
+
+	nlmsg_free(msg);
 out:
-	return ret;
+	nl_cb_put(cb);
+
+	return ctxt.ret;
 }
 
 int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
@@ -308,54 +356,43 @@ int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 	return status;
 }
 
-void odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
+int odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 		const struct interface *iface, const struct in6_addr *gw,
-		int metric, bool add)
+		uint32_t metric, bool add)
 {
-	struct req {
-		struct nlmsghdr nh;
-		struct rtmsg rtm;
-		struct rtattr rta_dst;
-		struct in6_addr dst_addr;
-		struct rtattr rta_oif;
-		uint32_t ifindex;
-		struct rtattr rta_table;
-		uint32_t table;
-		struct rtattr rta_prio;
-		uint32_t prio;
-		struct rtattr rta_gw;
-		struct in6_addr gw;
-	} req = {
-		{sizeof(req), 0, NLM_F_REQUEST, ++rtnl_seq, 0},
-		{AF_INET6, prefixlen, 0, 0, 0, 0, 0, 0, 0},
-		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_DST},
-		*addr,
-		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_OIF},
-		iface->ifindex,
-		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_TABLE},
-		RT_TABLE_MAIN,
-		{sizeof(struct rtattr) + sizeof(uint32_t), RTA_PRIORITY},
-		metric,
-		{sizeof(struct rtattr) + sizeof(struct in6_addr), RTA_GATEWAY},
-		IN6ADDR_ANY_INIT,
+	struct nl_msg *msg;
+	struct rtmsg rtm = {
+		.rtm_family = AF_INET6,
+		.rtm_dst_len = prefixlen,
+		.rtm_src_len = 0,
+		.rtm_table = RT_TABLE_MAIN,
+		.rtm_protocol = (add ? RTPROT_STATIC : RTPROT_UNSPEC),
+		.rtm_scope = (add ? (gw ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK) : RT_SCOPE_NOWHERE),
+		.rtm_type = (add ? RTN_UNICAST : RTN_UNSPEC),
 	};
+	int ret = 0;
+
+	msg = nlmsg_alloc_simple(add ? RTM_NEWROUTE : RTM_DELROUTE,
+					add ? NLM_F_CREATE | NLM_F_REPLACE : 0);
+	if (!msg)
+		return -1;
+
+	nlmsg_append(msg, &rtm, sizeof(rtm), 0);
+
+	nla_put(msg, RTA_DST, sizeof(*addr), addr);
+	nla_put_u32(msg, RTA_OIF, iface->ifindex);
+	nla_put_u32(msg, RTA_PRIORITY, metric);
 
 	if (gw)
-		req.gw = *gw;
+		nla_put(msg, RTA_GATEWAY, sizeof(*gw), gw);
 
-	if (add) {
-		req.nh.nlmsg_type = RTM_NEWROUTE;
-		req.nh.nlmsg_flags |= (NLM_F_CREATE | NLM_F_REPLACE);
-		req.rtm.rtm_protocol = RTPROT_STATIC;
-		req.rtm.rtm_scope = (gw) ? RT_SCOPE_UNIVERSE : RT_SCOPE_LINK;
-		req.rtm.rtm_type = RTN_UNICAST;
-	} else {
-		req.nh.nlmsg_type = RTM_DELROUTE;
-		req.rtm.rtm_scope = RT_SCOPE_NOWHERE;
-	}
+	ret = nl_send_auto_complete(rtnl_socket, msg);
+	nlmsg_free(msg);
 
-	req.nh.nlmsg_len = (gw) ? sizeof(req) : offsetof(struct req, rta_gw);
-	send(rtnl_socket, &req, req.nh.nlmsg_len, MSG_DONTWAIT);
+	if (ret < 0)
+		return ret;
+
+	return nl_wait_for_ack(rtnl_socket);
 }
 
 struct interface* odhcpd_get_interface_by_index(int ifindex)

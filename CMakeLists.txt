@@ -8,7 +8,10 @@ set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
 
 FIND_PATH(ubox_include_dir libubox/uloop.h)
-INCLUDE_DIRECTORIES(${ubox_include_dir})
+FIND_PATH(libnl-tiny_include_dir netlink-generic.h PATH_SUFFIXES libnl-tiny)
+INCLUDE_DIRECTORIES(${ubox_include_dir} ${libnl-tiny_include_dir})
+
+FIND_LIBRARY(libnl NAMES nl-tiny)
 
 add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra)
 
@@ -23,7 +26,7 @@ if(${UBUS})
 endif(${UBUS})
 
 add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/dhcpv6-ia.c src/dhcpv4.c ${EXT_SRC})
-target_link_libraries(odhcpd resolv ubox uci ${EXT_LINK})
+target_link_libraries(odhcpd resolv ubox uci ${libnl} ${EXT_LINK})
 
 # Installation
 install(TARGETS odhcpd DESTINATION sbin/)

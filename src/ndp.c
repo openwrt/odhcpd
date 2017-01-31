@@ -64,7 +64,11 @@ int init_ndp(void)
 	int val = 256 * 1024;
 
 	// Setup netlink socket
-	if ((rtnl_event.uloop.fd = odhcpd_open_rtnl()) < 0)
+	if ((rtnl_event.uloop.fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE)) < 0)
+		return -1;
+
+	struct sockaddr_nl nl = {.nl_family = AF_NETLINK};
+	if (connect(rtnl_event.uloop.fd, (struct sockaddr*)&nl, sizeof(nl)) < 0)
 		return -1;
 
 	if (setsockopt(rtnl_event.uloop.fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)))

@@ -31,6 +31,7 @@
 #include <netpacket/packet.h>
 #include <linux/netlink.h>
 #include <linux/if_addr.h>
+#include <linux/neighbour.h>
 #include <linux/rtnetlink.h>
 
 #include <sys/socket.h>
@@ -94,7 +95,7 @@ int main(int argc, char **argv)
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 
-	if (!(rtnl_socket = odhcpd_create_nl_socket(NETLINK_ROUTE, 0))) {
+	if (!(rtnl_socket = odhcpd_create_nl_socket(NETLINK_ROUTE))) {
 		syslog(LOG_ERR, "Unable to open nl socket: %s", strerror(errno));
 		return 2;
 	}
@@ -122,16 +123,13 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-struct nl_sock *odhcpd_create_nl_socket(int protocol, int groups)
+struct nl_sock *odhcpd_create_nl_socket(int protocol)
 {
 	struct nl_sock *nl_sock;
 
 	nl_sock = nl_socket_alloc();
 	if (!nl_sock)
 		goto err;
-
-	if (groups)
-		nl_join_groups(nl_sock, groups);
 
 	if (nl_connect(nl_sock, protocol) < 0)
 		goto err;
@@ -356,9 +354,9 @@ int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 	return status;
 }
 
-int odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
+int odhcpd_setup_route(const struct in6_addr *addr, const int prefixlen,
 		const struct interface *iface, const struct in6_addr *gw,
-		uint32_t metric, bool add)
+		const uint32_t metric, const bool add)
 {
 	struct nl_msg *msg;
 	struct rtmsg rtm = {
@@ -385,6 +383,37 @@ int odhcpd_setup_route(const struct in6_addr *addr, int prefixlen,
 
 	if (gw)
 		nla_put(msg, RTA_GATEWAY, sizeof(*gw), gw);
+
+	ret = nl_send_auto_complete(rtnl_socket, msg);
+	nlmsg_free(msg);
+
+	if (ret < 0)
+		return ret;
+
+	return nl_wait_for_ack(rtnl_socket);
+}
+
+int odhcpd_setup_proxy_neigh(const struct in6_addr *addr,
+		const struct interface *iface, const bool add)
+{
+	struct nl_msg *msg;
+	struct ndmsg ndm = {
+		.ndm_family = AF_INET6,
+		.ndm_flags = NTF_PROXY,
+		.ndm_ifindex = iface->ifindex,
+	};
+	int ret = 0, flags = NLM_F_REQUEST;
+
+	if (add)
+		flags |= NLM_F_REPLACE | NLM_F_CREATE;
+
+	msg = nlmsg_alloc_simple(add ? RTM_NEWNEIGH : RTM_DELNEIGH, flags);
+	if (!msg)
+		return -1;
+
+	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
+
+	nla_put(msg, NDA_DST, sizeof(*addr), addr);
 
 	ret = nl_send_auto_complete(rtnl_socket, msg);
 	nlmsg_free(msg);
@@ -448,6 +477,11 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		u->error = false;
 		if (e->handle_error)
 			e->handle_error(ret);
+	}
+
+	if (e->recv_msgs) {
+		e->recv_msgs(e);
+		return;
 	}
 
 	while (true) {

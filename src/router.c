@@ -35,7 +35,7 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 static void trigger_router_advert(struct uloop_timeout *event);
 static void sigusr1_refresh(int signal);
 
-static struct odhcpd_event router_event = {{.fd = -1}, handle_icmpv6, NULL};
+static struct odhcpd_event router_event = {.uloop = {.fd = -1}, .handle_dgram = handle_icmpv6, };
 
 static FILE *fp_route = NULL;
 #define RA_IOV_LEN 6

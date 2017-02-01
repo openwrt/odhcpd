@@ -28,22 +28,36 @@
 
 #include <linux/rtnetlink.h>
 #include <linux/filter.h>
+
+#include <netlink/msg.h>
+#include <netlink/socket.h>
+#include <netlink/attr.h>
+
 #include "router.h"
 #include "dhcpv6.h"
 #include "ndp.h"
 
-
+struct event_socket {
+	struct odhcpd_event ev;
+	struct nl_sock *sock;
+};
 
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
-static void handle_rtnetlink(void *addr, void *data, size_t len,
-		struct interface *iface, void *dest);
+static void handle_rtnl_event(struct odhcpd_event *ev);
+static int cb_rtnl_valid(struct nl_msg *msg, void *arg);
 static void catch_rtnetlink(int error);
 
-static uint32_t rtnl_seqid = 0;
 static int ping_socket = -1;
-static struct odhcpd_event rtnl_event = {{.fd = -1}, handle_rtnetlink, catch_rtnetlink};
-
+static struct event_socket rtnl_event = {
+	.ev = {
+		.uloop = {.fd = - 1, },
+		.handle_dgram = NULL,
+		.handle_error = catch_rtnetlink,
+		.recv_msgs = handle_rtnl_event,
+	},
+	.sock = NULL,
+};
 
 // Filter ICMPv6 messages of type neighbor soliciation
 static struct sock_filter bpf[] = {
@@ -63,26 +77,26 @@ int init_ndp(void)
 {
 	int val = 256 * 1024;
 
-	// Setup netlink socket
-	if ((rtnl_event.uloop.fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE)) < 0)
-		return -1;
+	rtnl_event.sock = odhcpd_create_nl_socket(NETLINK_ROUTE);
+	if (!rtnl_event.sock)
+		goto err;
 
-	struct sockaddr_nl nl = {.nl_family = AF_NETLINK};
-	if (connect(rtnl_event.uloop.fd, (struct sockaddr*)&nl, sizeof(nl)) < 0)
-		return -1;
+	rtnl_event.ev.uloop.fd = nl_socket_get_fd(rtnl_event.sock);
 
-	if (setsockopt(rtnl_event.uloop.fd, SOL_SOCKET, SO_RCVBUF, &val, sizeof(val)))
-		setsockopt(rtnl_event.uloop.fd, SOL_SOCKET, SO_RCVBUFFORCE, &val, sizeof(val));
+	if (nl_socket_set_buffer_size(rtnl_event.sock, val, 0))
+		goto err;
 
-	// Receive netlink neighbor and ip-address events
-	uint32_t group = RTNLGRP_IPV6_IFADDR;
-	setsockopt(rtnl_event.uloop.fd, SOL_NETLINK,
-			NETLINK_ADD_MEMBERSHIP, &group, sizeof(group));
-	group = RTNLGRP_IPV6_ROUTE;
-	setsockopt(rtnl_event.uloop.fd, SOL_NETLINK,
-			NETLINK_ADD_MEMBERSHIP, &group, sizeof(group));
+	nl_socket_disable_seq_check(rtnl_event.sock);
 
-	odhcpd_register(&rtnl_event);
+	nl_socket_modify_cb(rtnl_event.sock, NL_CB_VALID, NL_CB_CUSTOM,
+			cb_rtnl_valid, NULL);
+
+	// Receive IPv6 address, IPv6 routes and neighbor events
+	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV6_IFADDR,
+				RTNLGRP_IPV6_ROUTE, RTNLGRP_NEIGH, 0))
+		goto err;
+
+	odhcpd_register(&rtnl_event.ev);
 
 	// Open ICMPv6 socket
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
@@ -104,29 +118,54 @@ int init_ndp(void)
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	setsockopt(ping_socket, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt));
 
-
-	// Netlink socket, continued...
-	group = RTNLGRP_NEIGH;
-	setsockopt(rtnl_event.uloop.fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &group, sizeof(group));
-
 	return 0;
+
+err:
+	if (rtnl_event.sock) {
+		nl_socket_free(rtnl_event.sock);
+		rtnl_event.sock = NULL;
+		rtnl_event.ev.uloop.fd = -1;
+	}
+
+	return -1;
 }
 
-
-static void dump_neigh_table(bool proxy)
+static void dump_neigh_table(const bool proxy)
 {
-	struct {
-		struct nlmsghdr nh;
-		struct ndmsg ndm;
-	} req = {
-		{sizeof(req), RTM_GETNEIGH, NLM_F_REQUEST | NLM_F_DUMP,
-				++rtnl_seqid, 0},
-		{.ndm_family = AF_INET6, .ndm_flags = (proxy) ? NTF_PROXY : 0}
+	struct nl_msg *msg;
+	struct ndmsg ndm = {
+		.ndm_family = AF_INET6,
+		.ndm_flags = proxy ? NTF_PROXY : 0,
 	};
-	send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
-	odhcpd_process(&rtnl_event);
+
+	msg = nlmsg_alloc_simple(RTM_GETNEIGH, NLM_F_REQUEST | NLM_F_DUMP);
+	if (!msg)
+		return;
+
+	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
+
+	nl_send_auto_complete(rtnl_event.sock, msg);
+
+	nlmsg_free(msg);
 }
 
+static void dump_addr_table(void)
+{
+	struct nl_msg *msg;
+	struct ifaddrmsg ifa = {
+		.ifa_family = AF_INET6,
+	};
+
+	msg = nlmsg_alloc_simple(RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP);
+	if (!msg)
+		return;
+
+	nlmsg_append(msg, &ifa, sizeof(ifa), 0);
+
+	nl_send_auto_complete(rtnl_event.sock, msg);
+
+	nlmsg_free(msg);
+}
 
 int setup_ndp_interface(struct interface *iface, bool enable)
 {
@@ -147,18 +186,8 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 	}
 
 	if (enable && (iface->ra == RELAYD_SERVER ||
-			iface->dhcpv6 == RELAYD_SERVER || iface->ndp == RELAYD_RELAY)) {
-		// Synthesize initial address events
-		struct {
-			struct nlmsghdr nh;
-			struct ifaddrmsg ifa;
-		} req2 = {
-			{sizeof(req2), RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP,
-					++rtnl_seqid, 0},
-			{.ifa_family = AF_INET6, .ifa_index = iface->ifindex}
-		};
-		send(rtnl_event.uloop.fd, &req2, sizeof(req2), MSG_DONTWAIT);
-	}
+			iface->dhcpv6 == RELAYD_SERVER || iface->ndp == RELAYD_RELAY))
+		dump_addr_table();
 
 	if (enable && iface->ndp == RELAYD_RELAY) {
 		if (write(procfd, "1\n", 2) < 0) {}
@@ -205,9 +234,8 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 			dump_neigh_table(false);
 		else
 			dump_neigh = false;
-	} else {
+	} else
 		close(procfd);
-	}
 
 	if (dump_neigh)
 		dump_neigh_table(true);
@@ -221,9 +249,9 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 static void ping6(struct in6_addr *addr,
 		const struct interface *iface)
 {
-	struct sockaddr_in6 dest = {AF_INET6, 0, 0, *addr, iface->ifindex};
-	struct icmp6_hdr echo = {.icmp6_type = ICMP6_ECHO_REQUEST};
-	struct iovec iov = {&echo, sizeof(echo)};
+	struct sockaddr_in6 dest = { .sin6_family = AF_INET6, .sin6_addr = *addr, .sin6_scope_id = iface->ifindex, };
+	struct icmp6_hdr echo = { .icmp6_type = ICMP6_ECHO_REQUEST };
+	struct iovec iov = { .iov_base = &echo, .iov_len = sizeof(echo) };
 
 	odhcpd_setup_route(addr, 128, iface, NULL, 128, true);
 	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
@@ -242,9 +270,10 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	// Solicitation is for duplicate address detection
 	bool ns_is_dad = IN6_IS_ADDR_UNSPECIFIED(&ip6->ip6_src);
 
+	// Don't process solicit messages on non relay interfaces
 	// Don't forward any non-DAD solicitation for external ifaces
 	// TODO: check if we should even forward DADs for them
-	if (iface->external && !ns_is_dad)
+	if (iface->ndp != RELAYD_RELAY || (iface->external && !ns_is_dad))
 		return;
 
 	if (len < sizeof(*ip6) + sizeof(*req))
@@ -266,7 +295,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 	struct interface *c;
 	list_for_each_entry(c, &interfaces, head)
-		if (iface->ndp == RELAYD_RELAY && iface != c &&
+		if (iface != c && c->ndp == RELAYD_RELAY &&
 				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
 }
@@ -293,7 +322,7 @@ static int prefixcmp(const void *va, const void *vb)
 }
 
 // Check address update
-static void check_updates(struct interface *iface)
+static void check_addr_updates(struct interface *iface)
 {
 	struct odhcpd_ipaddr addr[RELAYD_MAX_ADDRS] = {{IN6ADDR_ANY_INIT, 0, 0, 0, 0}};
 	time_t now = odhcpd_time();
@@ -337,185 +366,164 @@ static void check_updates(struct interface *iface)
 	}
 }
 
+void setup_addr_for_relaying(struct in6_addr *addr, struct interface *iface, bool add)
+{
+	struct interface *c;
+
+	list_for_each_entry(c, &interfaces, head) {
+		if (iface == c || (c->ndp != RELAYD_RELAY && !add))
+			continue;
+
+		odhcpd_setup_proxy_neigh(addr, c, c->ndp == RELAYD_RELAY ? add : false);
+	}
+}
+
+void setup_ping6(struct in6_addr *addr, struct interface *iface)
+{
+	struct interface *c;
+
+	list_for_each_entry(c, &interfaces, head) {
+		if (iface == c || c->ndp != RELAYD_RELAY ||
+				c->external == true)
+			continue;
+
+		ping6(addr, c);
+	}
+}
+
+static struct in6_addr last_solicited;
+
+static void handle_rtnl_event(struct odhcpd_event *e)
+{
+	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
+
+	nl_recvmsgs_default(ev_sock->sock);
+}
+
 
 // Handler for neighbor cache entries from the kernel. This is our source
 // to learn and unlearn hosts on interfaces.
-static void handle_rtnetlink(_unused void *addr, void *data, size_t len,
-		_unused struct interface *iface, _unused void *dest)
+static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 {
-	bool dump_neigh = false;
-	struct in6_addr last_solicited = IN6ADDR_ANY_INIT;
+	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	struct in6_addr *addr = NULL;
+	struct interface *iface = NULL;
+	bool add = false;
 
-	for (struct nlmsghdr *nh = data; NLMSG_OK(nh, len);
-			nh = NLMSG_NEXT(nh, len)) {
-		struct ndmsg *ndm = NLMSG_DATA(nh);
-		struct rtmsg *rtm = NLMSG_DATA(nh);
+	switch (hdr->nlmsg_type) {
+	case RTM_NEWROUTE:
+	case RTM_DELROUTE: {
+		struct rtmsg *rtm = nlmsg_data(hdr);
 
-		bool is_addr = (nh->nlmsg_type == RTM_NEWADDR
-				|| nh->nlmsg_type == RTM_DELADDR);
-		bool is_route = (nh->nlmsg_type == RTM_NEWROUTE
-				|| nh->nlmsg_type == RTM_DELROUTE);
-		bool is_neigh = (nh->nlmsg_type == RTM_NEWNEIGH
-				|| nh->nlmsg_type == RTM_DELNEIGH);
+		if (!nlmsg_valid_hdr(hdr, sizeof(*rtm)) ||
+				rtm->rtm_family != AF_INET6)
+			return NL_SKIP;
 
-		// Family and ifindex are on the same offset for NEIGH and ADDR
-		if ((!is_addr && !is_route && !is_neigh)
-				|| NLMSG_PAYLOAD(nh, 0) < sizeof(*ndm)
-				|| ndm->ndm_family != AF_INET6)
-			continue;
-
-		if (is_route) {
-			// Inform about a change in default route
-			if (rtm->rtm_dst_len == 0) {
-				syslog(LOG_INFO, "Raising SIGUSR1 due to default route change");
-				raise(SIGUSR1);
-			}
-
-			continue;
+		if (rtm->rtm_dst_len == 0) {
+			syslog(LOG_INFO, "Raising SIGUSR1 due to default route change");
+			raise(SIGUSR1);
 		}
-
-		// Data to retrieve
-		size_t rta_offset = (is_addr) ?	sizeof(struct ifaddrmsg) : sizeof(*ndm);
-		uint16_t atype = (is_addr) ? IFA_ADDRESS : NDA_DST;
-		ssize_t alen = NLMSG_PAYLOAD(nh, rta_offset);
-		struct in6_addr *addr = NULL;
-
-		for (struct rtattr *rta = (void*)(((uint8_t*)ndm) + rta_offset);
-				RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
-			if (rta->rta_type == atype &&
-					RTA_PAYLOAD(rta) >= sizeof(*addr)) {
-				addr = RTA_DATA(rta);
-			}
-		}
-
-		// Lookup interface
-		struct interface *iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
-		if (!iface)
-			continue;
-
-		// Address not specified or unrelated
-		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
-				IN6_IS_ADDR_MULTICAST(addr))
-			continue;
-
-		// Check for states
-		bool add;
-		if (is_addr)
-			add = (nh->nlmsg_type == RTM_NEWADDR);
-		else
-			add = (nh->nlmsg_type == RTM_NEWNEIGH && (ndm->ndm_state &
-				(NUD_REACHABLE | NUD_STALE | NUD_DELAY | NUD_PROBE
-						| NUD_PERMANENT | NUD_NOARP)));
-
-		if (iface->ndp == RELAYD_RELAY) {
-			// Replay change to all neighbor cache
-			struct {
-				struct nlmsghdr nh;
-				struct ndmsg ndm;
-				struct nlattr nla_dst;
-				struct in6_addr dst;
-			} req = {
-				{sizeof(req), RTM_DELNEIGH, NLM_F_REQUEST,
-						++rtnl_seqid, 0},
-				{.ndm_family = AF_INET6, .ndm_flags = NTF_PROXY},
-				{sizeof(struct nlattr) + sizeof(struct in6_addr), NDA_DST},
-				*addr
-			};
-
-			if (ndm->ndm_flags & NTF_PROXY) {
-				// Dump & flush proxy entries
-				if (nh->nlmsg_type == RTM_NEWNEIGH) {
-					req.ndm.ndm_ifindex = iface->ifindex;
-					send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
-					setup_route(addr, iface, false);
-					dump_neigh = true;
-				}
-			} else if (add) {
-				struct interface *c;
-				list_for_each_entry(c, &interfaces, head) {
-					if (iface == c)
-						continue;
-
-					if (c->ndp == RELAYD_RELAY) {
-						req.nh.nlmsg_type = RTM_NEWNEIGH;
-						req.nh.nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
-
-						req.ndm.ndm_ifindex = c->ifindex;
-						send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
-					} else { // Delete NDP cache from interfaces without relay
-						req.nh.nlmsg_type = RTM_DELNEIGH;
-						req.nh.nlmsg_flags &= ~(NLM_F_CREATE | NLM_F_REPLACE);
-
-						req.ndm.ndm_ifindex = c->ifindex;
-						send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
-					}
-				}
-
-				setup_route(addr, iface, true);
-			} else {
-				if (nh->nlmsg_type == RTM_NEWNEIGH) {
-					// might be locally originating
-					if (!IN6_ARE_ADDR_EQUAL(&last_solicited, addr)) {
-						last_solicited = *addr;
-
-						struct interface *c;
-						list_for_each_entry(c, &interfaces, head)
-							if (iface->ndp == RELAYD_RELAY && iface != c &&
-									!c->external == false)
-								ping6(addr, c);
-					}
-				} else {
-					struct interface *c;
-					list_for_each_entry(c, &interfaces, head) {
-						if (c->ndp == RELAYD_RELAY && iface != c) {
-							req.ndm.ndm_ifindex = c->ifindex;
-							send(rtnl_event.uloop.fd, &req, sizeof(req), MSG_DONTWAIT);
-						}
-					}
-					setup_route(addr, iface, false);
-
-					// also: dump to add proxies back in case it moved elsewhere
-					dump_neigh = true;
-				}
-			}
-		}
-
-		if (is_addr) {
-			check_updates(iface);
-
-			if (iface->ndp == RELAYD_RELAY && iface->master) {
-				// Replay address changes on all slave interfaces
-				nh->nlmsg_flags = NLM_F_REQUEST;
-
-				if (nh->nlmsg_type == RTM_NEWADDR)
-					nh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
-
-				struct interface *c;
-				list_for_each_entry(c, &interfaces, head) {
-					if (c->ndp == RELAYD_RELAY && !c->master) {
-						ndm->ndm_ifindex = c->ifindex;
-						send(rtnl_event.uloop.fd, nh, nh->nlmsg_len, MSG_DONTWAIT);
-					}
-				}
-			}
-		}
+		return NL_OK;
 	}
 
-	if (dump_neigh)
-		dump_neigh_table(false);
+	case RTM_NEWADDR:
+		add = true;
+	case RTM_DELADDR: {
+		struct ifaddrmsg *ifa = nlmsg_data(hdr);
+		struct nlattr *nla[__IFA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
+				ifa->ifa_family != AF_INET6)
+			return NL_SKIP;
+
+		iface = odhcpd_get_interface_by_index(ifa->ifa_index);
+		if (!iface)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
+		if (!nla[IFA_ADDRESS])
+			return NL_SKIP;
+
+		addr = nla_data(nla[IFA_ADDRESS]);
+		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
+				IN6_IS_ADDR_MULTICAST(addr))
+			return NL_SKIP;
+
+		check_addr_updates(iface);
+
+		if (iface->ndp != RELAYD_RELAY)
+			break;
+
+		/* handle the relay logic below */
+		setup_addr_for_relaying(addr, iface, add);
+
+		if (!add)
+			dump_neigh_table(false);
+		break;
+	}
+
+	case RTM_NEWNEIGH:
+		add = true;
+	case RTM_DELNEIGH: {
+		struct ndmsg *ndm = nlmsg_data(hdr);
+		struct nlattr *nla[__NDA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ndm)) ||
+				ndm->ndm_family != AF_INET6)
+			return NL_SKIP;
+
+		iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
+		if (!iface || iface->ndp != RELAYD_RELAY)
+			return (iface ? NL_OK : NL_SKIP);
+
+		nlmsg_parse(hdr, sizeof(*ndm), nla, __NDA_MAX - 1, NULL);
+		if (!nla[NDA_DST])
+			return NL_SKIP;
+
+		addr = nla_data(nla[NDA_DST]);
+		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
+				IN6_IS_ADDR_MULTICAST(addr))
+			return NL_SKIP;
+
+		if (ndm->ndm_flags & NTF_PROXY) {
+			/* Dump and flush proxy entries */
+			if (hdr->nlmsg_type == RTM_NEWNEIGH) {
+				odhcpd_setup_proxy_neigh(addr, iface, false);
+				setup_route(addr, iface, false);
+				dump_neigh_table(false);
+			}
+
+			return NL_OK;
+		}
+
+		if (add && !(ndm->ndm_state &
+				(NUD_REACHABLE | NUD_STALE | NUD_DELAY | NUD_PROBE |
+				 NUD_PERMANENT | NUD_NOARP))) {
+			if (!IN6_ARE_ADDR_EQUAL(&last_solicited, addr)) {
+				last_solicited = *addr;
+				setup_ping6(addr, iface);
+			}
+
+			return NL_OK;
+		}
+
+		setup_addr_for_relaying(addr, iface, add);
+		setup_route(addr, iface, add);
+
+		if (!add)
+			dump_neigh_table(false);
+		break;
+	}
+
+	default:
+		return NL_SKIP;
+	}
+
+	return NL_OK;
 }
 
 static void catch_rtnetlink(int error)
 {
-	if (error == ENOBUFS) {
-		struct {
-			struct nlmsghdr nh;
-			struct ifaddrmsg ifa;
-		} req2 = {
-			{sizeof(req2), RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP,
-					++rtnl_seqid, 0},
-			{.ifa_family = AF_INET6}
-		};
-		send(rtnl_event.uloop.fd, &req2, sizeof(req2), MSG_DONTWAIT);
-	}
+	if (error == ENOBUFS)
+		dump_addr_table();
 }

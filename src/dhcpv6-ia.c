@@ -531,7 +531,10 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 
 			if (assign->assigned >= current && assign->assigned + asize < c->assigned) {
 				list_add_tail(&assign->head, &c->head);
-				apply_lease(iface, assign, true);
+
+				if (assign->flags & OAF_BOUND)
+					apply_lease(iface, assign, true);
+
 				return true;
 			}
 
@@ -550,7 +553,10 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 		if (current + asize < c->assigned) {
 			assign->assigned = current;
 			list_add_tail(&assign->head, &c->head);
-			apply_lease(iface, assign, true);
+
+			if (assign->flags & OAF_BOUND)
+				apply_lease(iface, assign, true);
+
 			return true;
 		}
 
@@ -600,7 +606,7 @@ void dhcpv6_ia_preupdate(struct interface *iface)
 			&iface->ia_assignments, struct dhcpv6_assignment, head);
 
 	list_for_each_entry(c, &iface->ia_assignments, head)
-		if (c != border && !iface->managed)
+		if (c != border && !iface->managed && (c->flags & OAF_BOUND))
 			apply_lease(iface, c, false);
 }
 
@@ -634,7 +640,7 @@ void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
 
 		if (c->length < 128 && c->assigned >= border->assigned && c != border)
 			list_move(&c->head, &reassign);
-		else if (c != border)
+		else if (c != border && (c->flags & OAF_BOUND))
 			apply_lease(iface, c, true);
 
 		if (c->accept_reconf && c->reconf_cnt == 0) {
@@ -1068,7 +1074,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a = c;
 
 				/* Reset state */
-				apply_lease(iface, a, false);
+				if (a->flags & OAF_BOUND)
+					apply_lease(iface, a, false);
+
 				memcpy(a->clid_data, clid_data, clid_len);
 				a->clid_len = clid_len;
 				a->iaid = ia->iaid;
@@ -1190,8 +1198,10 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = now - 1;
 
-				a->flags &= ~OAF_BOUND;
-				apply_lease(iface, a, false);
+				if (a->flags & OAF_BOUND) {
+					apply_lease(iface, a, false);
+					a->flags &= ~OAF_BOUND;
+				}
 			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
 				a->flags &= ~OAF_BOUND;
 

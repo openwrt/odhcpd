@@ -180,6 +180,12 @@ static struct interface* get_interface(const char *name)
 	return NULL;
 }
 
+static void set_interface_defaults(struct interface *iface)
+{
+	iface->managed = 1;
+	iface->learn_routes = 1;
+}
+
 static void clean_interface(struct interface *iface)
 {
 	free(iface->dns);
@@ -190,6 +196,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv6_raw);
 	free(iface->filter_class);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
+	set_interface_defaults(iface);
 }
 
 static void close_interface(struct interface *iface)
@@ -357,9 +364,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		strncpy(iface->name, name, sizeof(iface->name) - 1);
 
-		/* Default settings */
-		iface->managed = 1;
-		iface->learn_routes = true;
+		set_interface_defaults(iface);
 
 		list_add(&iface->head, &interfaces);
 		overwrite = true;

@@ -40,23 +40,25 @@
 struct event_socket {
 	struct odhcpd_event ev;
 	struct nl_sock *sock;
+	int sock_bufsize;
 };
 
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 static void handle_rtnl_event(struct odhcpd_event *ev);
 static int cb_rtnl_valid(struct nl_msg *msg, void *arg);
-static void catch_rtnetlink(int error);
+static void catch_rtnl_err(struct odhcpd_event *e, int error);
 
 static int ping_socket = -1;
 static struct event_socket rtnl_event = {
 	.ev = {
 		.uloop = {.fd = - 1, },
 		.handle_dgram = NULL,
-		.handle_error = catch_rtnetlink,
+		.handle_error = catch_rtnl_err,
 		.recv_msgs = handle_rtnl_event,
 	},
 	.sock = NULL,
+	.sock_bufsize = 133120,
 };
 
 // Filter ICMPv6 messages of type neighbor soliciation
@@ -75,7 +77,7 @@ static const struct sock_fprog bpf_prog = {sizeof(bpf) / sizeof(*bpf), bpf};
 // Initialize NDP-proxy
 int init_ndp(void)
 {
-	int val = 256 * 1024;
+	int val = 2;
 
 	rtnl_event.sock = odhcpd_create_nl_socket(NETLINK_ROUTE);
 	if (!rtnl_event.sock)
@@ -83,7 +85,7 @@ int init_ndp(void)
 
 	rtnl_event.ev.uloop.fd = nl_socket_get_fd(rtnl_event.sock);
 
-	if (nl_socket_set_buffer_size(rtnl_event.sock, val, 0))
+	if (nl_socket_set_buffer_size(rtnl_event.sock, rtnl_event.sock_bufsize, 0))
 		goto err;
 
 	nl_socket_disable_seq_check(rtnl_event.sock);
@@ -105,7 +107,6 @@ int init_ndp(void)
 			return -1;
 	}
 
-	val = 2;
 	setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
 
 	// This is required by RFC 4861
@@ -533,8 +534,18 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 	return NL_OK;
 }
 
-static void catch_rtnetlink(int error)
+static void catch_rtnl_err(struct odhcpd_event *e, int error)
 {
-	if (error == ENOBUFS)
-		dump_addr_table();
+	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
+
+	if (error != ENOBUFS)
+		return;
+
+	/* Double netlink event buffer size */
+	ev_sock->sock_bufsize *= 2;
+
+	if (nl_socket_set_buffer_size(ev_sock->sock, ev_sock->sock_bufsize, 0))
+		return;
+
+	dump_addr_table();
 }

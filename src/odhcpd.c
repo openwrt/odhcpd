@@ -476,7 +476,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		getsockopt(u->fd, SOL_SOCKET, SO_ERROR, &ret, &ret_len);
 		u->error = false;
 		if (e->handle_error)
-			e->handle_error(ret);
+			e->handle_error(e, ret);
 	}
 
 	if (e->recv_msgs) {

@@ -169,10 +169,17 @@ static void dump_addr_table(void)
 
 int setup_ndp_interface(struct interface *iface, bool enable)
 {
-	char procbuf[64];
-	snprintf(procbuf, sizeof(procbuf), "/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface->ifname);
-	int procfd = open(procbuf, O_WRONLY);
+	int ret = 0, procfd;
 	bool dump_neigh = false;
+	char procbuf[64];
+
+	snprintf(procbuf, sizeof(procbuf), "/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface->ifname);
+	procfd = open(procbuf, O_WRONLY);
+
+	if (procfd < 0) {
+		ret = -1;
+		goto out;
+	}
 
 	if (iface->ndp_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->ndp_event.uloop);
@@ -191,13 +198,13 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 
 	if (enable && iface->ndp == RELAYD_RELAY) {
 		if (write(procfd, "1\n", 2) < 0) {}
-		close(procfd);
 
 		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
 		if (sock < 0) {
 			syslog(LOG_ERR, "Unable to open packet socket: %s",
 					strerror(errno));
-			return -1;
+			ret = -1;
+			goto out;
 		}
 
 #ifdef PACKET_RECV_TYPE
@@ -208,7 +215,8 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 		if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER,
 				&bpf_prog, sizeof(bpf_prog))) {
 			syslog(LOG_ERR, "Failed to set BPF: %s", strerror(errno));
-			return -1;
+			ret = -1;
+			goto out;
 		}
 
 		struct sockaddr_ll ll = {
@@ -234,13 +242,16 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 			dump_neigh_table(false);
 		else
 			dump_neigh = false;
-	} else
-		close(procfd);
+	}
 
 	if (dump_neigh)
 		dump_neigh_table(true);
 
-	return 0;
+out:
+	if (procfd >= 0)
+		close(procfd);
+
+	return ret;
 }
 
 

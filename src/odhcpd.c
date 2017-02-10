@@ -63,8 +63,8 @@ static void print_usage(const char *app)
 {
 	printf(
 	"== %s Usage ==\n\n"
-        "  -h, --help   Print this help\n"
-        "  -l level     Specify log level 0..7 (default %d)\n",
+	"  -h, --help   Print this help\n"
+	"  -l level     Specify log level 0..7 (default %d)\n",
 		app, LOG_WARNING
 	);
 }

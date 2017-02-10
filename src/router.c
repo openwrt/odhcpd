@@ -309,7 +309,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		uint32_t this_lifetime = TIME_LEFT(addr->valid, now);
 		if (this_lifetime > UINT16_MAX)
 			this_lifetime = UINT16_MAX;
-		if (((addr->addr.s6_addr[0] & 0xfe) != 0xfc || iface->default_router)
+		if ((!IN6_IS_ADDR_ULA(&addr->addr) || iface->default_router)
 				&& adv.h.nd_ra_router_lifetime
 				&& ntohs(adv.h.nd_ra_router_lifetime) < this_lifetime) {
 			adv.h.nd_ra_router_lifetime = htons(this_lifetime);

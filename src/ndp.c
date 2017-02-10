@@ -328,8 +328,8 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 static int prefixcmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
-	uint32_t a_pref = ((a->addr.s6_addr[0] & 0xfe) != 0xfc) ? a->preferred : 1;
-	uint32_t b_pref = ((b->addr.s6_addr[0] & 0xfe) != 0xfc) ? b->preferred : 1;
+	uint32_t a_pref = IN6_IS_ADDR_ULA(&a->addr) ? 1 : a->preferred;
+	uint32_t b_pref = IN6_IS_ADDR_ULA(&b->addr) ? 1 : b->preferred;
 	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
 }
 

@@ -539,13 +539,17 @@ static void catch_rtnl_err(struct odhcpd_event *e, int error)
 	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
 
 	if (error != ENOBUFS)
-		return;
+		goto err;
 
 	/* Double netlink event buffer size */
 	ev_sock->sock_bufsize *= 2;
 
 	if (nl_socket_set_buffer_size(ev_sock->sock, ev_sock->sock_bufsize, 0))
-		return;
+		goto err;
 
 	dump_addr_table();
+	return;
+
+err:
+	odhcpd_deregister(e);
 }

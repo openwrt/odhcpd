@@ -566,6 +566,12 @@ int odhcpd_register(struct odhcpd_event *event)
 			((event->handle_error) ? ULOOP_ERROR_CB : 0));
 }
 
+int odhcpd_deregister(struct odhcpd_event *event)
+{
+	event->uloop.cb = NULL;
+	return uloop_fd_delete(&event->uloop);
+}
+
 void odhcpd_process(struct odhcpd_event *event)
 {
 	odhcpd_receive_packets(&event->uloop, 0);

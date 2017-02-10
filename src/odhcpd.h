@@ -188,6 +188,7 @@ extern struct list_head interfaces;
 
 // Exported main functions
 int odhcpd_register(struct odhcpd_event *event);
+int odhcpd_deregister(struct odhcpd_event *event);
 void odhcpd_process(struct odhcpd_event *event);
 
 struct nl_sock *odhcpd_create_nl_socket(int protocol);

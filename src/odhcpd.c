@@ -52,7 +52,7 @@
 static int ioctl_sock;
 static struct nl_sock *rtnl_socket = NULL;
 static int urandom_fd = -1;
-
+static int log_level = LOG_INFO;
 
 static void sighandler(_unused int signal)
 {
@@ -65,7 +65,7 @@ static void print_usage(const char *app)
 	"== %s Usage ==\n\n"
 	"  -h, --help   Print this help\n"
 	"  -l level     Specify log level 0..7 (default %d)\n",
-		app, LOG_WARNING
+		app, log_level
 	);
 }
 
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
-	int log_level = LOG_INFO;
+
 	while ((opt = getopt(argc, argv, "hl:")) != -1) {
 		switch (opt) {
 		case 'h':

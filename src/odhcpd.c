@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <syslog.h>
 
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -52,7 +53,6 @@
 static int ioctl_sock;
 static struct nl_sock *rtnl_socket = NULL;
 static int urandom_fd = -1;
-static int log_level = LOG_INFO;
 
 static void sighandler(_unused int signal)
 {
@@ -65,7 +65,7 @@ static void print_usage(const char *app)
 	"== %s Usage ==\n\n"
 	"  -h, --help   Print this help\n"
 	"  -l level     Specify log level 0..7 (default %d)\n",
-		app, log_level
+		app, config.log_level
 	);
 }
 
@@ -80,12 +80,12 @@ int main(int argc, char **argv)
 			print_usage(argv[0]);
 			return 0;
 		case 'l':
-			log_level = atoi(optarg);
-			fprintf(stderr, "Log level set to %d\n", log_level);
+			config.log_level = (atoi(optarg) & LOG_PRIMASK);
+			fprintf(stderr, "Log level set to %d\n", config.log_level);
 			break;
 		}
 	}
-	setlogmask(LOG_UPTO(log_level));
+	setlogmask(LOG_UPTO(config.log_level));
 	uloop_init();
 
 	if (getuid() != 0) {

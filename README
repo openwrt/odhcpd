@@ -62,6 +62,7 @@ legacy		bool	0			Enable DHCPv4 if start but
 						no dhcpv4 option set
 leasefile	string				DHCP/v6 lease/hostfile
 leasetrigger	string				Lease trigger script
+loglevel	integer 6			Syslog level priority (0-7)
 
 
 Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)

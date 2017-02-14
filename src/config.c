@@ -6,6 +6,7 @@
 #include <libgen.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <syslog.h>
 
 #include <uci.h>
 #include <uci_blob.h>
@@ -16,7 +17,8 @@ static struct blob_buf b;
 static int reload_pipe[2];
 struct list_head leases = LIST_HEAD_INIT(leases);
 struct list_head interfaces = LIST_HEAD_INIT(interfaces);
-struct config config = {false, NULL, NULL};
+struct config config = {.legacy = false, .dhcp_cb = NULL,
+			.dhcp_statefile = NULL, .log_level = LOG_INFO};
 
 enum {
 	IFACE_ATTR_INTERFACE,
@@ -123,6 +125,7 @@ enum {
 	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
+	ODHCPD_ATTR_LOGLEVEL,
 	ODHCPD_ATTR_MAX
 };
 
@@ -130,6 +133,7 @@ static const struct blobmsg_policy odhcpd_attrs[LEASE_ATTR_MAX] = {
 	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
+	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
 };
 
 const struct uci_blob_param_list odhcpd_attr_list = {
@@ -246,6 +250,15 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_LEASETRIGGER])) {
 		free(config.dhcp_cb);
 		config.dhcp_cb = strdup(blobmsg_get_string(c));
+	}
+
+	if ((c = tb[ODHCPD_ATTR_LOGLEVEL])) {
+		int log_level = (blobmsg_get_u32(c) & LOG_PRIMASK);
+
+		if (config.log_level != log_level) {
+			config.log_level = log_level;
+			setlogmask(LOG_UPTO(config.log_level));
+		}
 	}
 }
 

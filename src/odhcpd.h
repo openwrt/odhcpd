@@ -97,6 +97,7 @@ struct config {
 	bool legacy;
 	char *dhcp_cb;
 	char *dhcp_statefile;
+	int log_level;
 } config;
 
 

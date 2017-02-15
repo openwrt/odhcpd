@@ -157,7 +157,6 @@ struct interface {
 	int managed;
 	int route_preference;
 	int ra_maxinterval;
-	int ra_lifetime;
 
 	// DHCPv4
 	struct in_addr dhcpv4_start;

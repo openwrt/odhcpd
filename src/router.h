@@ -30,9 +30,9 @@ struct icmpv6_opt {
 	(void*)(opt + opt->len) <= (void*)(end); opt += opt->len)
 
 
-#define MaxValidTime 65535
-#define MaxRtrAdvInterval 1800
+#define MaxValidTime		65535
+#define MaxRtrAdvInterval	1800
 
 #define ND_RA_FLAG_PROXY	0x4
-#define ND_RA_PREF_HIGH	(1 << 3)
+#define ND_RA_PREF_HIGH		(1 << 3)
 #define ND_RA_PREF_LOW		(3 << 3)

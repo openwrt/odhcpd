@@ -105,6 +105,12 @@ ra_management	integer	1			RA management mode
 ra_offlink	bool	0			Announce prefixes off-link
 ra_preference	string	medium			Route(r) preference
 		[medium|high|low]
+ra_maxinterval	integer	600			Maximum time allowed between
+						sending unsolicited RA
+ra_mininterval	integer	200			Minimum time allowed between
+						sending unsolicited RA
+ra_lifetime	integer	1800			Value to be placed in Router
+						Lifetime field of RA
 ndproxy_routing	bool	1			Learn routes from NDP
 ndproxy_slave	bool	0			NDProxy external slave
 

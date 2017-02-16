@@ -152,11 +152,14 @@ struct interface {
 	bool ra_advrouter;
 	bool no_dynamic_dhcp;
 
+	// RA
 	int learn_routes;
 	int default_router;
 	int managed;
 	int route_preference;
 	int ra_maxinterval;
+	int ra_mininterval;
+	int ra_lifetime;
 
 	// DHCPv4
 	struct in_addr dhcpv4_start;

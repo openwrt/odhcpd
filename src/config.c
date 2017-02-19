@@ -192,6 +192,7 @@ static void set_interface_defaults(struct interface *iface)
 {
 	iface->managed = 1;
 	iface->learn_routes = 1;
+	iface->dhcpv4_leasetime = 43200;
 	iface->ra_maxinterval = 600;
 	iface->ra_mininterval = iface->ra_maxinterval/3;
 	iface->ra_lifetime = -1;
@@ -288,10 +289,10 @@ static double parse_leasetime(struct blob_attr *c) {
 			goto err;
 	}
 
-	if (time >= 60)
-		return time;
+	if (time < 60)
+		time = 60;
 
-	return 0;
+	return time;
 
 err:
 	return -1;
@@ -351,8 +352,7 @@ static int set_lease(struct uci_section *s)
 		if (time < 0)
 			goto err;
 
-		if (time >= 60)
-			lease->dhcpv4_leasetime = time;
+		lease->dhcpv4_leasetime = time;
 	}
 
 	list_add(&lease->head, &leases);
@@ -425,8 +425,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (time < 0)
 			goto err;
 
-		if (time >= 60)
-			iface->dhcpv4_leasetime = time;
+		iface->dhcpv4_leasetime = time;
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {

@@ -153,8 +153,7 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 				return -1;
 			}
 
-			if (lease->dhcpv4_leasetime >= 60)
-				a->leasetime = lease->dhcpv4_leasetime;
+			a->leasetime = lease->dhcpv4_leasetime;
 
 			a->addr = ntohl(lease->ipaddr.s_addr);
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
@@ -193,10 +192,6 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 					(iface->dhcpv4_start.s_addr & smask->sin_addr.s_addr))
 				free_dhcpv4_assignment(a);
 		}
-
-
-		if (iface->dhcpv4_leasetime < 60)
-			iface->dhcpv4_leasetime = 43200;
 
 		iface->dhcpv4_event.uloop.fd = sock;
 		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
@@ -627,7 +622,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			assigned = dhcpv4_assign(iface, a, raddr);
 		}
 
-		if (a->leasetime >= 60)
+		if (a->leasetime)
 			my_leasetime = a->leasetime;
 		else
 			my_leasetime = iface->dhcpv4_leasetime;

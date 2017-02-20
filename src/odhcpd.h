@@ -150,6 +150,7 @@ struct interface {
 	bool always_rewrite_dns;
 	bool ra_not_onlink;
 	bool ra_advrouter;
+	bool ra_useleasetime;
 	bool no_dynamic_dhcp;
 
 	// RA

@@ -111,6 +111,9 @@ ra_mininterval	integer	200			Minimum time allowed between
 						sending unsolicited RA
 ra_lifetime	integer	1800			Value to be placed in Router
 						Lifetime field of RA
+ra_useleasetime	bool	0			Use configured leasetime as
+						limit for the preferred and
+						valid lifetime of a prefix
 ndproxy_routing	bool	1			Learn routes from NDP
 ndproxy_slave	bool	0			NDProxy external slave
 

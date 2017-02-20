@@ -321,6 +321,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
+		uint32_t preferred = 0;
+		uint32_t valid = 0;
 
 		if (addr->prefix > 96 || addr->valid <= (uint32_t)now) {
 			char namebuf[INET6_ADDRSTRLEN];
@@ -346,9 +348,23 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p = &adv.prefix[cnt++];
 		}
 
-		if (addr->preferred > (uint32_t)now &&
-				minvalid > TIME_LEFT(addr->valid, now))
-			minvalid = TIME_LEFT(addr->valid, now);
+		if (addr->preferred > (uint32_t)now) {
+			preferred = TIME_LEFT(addr->preferred, now);
+
+			if (iface->ra_useleasetime &&
+					preferred > iface->dhcpv4_leasetime)
+				preferred = iface->dhcpv4_leasetime;
+		}
+
+		valid = TIME_LEFT(addr->valid, now);
+		if (iface->ra_useleasetime) {
+			if (valid > iface->dhcpv4_leasetime)
+				valid = iface->dhcpv4_leasetime;
+		} else if (!preferred && valid < 7200)
+			valid = 0;
+
+		if (minvalid > valid)
+			minvalid = valid;
 
 		if (!IN6_IS_ADDR_ULA(&addr->addr) || iface->default_router)
 			valid_prefix = true;
@@ -365,11 +381,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
-		p->nd_opt_pi_valid_time = htonl(TIME_LEFT(addr->valid, now));
-		if (addr->preferred > (uint32_t)now)
-			p->nd_opt_pi_preferred_time = htonl(TIME_LEFT(addr->preferred, now));
-		else if (addr->valid - now < 7200)
-			p->nd_opt_pi_valid_time = 0;
+		p->nd_opt_pi_preferred_time = htonl(preferred);
+		p->nd_opt_pi_valid_time = htonl(valid);
 	}
 
 	// Calculate periodic transmit

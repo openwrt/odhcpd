@@ -233,7 +233,8 @@ static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
 		minival = (*maxival >= 9 ? *maxival/3 : *maxival);
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
-	msecs = (labs(msecs) % ((*maxival - minival)*1000)) + minival*1000;
+	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
+			minival*1000;
 
 	return msecs;
 }

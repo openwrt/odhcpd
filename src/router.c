@@ -358,11 +358,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		}
 
 		valid = TIME_LEFT(addr->valid, now);
-		if (iface->ra_useleasetime) {
-			if (valid > iface->dhcpv4_leasetime)
-				valid = iface->dhcpv4_leasetime;
-		} else if (!preferred && valid < 7200)
-			valid = 0;
+		if (iface->ra_useleasetime && valid > iface->dhcpv4_leasetime)
+			valid = iface->dhcpv4_leasetime;
 
 		if (minvalid > valid)
 			minvalid = valid;

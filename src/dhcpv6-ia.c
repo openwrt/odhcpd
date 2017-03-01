@@ -242,8 +242,12 @@ void dhcpv6_write_statefile(void)
 		int fd = open(config.dhcp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
 		if (fd < 0)
 			return;
-
-		lockf(fd, F_LOCK, 0);
+		int ret;
+		ret = lockf(fd, F_LOCK, 0);
+		if (ret < 0) {
+			close(fd);
+			return;
+		}
 		if (ftruncate(fd, 0) < 0) {}
 
 		FILE *fp = fdopen(fd, "w");

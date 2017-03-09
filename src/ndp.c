@@ -264,12 +264,15 @@ static void ping6(struct in6_addr *addr,
 	struct sockaddr_in6 dest = { .sin6_family = AF_INET6, .sin6_addr = *addr, .sin6_scope_id = iface->ifindex, };
 	struct icmp6_hdr echo = { .icmp6_type = ICMP6_ECHO_REQUEST };
 	struct iovec iov = { .iov_base = &echo, .iov_len = sizeof(echo) };
+	char ipbuf[INET6_ADDRSTRLEN];
+
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+	syslog(LOG_NOTICE, "Pinging for %s%%%s", ipbuf, iface->ifname);
 
 	odhcpd_setup_route(addr, 128, iface, NULL, 128, true);
 	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
 	odhcpd_setup_route(addr, 128, iface, NULL, 128, false);
 }
-
 
 // Handle solicitations
 static void handle_solicit(void *addr, void *data, size_t len,
@@ -278,6 +281,8 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	struct ip6_hdr *ip6 = data;
 	struct nd_neighbor_solicit *req = (struct nd_neighbor_solicit*)&ip6[1];
 	struct sockaddr_ll *ll = addr;
+	char ipbuf[INET6_ADDRSTRLEN];
+	uint8_t mac[6];
 
 	// Solicitation is for duplicate address detection
 	bool ns_is_dad = IN6_IS_ADDR_UNSPECIFIED(&ip6->ip6_src);
@@ -296,11 +301,9 @@ static void handle_solicit(void *addr, void *data, size_t len,
 			IN6_IS_ADDR_MULTICAST(&req->nd_ns_target))
 		return; // Invalid target
 
-	char ipbuf[INET6_ADDRSTRLEN];
 	inet_ntop(AF_INET6, &req->nd_ns_target, ipbuf, sizeof(ipbuf));
-	syslog(LOG_DEBUG, "Got a NS for %s", ipbuf);
+	syslog(LOG_DEBUG, "Got a NS for %s%%%s", ipbuf, iface->ifname);
 
-	uint8_t mac[6];
 	odhcpd_get_mac(iface, mac);
 	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
 		return; // Looped back
@@ -315,10 +318,11 @@ static void handle_solicit(void *addr, void *data, size_t len,
 // Use rtnetlink to modify kernel routes
 static void setup_route(struct in6_addr *addr, struct interface *iface, bool add)
 {
-	char namebuf[INET6_ADDRSTRLEN];
-	inet_ntop(AF_INET6, addr, namebuf, sizeof(namebuf));
-	syslog(LOG_NOTICE, "%s about %s on %s",
-			(add) ? "Learned" : "Forgot", namebuf, iface->ifname);
+	char ipbuf[INET6_ADDRSTRLEN];
+
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+	syslog(LOG_NOTICE, "%s about %s%%%s",
+			(add) ? "Learned" : "Forgot", ipbuf, iface->ifname);
 
 	if (iface->learn_routes)
 		odhcpd_setup_route(addr, 128, iface, NULL, 1024, add);
@@ -381,12 +385,22 @@ static void check_addr_updates(struct interface *iface)
 void setup_addr_for_relaying(struct in6_addr *addr, struct interface *iface, bool add)
 {
 	struct interface *c;
+	char ipbuf[INET6_ADDRSTRLEN];
+
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
 	list_for_each_entry(c, &interfaces, head) {
 		if (iface == c || (c->ndp != RELAYD_RELAY && !add))
 			continue;
 
-		odhcpd_setup_proxy_neigh(addr, c, c->ndp == RELAYD_RELAY ? add : false);
+		add = (c->ndp == RELAYD_RELAY ? add : false);
+
+		if (odhcpd_setup_proxy_neigh(addr, c, add))
+			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
+				add ? "add" : "delete", ipbuf, iface->ifname);
+		else
+			syslog(LOG_DEBUG, "%s proxy neighbour entry %s%%%s",
+				add ? "Added" : "Deleted", ipbuf, iface->ifname);
 	}
 }
 
@@ -421,6 +435,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 	struct in6_addr *addr = NULL;
 	struct interface *iface = NULL;
 	bool add = false;
+	char ipbuf[INET6_ADDRSTRLEN];
 
 	switch (hdr->nlmsg_type) {
 	case RTM_NEWROUTE:
@@ -461,6 +476,10 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 				IN6_IS_ADDR_MULTICAST(addr))
 			return NL_SKIP;
 
+		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newaddr" : "deladdr",
+			ipbuf, iface->ifname);
+
 		check_addr_updates(iface);
 
 		if (iface->ndp != RELAYD_RELAY)
@@ -496,6 +515,10 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
 				IN6_IS_ADDR_MULTICAST(addr))
 			return NL_SKIP;
+
+		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newneigh" : "delneigh",
+			ipbuf, iface->ifname);
 
 		if (ndm->ndm_flags & NTF_PROXY) {
 			/* Dump and flush proxy entries */

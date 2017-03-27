@@ -760,11 +760,11 @@ void odhcpd_reload(void)
 			setup_dhcpv6_interface(i, !i->ignore || i->dhcpv6 != RELAYD_DISABLED);
 			setup_ndp_interface(i, !i->ignore || i->ndp != RELAYD_DISABLED);
 			setup_dhcpv4_interface(i, !i->ignore || i->dhcpv4 != RELAYD_DISABLED);
-		} else {
+		} else
 			close_interface(i);
-		}
 	}
 
+	ndp_handle_addr6_dump();
 	uci_unload(uci, dhcp);
 	uci_free_context(uci);
 }

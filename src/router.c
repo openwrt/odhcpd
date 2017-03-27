@@ -120,6 +120,7 @@ int setup_router_interface(struct interface *iface, bool enable)
 		} else if (iface->ra == RELAYD_SERVER && !iface->master) {
 			iface->timer_rs.cb = trigger_router_advert;
 			uloop_timeout_set(&iface->timer_rs, 1000);
+			ndp_rqs_addr6_dump();
 		}
 
 		if (iface->ra == RELAYD_RELAY || (iface->ra == RELAYD_SERVER && !iface->master))

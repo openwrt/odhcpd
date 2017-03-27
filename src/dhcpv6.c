@@ -90,6 +90,9 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 		if (iface->dhcpv6 == RELAYD_SERVER)
 			setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
 
+		if (iface->dhcpv6 != RELAYD_RELAY || !iface->master)
+			ndp_rqs_addr6_dump();
+
 		iface->dhcpv6_event.uloop.fd = sock;
 		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;
 		odhcpd_register(&iface->dhcpv6_event);

@@ -226,6 +226,9 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
+void ndp_handle_addr6_dump(void);
+void ndp_rqs_addr6_dump(void);
+
 #ifdef WITH_UBUS
 int init_ubus(void);
 const char* ubus_get_ifname(const char *name);

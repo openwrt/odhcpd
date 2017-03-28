@@ -33,9 +33,8 @@
 #include <netlink/socket.h>
 #include <netlink/attr.h>
 
-#include "router.h"
 #include "dhcpv6.h"
-#include "ndp.h"
+#include "odhcpd.h"
 
 struct event_socket {
 	struct odhcpd_event ev;
@@ -395,7 +394,7 @@ static void check_addr_updates(struct interface *iface)
 	}
 }
 
-void setup_addr_for_relaying(struct in6_addr *addr, struct interface *iface, bool add)
+static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *iface, bool add)
 {
 	struct interface *c;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -417,7 +416,7 @@ void setup_addr_for_relaying(struct in6_addr *addr, struct interface *iface, boo
 	}
 }
 
-void setup_ping6(struct in6_addr *addr, struct interface *iface)
+static void setup_ping6(struct in6_addr *addr, struct interface *iface)
 {
 	struct interface *c;
 

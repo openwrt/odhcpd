@@ -336,7 +336,7 @@ out:
 	return ctxt.ret;
 }
 
-int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
+static int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 {
 	int status = -1;
 	struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, ifindex};
@@ -352,6 +352,51 @@ int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 	close(sock);
 
 	return status;
+}
+
+/*
+ * DNS address selection criteria order :
+ * - use IPv6 address with valid lifetime if none is yet selected
+ * - use IPv6 address with a preferred lifetime if the already selected IPv6 address is deprecated
+ * - use an IPv6 ULA address if the already selected IPv6 address is not an ULA address
+ * - use the IPv6 address with the longest preferred lifetime
+ */
+int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr *addr)
+{
+	time_t now = odhcpd_time();
+	ssize_t m = -1;
+
+	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
+		if (iface->ia_addr[i].valid <= (uint32_t)now)
+			continue;
+
+		if (m < 0) {
+			m = i;
+			continue;
+		}
+
+		if (iface->ia_addr[m].preferred >= (uint32_t)now &&
+				iface->ia_addr[i].preferred < (uint32_t)now)
+			continue;
+
+		if (IN6_IS_ADDR_ULA(&iface->ia_addr[i].addr)) {
+			if (!IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr)) {
+				m = i;
+				continue;
+			}
+		} else if (IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr))
+			continue;
+
+		if (iface->ia_addr[i].preferred > iface->ia_addr[m].preferred)
+			m = i;
+	}
+
+	if (m >= 0) {
+		*addr = iface->ia_addr[m].addr;
+		return 0;
+	}
+
+	return odhcpd_get_linklocal_interface_address(iface->ifindex, addr);
 }
 
 int odhcpd_setup_route(const struct in6_addr *addr, const int prefixlen,

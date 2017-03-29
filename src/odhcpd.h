@@ -203,7 +203,8 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		const struct interface *iface);
 ssize_t odhcpd_get_interface_addresses(int ifindex,
 		struct odhcpd_ipaddr *addrs, size_t cnt);
-int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr);
+int odhcpd_get_interface_dns_addr(const struct interface *iface,
+		struct in6_addr *addr);
 struct interface* odhcpd_get_interface_by_name(const char *name);
 int odhcpd_get_interface_config(const char *ifname, const char *what);
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);

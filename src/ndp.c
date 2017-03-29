@@ -362,8 +362,6 @@ static void check_addr_updates(struct interface *iface)
 	qsort(addr, len, sizeof(*addr), prefixcmp);
 
 	for (int i = 0; i < len; ++i) {
-		addr[i].addr.s6_addr32[3] = 0;
-
 		if (addr[i].preferred < UINT32_MAX - now)
 			addr[i].preferred += now;
 

@@ -297,12 +297,12 @@ void dhcpv6_write_statefile(void)
 								continue;
 
 							addr.s6_addr32[3] = htonl(c->assigned);
-						}
-						else {
+						} else {
 							if (!valid_prefix_length(c, addrs[i].prefix))
 								continue;
 
 							addr.s6_addr32[1] |= htonl(c->assigned);
+							addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 						}
 
 						inet_ntop(AF_INET6, &addr, ipbuf, sizeof(ipbuf) - 1);
@@ -399,6 +399,7 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 	for (size_t i = 0; i < addrlen; ++i) {
 		struct in6_addr prefix = addrs[i].addr;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
+		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		odhcpd_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
 				iface, &a->peer.sin6_addr, 1024, add);
 	}
@@ -757,6 +758,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.addr = addrs[i].addr
 					};
 					p.addr.s6_addr32[1] |= htonl(a->assigned);
+					p.addr.s6_addr32[2] = p.addr.s6_addr32[3] = 0;
 
 					size_t entrlen = sizeof(p) - 4;
 
@@ -833,6 +835,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						struct in6_addr addr = addrs[i].addr;
 						if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
 							addr.s6_addr32[1] |= htonl(a->assigned);
+							addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
 							if (!memcmp(&p->addr, &addr, sizeof(addr)) &&
 									p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
@@ -965,6 +968,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 					continue;
 
 				addr.s6_addr32[1] |= htonl(a->assigned);
+				addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 			}
 
 			inet_ntop(AF_INET6, &addr, addrbuf, sizeof(addrbuf));

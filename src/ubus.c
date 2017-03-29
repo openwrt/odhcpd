@@ -107,8 +107,10 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 				addr = iface->ia_addr[i].addr;
 				if (lease->length == 128)
 					addr.s6_addr32[3] = htonl(lease->assigned);
-				else
+				else {
 					addr.s6_addr32[1] |= htonl(lease->assigned);
+					addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
+				}
 
 				char *c = blobmsg_alloc_string_buffer(&b, NULL, INET6_ADDRSTRLEN);
 				inet_ntop(AF_INET6, &addr, c, INET6_ADDRSTRLEN);

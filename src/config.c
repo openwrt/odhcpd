@@ -462,7 +462,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		struct blob_attr *cur;
 		unsigned rem;
 
-		iface->always_rewrite_dns = true;
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
@@ -486,6 +485,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			} else {
 				goto err;
 			}
+		}
+
+		if (iface->dns_cnt != 1 || !IN6_IS_ADDR_UNSPECIFIED(iface->dns)) {
+			iface->always_rewrite_dns = true;
 		}
 	}
 

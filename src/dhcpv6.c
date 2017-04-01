@@ -232,6 +232,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		dns_addr_ptr = &dns_addr;
 		dns_cnt = 1;
 	}
+	if (dns_cnt == 1 && IN6_IS_ADDR_UNSPECIFIED(dns_addr_ptr)) {
+		dns_cnt = 0;
+	}
 
 	struct {
 		uint16_t type;

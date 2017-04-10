@@ -1051,7 +1051,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		uint16_t status = DHCPV6_STATUS_OK;
 		if (a && a->managed_size < 0) {
 			return -1;
-		} else if (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST) {
+		} else if (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
+				hdr->msg_type == DHCPV6_MSG_REQUEST ||
+				hdr->msg_type == DHCPV6_MSG_REBIND) {
 			bool assigned = !!a;
 
 			if (!a && !iface->no_dynamic_dhcp) { // Create new binding
@@ -1135,8 +1137,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (!a && hdr->msg_type != DHCPV6_MSG_REBIND) {
 				status = DHCPV6_STATUS_NOBINDING;
 				ia_response_len = append_reply(buf, buflen, status, ia, a, iface, false);
-			} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
-					hdr->msg_type == DHCPV6_MSG_REBIND) {
+			} else if (hdr->msg_type == DHCPV6_MSG_RENEW) {
 				ia_response_len = append_reply(buf, buflen, status, ia, a, iface, false);
 				if (a)
 					apply_lease(iface, a, true);

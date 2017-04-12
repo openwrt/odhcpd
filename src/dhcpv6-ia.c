@@ -1094,7 +1094,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		if (a && a->managed_size < 0)
 			return -1;
 
-		if (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST) {
+		if (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
+				hdr->msg_type == DHCPV6_MSG_REQUEST ||
+				(hdr->msg_type == DHCPV6_MSG_REBIND && !a)) {
 			bool assigned = !!a;
 
 			if (!a && !iface->no_dynamic_dhcp) {
@@ -1130,7 +1132,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (!assigned || iface->ia_addr_len == 0)
 				/* Set error status */
 				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
-			else if (assigned && !first) {
+			else if (assigned && !first && hdr->msg_type != DHCPV6_MSG_REBIND) {
 				size_t handshake_len = 4;
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_RECONF_ACCEPT;
@@ -1158,7 +1160,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				first = a;
 			}
 
-			ia_response_len = append_reply(buf, buflen, status, ia, a, iface, true);
+			ia_response_len = append_reply(buf, buflen, status, ia, a, iface,
+							hdr->msg_type == DHCPV6_MSG_REBIND ? false : true);
 
 			/* Was only a solicitation: mark binding for removal */
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
@@ -1166,7 +1169,9 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = now;
-			} else if (assigned && hdr->msg_type == DHCPV6_MSG_REQUEST) {
+			} else if (assigned &&
+					(hdr->msg_type == DHCPV6_MSG_REQUEST ||
+					 hdr->msg_type == DHCPV6_MSG_REBIND)) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
 					if (a->hostname) {

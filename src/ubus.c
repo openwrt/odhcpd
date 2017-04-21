@@ -1,12 +1,12 @@
 #include <syslog.h>
 #include <libubus.h>
 #include <libubox/uloop.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
 
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"
-
 
 static struct ubus_context *ubus = NULL;
 static struct ubus_subscriber netifd;
@@ -15,16 +15,17 @@ static struct blob_attr *dump = NULL;
 static uint32_t objid = 0;
 static struct ubus_request req_dump = { .list = LIST_HEAD_INIT(req_dump.list) };
 
-
 static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_object *obj,
 		struct ubus_request_data *req, _unused const char *method,
 		_unused struct blob_attr *msg)
 {
-	blob_buf_init(&b, 0);
-	void *a = blobmsg_open_table(&b, "device");
-	time_t now = odhcpd_time();
-
 	struct interface *iface;
+	time_t now = odhcpd_time();
+	void *a;
+
+	blob_buf_init(&b, 0);
+	a = blobmsg_open_table(&b, "device");
+
 	list_for_each_entry(iface, &interfaces, head) {
 		if (iface->dhcpv4 != RELAYD_SERVER)
 			continue;
@@ -32,26 +33,34 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcpv4_assignment *lease;
-		list_for_each_entry(lease, &iface->dhcpv4_assignments, head) {
-			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now)
+		struct dhcpv4_assignment *c;
+		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+			if (!INFINITE_VALID(c->valid_until) && c->valid_until < now)
 				continue;
 
-			void *l = blobmsg_open_table(&b, NULL);
-
+			void *m, *l = blobmsg_open_table(&b, NULL);
 			char *buf = blobmsg_alloc_string_buffer(&b, "mac", 13);
-			odhcpd_hexlify(buf, lease->hwaddr, sizeof(lease->hwaddr));
+
+			odhcpd_hexlify(buf, c->hwaddr, sizeof(c->hwaddr));
 			blobmsg_add_string_buffer(&b);
 
-			blobmsg_add_string(&b, "hostname", lease->hostname);
+			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
+
+			m = blobmsg_open_array(&b, "flags");
+			if (c->flags & OAF_BOUND)
+				blobmsg_add_string(&b, NULL, "bound");
+
+			if (c->flags & OAF_STATIC)
+				blobmsg_add_string(&b, NULL, "static");
+			blobmsg_close_array(&b, m);
 
 			buf = blobmsg_alloc_string_buffer(&b, "ip", INET_ADDRSTRLEN);
-			struct in_addr addr = {htonl(lease->addr)};
+			struct in_addr addr = {htonl(c->addr)};
 			inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
 
-			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
-						(uint32_t)-1 : (uint32_t)(lease->valid_until - now));
+			blobmsg_add_u32(&b, "valid", INFINITE_VALID(c->valid_until) ?
+						(uint32_t)-1 : (uint32_t)(c->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}
@@ -62,19 +71,40 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 
 	blobmsg_close_table(&b, a);
 	ubus_send_reply(ctx, req, b.head);
+
 	return 0;
 }
 
+static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t pref,
+					uint32_t valid, _unused void *arg)
+{
+	void *a	= blobmsg_open_table(&b, NULL);
+	char *buf = blobmsg_alloc_string_buffer(&b, NULL, INET6_ADDRSTRLEN);
+
+	inet_ntop(AF_INET6, addr, buf, INET6_ADDRSTRLEN);
+	blobmsg_add_string_buffer(&b);
+	blobmsg_add_u32(&b, "preferred-lifetime",
+			pref == UINT32_MAX ? (uint32_t)-1 : pref);
+	blobmsg_add_u32(&b, "valid-lifetime",
+			valid == UINT32_MAX ? (uint32_t)-1 : valid);
+
+	if (prefix != 128)
+		blobmsg_add_u32(&b, "prefix-length", prefix);
+
+	blobmsg_close_table(&b, a);
+}
 
 static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
 		_unused struct ubus_request_data *req, _unused const char *method,
 		_unused struct blob_attr *msg)
 {
-	blob_buf_init(&b, 0);
-	void *a = blobmsg_open_table(&b, "device");
-	time_t now = odhcpd_time();
-
 	struct interface *iface;
+	time_t now = odhcpd_time();
+	void *a;
+
+	blob_buf_init(&b, 0);
+	a = blobmsg_open_table(&b, "device");
+
 	list_for_each_entry(iface, &interfaces, head) {
 		if (iface->dhcpv6 != RELAYD_SERVER)
 			continue;
@@ -82,44 +112,38 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcpv6_assignment *lease;
-		list_for_each_entry(lease, &iface->ia_assignments, head) {
-			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now)
+		struct dhcpv6_assignment *a, *border = list_last_entry(
+				&iface->ia_assignments, struct dhcpv6_assignment, head);
+
+		list_for_each_entry(a, &iface->ia_assignments, head) {
+			if (a == border || (!INFINITE_VALID(a->valid_until) &&
+					a->valid_until < now))
 				continue;
 
-			void *l = blobmsg_open_table(&b, NULL);
-
+			void *m, *l = blobmsg_open_table(&b, NULL);
 			char *buf = blobmsg_alloc_string_buffer(&b, "duid", 264);
-			odhcpd_hexlify(buf, lease->clid_data, lease->clid_len);
+
+			odhcpd_hexlify(buf, a->clid_data, a->clid_len);
 			blobmsg_add_string_buffer(&b);
 
-			blobmsg_add_u32(&b, "iaid", ntohl(lease->iaid));
-			blobmsg_add_string(&b, "hostname", (lease->hostname) ? lease->hostname : "");
-			blobmsg_add_u32(&b, "assigned", lease->assigned);
-			blobmsg_add_u32(&b, "length", lease->length);
+			blobmsg_add_u32(&b, "iaid", ntohl(a->iaid));
+			blobmsg_add_string(&b, "hostname", (a->hostname) ? a->hostname : "");
+			blobmsg_add_u32(&b, "assigned", a->assigned);
 
-			void *m = blobmsg_open_array(&b, "ipv6");
-			struct in6_addr addr;
-			for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-				if (iface->ia_addr[i].prefix > 64)
-					continue;
+			m = blobmsg_open_array(&b, "flags");
+			if (a->flags & OAF_BOUND)
+				blobmsg_add_string(&b, NULL, "bound");
 
-				addr = iface->ia_addr[i].addr;
-				if (lease->length == 128)
-					addr.s6_addr32[3] = htonl(lease->assigned);
-				else {
-					addr.s6_addr32[1] |= htonl(lease->assigned);
-					addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
-				}
+			if (a->flags & OAF_STATIC)
+				blobmsg_add_string(&b, NULL, "static");
+			blobmsg_close_array(&b, m);
 
-				char *c = blobmsg_alloc_string_buffer(&b, NULL, INET6_ADDRSTRLEN);
-				inet_ntop(AF_INET6, &addr, c, INET6_ADDRSTRLEN);
-				blobmsg_add_string_buffer(&b);
-			}
+			m = blobmsg_open_array(&b, a->length == 128 ? "ipv6-addr": "ipv6-prefix");
+			dhcpv6_enum_ia_addrs(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
 			blobmsg_close_table(&b, m);
 
-			blobmsg_add_u32(&b, "valid", INFINITE_VALID(lease->valid_until) ?
-						(uint32_t)-1 : (uint32_t)(lease->valid_until - now));
+			blobmsg_add_u32(&b, "valid", INFINITE_VALID(a->valid_until) ?
+						(uint32_t)-1 : (uint32_t)(a->valid_until - now));
 
 			blobmsg_close_table(&b, l);
 		}

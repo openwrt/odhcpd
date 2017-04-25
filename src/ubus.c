@@ -27,7 +27,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 	a = blobmsg_open_table(&b, "device");
 
 	list_for_each_entry(iface, &interfaces, head) {
-		if (iface->dhcpv4 != RELAYD_SERVER)
+		if (iface->dhcpv4 != RELAYD_SERVER || iface->dhcpv4_assignments.next == NULL)
 			continue;
 
 		void *i = blobmsg_open_table(&b, iface->ifname);
@@ -106,7 +106,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	a = blobmsg_open_table(&b, "device");
 
 	list_for_each_entry(iface, &interfaces, head) {
-		if (iface->dhcpv6 != RELAYD_SERVER)
+		if (iface->dhcpv6 != RELAYD_SERVER || iface->ia_assignments.next == NULL)
 			continue;
 
 		void *i = blobmsg_open_table(&b, iface->ifname);
@@ -117,7 +117,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 
 		list_for_each_entry(a, &iface->ia_assignments, head) {
 			if (a == border || (!INFINITE_VALID(a->valid_until) &&
-					a->valid_until < now))
+						a->valid_until < now))
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);

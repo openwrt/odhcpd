@@ -385,7 +385,7 @@ void dhcpv6_write_statefile(void)
 					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
 					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s ipv4 %s %ld %x 32 ",
 								ctxt.iface->ifname, duidbuf,
-								(c->hostname ? ctxt.c->hostname : "-"),
+								(c->hostname ? c->hostname : "-"),
 								(c->valid_until > now ?
 									(c->valid_until - now + wall_time) :
 									(INFINITE_VALID(c->valid_until) ? -1 : 0)),

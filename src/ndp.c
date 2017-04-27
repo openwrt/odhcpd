@@ -407,10 +407,10 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 
 		if (odhcpd_setup_proxy_neigh(addr, c, add))
 			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
-				add ? "add" : "delete", ipbuf, iface->ifname);
+				add ? "add" : "delete", ipbuf, c->ifname);
 		else
 			syslog(LOG_DEBUG, "%s proxy neighbour entry %s%%%s",
-				add ? "Added" : "Deleted", ipbuf, iface->ifname);
+				add ? "Added" : "Deleted", ipbuf, c->ifname);
 	}
 }
 

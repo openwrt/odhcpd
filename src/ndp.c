@@ -414,21 +414,6 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 	}
 }
 
-static void setup_ping6(struct in6_addr *addr, struct interface *iface)
-{
-	struct interface *c;
-
-	list_for_each_entry(c, &interfaces, head) {
-		if (iface == c || c->ndp != RELAYD_RELAY ||
-				c->external == true)
-			continue;
-
-		ping6(addr, c);
-	}
-}
-
-static struct in6_addr last_solicited;
-
 static void handle_rtnl_event(struct odhcpd_event *e)
 {
 	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
@@ -543,14 +528,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 		if (add && !(ndm->ndm_state &
 				(NUD_REACHABLE | NUD_STALE | NUD_DELAY | NUD_PROBE |
-				 NUD_PERMANENT | NUD_NOARP))) {
-			if (!IN6_ARE_ADDR_EQUAL(&last_solicited, addr)) {
-				last_solicited = *addr;
-				setup_ping6(addr, iface);
-			}
-
+				 NUD_PERMANENT | NUD_NOARP)))
 			return NL_OK;
-		}
 
 		setup_addr_for_relaying(addr, iface, add);
 		setup_route(addr, iface, add);

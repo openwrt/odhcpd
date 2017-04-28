@@ -403,14 +403,14 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 		if (iface == c || (c->ndp != RELAYD_RELAY && !add))
 			continue;
 
-		add = (c->ndp == RELAYD_RELAY ? add : false);
+		bool neigh_add = (c->ndp == RELAYD_RELAY ? add : false);
 
-		if (odhcpd_setup_proxy_neigh(addr, c, add))
+		if (odhcpd_setup_proxy_neigh(addr, c, neigh_add))
 			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
-				add ? "add" : "delete", ipbuf, c->ifname);
+				neigh_add ? "add" : "delete", ipbuf, c->ifname);
 		else
 			syslog(LOG_DEBUG, "%s proxy neighbour entry %s%%%s",
-				add ? "Added" : "Deleted", ipbuf, c->ifname);
+				neigh_add ? "Added" : "Deleted", ipbuf, c->ifname);
 	}
 }
 

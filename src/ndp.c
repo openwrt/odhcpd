@@ -450,6 +450,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 	case RTM_NEWADDR:
 		add = true;
+		/* fall through */
 	case RTM_DELADDR: {
 		struct ifaddrmsg *ifa = nlmsg_data(hdr);
 		struct nlattr *nla[__IFA_MAX];
@@ -490,6 +491,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 	case RTM_NEWNEIGH:
 		add = true;
+		/* fall through */
 	case RTM_DELNEIGH: {
 		struct ndmsg *ndm = nlmsg_data(hdr);
 		struct nlattr *nla[__NDA_MAX];

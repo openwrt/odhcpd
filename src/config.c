@@ -17,8 +17,9 @@ static struct blob_buf b;
 static int reload_pipe[2];
 struct list_head leases = LIST_HEAD_INIT(leases);
 struct list_head interfaces = LIST_HEAD_INIT(interfaces);
-struct config config = {.legacy = false, .dhcp_cb = NULL,
-			.dhcp_statefile = NULL, .log_level = LOG_INFO};
+struct config config = {.legacy = false, .main_dhcpv4 = false,
+			.dhcp_cb = NULL, .dhcp_statefile = NULL,
+			.log_level = LOG_INFO};
 
 enum {
 	IFACE_ATTR_INTERFACE,
@@ -128,6 +129,7 @@ const struct uci_blob_param_list lease_attr_list = {
 };
 
 enum {
+	ODHCPD_ATTR_LEGACY,
 	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
@@ -136,6 +138,7 @@ enum {
 };
 
 static const struct blobmsg_policy odhcpd_attrs[LEASE_ATTR_MAX] = {
+	[ODHCPD_ATTR_LEGACY] = { .name = "legacy", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
@@ -249,8 +252,11 @@ static void set_config(struct uci_section *s)
 	uci_to_blob(&b, s, &odhcpd_attr_list);
 	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
-	if ((c = tb[ODHCPD_ATTR_MAINDHCP]))
+	if ((c = tb[ODHCPD_ATTR_LEGACY]))
 		config.legacy = blobmsg_get_bool(c);
+
+	if ((c = tb[ODHCPD_ATTR_MAINDHCP]))
+		config.main_dhcpv4 = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_LEASEFILE])) {
 		free(config.dhcp_statefile);
@@ -433,7 +439,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_START])) {
 		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
 
-		if (config.legacy)
+		if (config.main_dhcpv4 && config.legacy)
 			iface->dhcpv4 = RELAYD_SERVER;
 	}
 
@@ -471,8 +477,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
-		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
-			iface->dhcpv4 = mode;
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
+			if (config.main_dhcpv4)
+				iface->dhcpv4 = mode;
+		}
 		else
 			goto err;
 	}

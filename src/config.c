@@ -50,6 +50,7 @@ enum {
 	IFACE_ATTR_RA_MAXINTERVAL,
 	IFACE_ATTR_RA_LIFETIME,
 	IFACE_ATTR_RA_USELEASETIME,
+	IFACE_ATTR_RA_HOPLIMIT,
 	IFACE_ATTR_RA_MTU,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
@@ -89,6 +90,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_MAXINTERVAL] = { .name = "ra_maxinterval", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_LIFETIME] = { .name = "ra_lifetime", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_USELEASETIME] = { .name = "ra_useleasetime", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_RA_HOPLIMIT] = { .name = "ra_hoplimit", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MTU] = { .name = "ra_mtu", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
@@ -595,6 +597,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_MANAGEMENT]))
 		iface->managed = blobmsg_get_u32(c);
+
+	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
+		iface->ra_hoplimit = blobmsg_get_u32(c);
+		if (iface->ra_hoplimit > 255)
+			goto err;
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
 		iface->ra_mtu = blobmsg_get_u32(c);

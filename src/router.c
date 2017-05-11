@@ -260,13 +260,16 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 {
 	time_t now = odhcpd_time();
 	uint32_t mtu = iface->ra_mtu;
-	int hlim = odhcpd_get_interface_config(iface->ifname, "hop_limit");
+	int hlim = iface->ra_hoplimit;
 
 	if (mtu == 0)
 		 mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
 
 	if (mtu < 1280)
 		mtu = 1280;
+
+	if (hlim == 0)
+		hlim = odhcpd_get_interface_config(iface->ifname, "hop_limit");
 
 	struct {
 		struct nd_router_advert h;

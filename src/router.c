@@ -295,6 +295,9 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;
 	else if (iface->route_preference > 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_HIGH;
+
+	adv.h.nd_ra_reachable = htonl(iface->ra_reachabletime);
+
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
 	// If not currently shutting down

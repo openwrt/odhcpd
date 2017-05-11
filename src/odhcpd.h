@@ -162,6 +162,7 @@ struct interface {
 	int ra_maxinterval;
 	int ra_mininterval;
 	int ra_lifetime;
+	uint32_t ra_mtu;
 
 	// DHCPv4
 	struct in_addr dhcpv4_start;

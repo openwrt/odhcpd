@@ -118,6 +118,8 @@ ra_useleasetime		bool	0			Use configured leasetime as
 							valid lifetime of a prefix
 ra_reachabletime	integer	0			Reachable Time in milliseconds to be
 							advertised in RA messages
+ra_retranstime		integer	0			Retransmit Time in milliseconds to be
+							advertised in RA messages
 ra_hoplimit		integer	0			Current hoplimit to be advertised
 							in RA messages
 ra_mtu			integer 0			MTU to be advertised in

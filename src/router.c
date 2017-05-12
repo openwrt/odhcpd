@@ -297,6 +297,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_HIGH;
 
 	adv.h.nd_ra_reachable = htonl(iface->ra_reachabletime);
+	adv.h.nd_ra_retransmit = htonl(iface->ra_retranstime);
 
 	odhcpd_get_mac(iface, adv.lladdr.data);
 

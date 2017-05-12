@@ -378,7 +378,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		 */
 	}
 
-	syslog(LOG_WARNING, "received %s from %x:%x:%x:%x:%x:%x",
+	syslog(LOG_WARNING, "received %s from %02x:%02x:%02x:%02x:%02x:%02x",
 			dhcpv4_msg_to_string(reqmsg),
 			req->chaddr[0],req->chaddr[1],req->chaddr[2],
 			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
@@ -502,7 +502,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		 * reply is send directly to IP,
 		 * MAC is assumed to be the same as the request
 		 */
-		syslog(LOG_WARNING, "sending %s to %x:%x:%x:%x:%x:%x - %s",
+		syslog(LOG_WARNING, "sending %s to %02x:%02x:%02x:%02x:%02x:%02x - %s",
 				dhcpv4_msg_to_string(msg),
 				req->chaddr[0],req->chaddr[1],req->chaddr[2],
 				req->chaddr[3],req->chaddr[4],req->chaddr[5],

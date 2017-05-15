@@ -619,9 +619,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
-		iface->ra_hoplimit = blobmsg_get_u32(c);
-		if (iface->ra_hoplimit > 255)
+		uint32_t ra_hoplimit = blobmsg_get_u32(c);
+		if (ra_hoplimit > 255)
 			goto err;
+
+		iface->ra_hoplimit = ra_hoplimit;
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {

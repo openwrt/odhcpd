@@ -603,9 +603,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->managed = blobmsg_get_u32(c);
 
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
-		iface->ra_reachabletime = blobmsg_get_u32(c);
-		if (iface->ra_reachabletime > 3600000)
+		uint32_t ra_reachabletime = blobmsg_get_u32(c);
+		if (ra_reachabletime > 3600000)
 			goto err;
+
+		iface->ra_reachabletime = ra_reachabletime;
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {

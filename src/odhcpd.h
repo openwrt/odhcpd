@@ -165,7 +165,7 @@ struct interface {
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
-	uint32_t ra_mtu;
+	int ra_mtu;
 
 	// DHCPv4
 	struct in_addr dhcpv4_start;

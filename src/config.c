@@ -611,9 +611,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {
-		iface->ra_retranstime = blobmsg_get_u32(c);
-		if (iface->ra_retranstime > 60000)
+		uint32_t ra_retranstime = blobmsg_get_u32(c);
+		if (ra_retranstime > 60000)
 			goto err;
+
+		iface->ra_retranstime = ra_retranstime;
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {

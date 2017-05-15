@@ -621,9 +621,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
-		iface->ra_mtu = blobmsg_get_u32(c);
-		if (iface->ra_mtu < 1280)
+		uint32_t ra_mtu = blobmsg_get_u32(c);
+		if (ra_mtu < 1280 || ra_mtu > 65535)
 			goto err;
+
+		iface->ra_mtu = ra_mtu;
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_OFFLINK]))

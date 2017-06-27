@@ -16,7 +16,6 @@
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ether.h>
-#include <net/if.h>
 #include <stdbool.h>
 #include <syslog.h>
 
@@ -118,8 +117,8 @@ struct interface {
 	struct list_head head;
 
 	int ifindex;
-	char ifname[IF_NAMESIZE];
-	char name[IF_NAMESIZE];
+	char *ifname;
+	const char *name;
 
 	// Runtime data
 	struct uloop_timeout timer_rs;

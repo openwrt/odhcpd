@@ -4,12 +4,14 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <net/if.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <syslog.h>
 
 #include <uci.h>
 #include <uci_blob.h>
+#include <libubox/utils.h>
 
 #include "odhcpd.h"
 
@@ -235,6 +237,7 @@ static void close_interface(struct interface *iface)
 	setup_dhcpv4_interface(iface, false);
 
 	clean_interface(iface);
+	free(iface->ifname);
 	free(iface);
 }
 
@@ -394,11 +397,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	struct interface *iface = get_interface(name);
 	if (!iface) {
-		iface = calloc(1, sizeof(*iface));
+		char *iface_name;
+
+		iface = calloc_a(sizeof(*iface), &iface_name, strlen(name) + 1);
 		if (!iface)
 			return -1;
 
-		strncpy(iface->name, name, sizeof(iface->name) - 1);
+		iface->name = strcpy(iface_name, name);
 
 		set_interface_defaults(iface);
 
@@ -415,15 +420,20 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 #ifdef WITH_UBUS
-	if (overwrite || !iface->ifname[0])
+	if (overwrite || !iface->ifname)
 		ifname = ubus_get_ifname(name);
 #endif
 
-	if (!iface->ifname[0] && !ifname)
+	if (!iface->ifname && !ifname)
 		goto err;
 
-	if (ifname)
-		strncpy(iface->ifname, ifname, sizeof(iface->ifname) - 1);
+	if (ifname) {
+		free(iface->ifname);
+		iface->ifname = strdup(ifname);
+
+		if (!iface->ifname)
+			goto err;
+	}
 
 	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
 		goto err;

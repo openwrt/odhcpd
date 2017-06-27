@@ -138,8 +138,6 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 					iface->dhcpv4_end.s_addr = end | htonl(12);
 				}
 			}
-
-
 		}
 
 		/* Parse static entries */

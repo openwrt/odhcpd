@@ -16,8 +16,6 @@
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"
-#include "libubox/md5.h"
-#include "libubox/usock.h"
 
 #include <time.h>
 #include <errno.h>
@@ -33,6 +31,9 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 #include <sys/timerfd.h>
+
+#include <libubox/md5.h>
+#include <libubox/usock.h>
 
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
     ((iface)->managed == RELAYD_MANAGED_NO_AFLAG || (i) == (m) || \

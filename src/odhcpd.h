@@ -20,7 +20,7 @@
 #include <stdbool.h>
 #include <syslog.h>
 
-#include "libubox/blobmsg.h"
+#include <libubox/blobmsg.h>
 
 #ifndef typeof
 #define typeof __typeof
@@ -31,8 +31,8 @@
     (type *)( (char *)ptr - offsetof(type,member) ))
 #endif
 
-#include "libubox/list.h"
-#include "libubox/uloop.h"
+#include <libubox/list.h>
+#include <libubox/uloop.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 

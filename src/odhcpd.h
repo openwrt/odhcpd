@@ -41,8 +41,6 @@
 #define ND_OPT_DNS_SEARCH 31
 
 #define RELAYD_BUFFER_SIZE 8192
-#define RELAYD_MAX_PREFIXES 8
-#define RELAYD_MAX_ADDRS 8
 
 #define INFINITE_VALID(x) ((x) == 0)
 
@@ -123,7 +121,7 @@ struct interface {
 	// Runtime data
 	struct uloop_timeout timer_rs;
 	struct list_head ia_assignments;
-	struct odhcpd_ipaddr ia_addr[RELAYD_MAX_ADDRS];
+	struct odhcpd_ipaddr *ia_addr;
 	size_t ia_addr_len;
 
 	// DHCPv4
@@ -206,7 +204,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface);
 ssize_t odhcpd_get_interface_addresses(int ifindex,
-		struct odhcpd_ipaddr *addrs, size_t cnt);
+		struct odhcpd_ipaddr **addrs);
 int odhcpd_get_interface_dns_addr(const struct interface *iface,
 		struct in6_addr *addr);
 struct interface* odhcpd_get_interface_by_name(const char *name);

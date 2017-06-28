@@ -335,14 +335,15 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			iov[IOV_CERID].iov_len = sizeof(cerid);
 
 			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
-				struct odhcpd_ipaddr addrs[32];
-				ssize_t len = odhcpd_get_interface_addresses(0, addrs,
-						ARRAY_SIZE(addrs));
+				struct odhcpd_ipaddr *addrs;
+				ssize_t len = odhcpd_get_interface_addresses(0, &addrs);
 
 				for (ssize_t i = 0; i < len; ++i)
 					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
 							|| memcmp(&addrs[i].addr, &cerid.addr, sizeof(cerid.addr)) < 0)
 						cerid.addr = addrs[i].addr;
+
+				free(addrs);
 			}
 #endif
 		}
@@ -521,17 +522,18 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	memcpy(&hdr.interface_id_data, &ifindex, sizeof(ifindex));
 
 	// Detect public IP of slave interface to use as link-address
-	struct odhcpd_ipaddr ip;
-	if (odhcpd_get_interface_addresses(iface->ifindex, &ip, 1) < 1) {
+	struct odhcpd_ipaddr *ip = NULL;
+	if (odhcpd_get_interface_addresses(iface->ifindex, &ip) < 1) {
 		// No suitable address! Is the slave not configured yet?
 		// Detect public IP of master interface and use it instead
 		// This is WRONG and probably violates the RFC. However
 		// otherwise we have a hen and egg problem because the
 		// slave-interface cannot be auto-configured.
-		if (odhcpd_get_interface_addresses(master->ifindex, &ip, 1) < 1)
+		if (odhcpd_get_interface_addresses(master->ifindex, &ip) < 1)
 			return; // Could not obtain a suitable address
 	}
-	memcpy(&hdr.link_address, &ip.addr, sizeof(hdr.link_address));
+	memcpy(&hdr.link_address, &ip[0].addr, sizeof(hdr.link_address));
+	free(ip);
 
 	struct sockaddr_in6 dhcpv6_servers = {AF_INET6,
 			htons(DHCPV6_SERVER_PORT), 0, ALL_DHCPV6_SERVERS, 0};

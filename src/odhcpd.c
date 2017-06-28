@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <syslog.h>
+#include <alloca.h>
 
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -221,8 +222,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 
 struct addr_info {
 	int ifindex;
-	struct odhcpd_ipaddr *addrs;
-	size_t addrs_sz;
+	struct odhcpd_ipaddr **addrs;
 	int pending;
 	ssize_t ret;
 };
@@ -230,11 +230,12 @@ struct addr_info {
 static int cb_valid_handler(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
+	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
 	struct nlattr *nla[__IFA_MAX];
 
-	if (hdr->nlmsg_type != RTM_NEWADDR || ctxt->ret >= (ssize_t)ctxt->addrs_sz)
+	if (hdr->nlmsg_type != RTM_NEWADDR)
 		return NL_SKIP;
 
 	ifa = NLMSG_DATA(hdr);
@@ -246,23 +247,28 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 	if (!nla[IFA_ADDRESS])
 		return NL_SKIP;
 
-	memset(&ctxt->addrs[ctxt->ret], 0, sizeof(ctxt->addrs[ctxt->ret]));
-	ctxt->addrs[ctxt->ret].prefix = ifa->ifa_prefixlen;
+	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
+	if (!addrs)
+		return NL_SKIP;
 
-	nla_memcpy(&ctxt->addrs[ctxt->ret].addr, nla[IFA_ADDRESS],
-			sizeof(ctxt->addrs[ctxt->ret].addr));
+	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
+	addrs[ctxt->ret].prefix = ifa->ifa_prefixlen;
+
+	nla_memcpy(&addrs[ctxt->ret].addr, nla[IFA_ADDRESS],
+			sizeof(addrs[ctxt->ret].addr));
 
 	if (nla[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ifc = nla_data(nla[IFA_CACHEINFO]);
 
-		ctxt->addrs[ctxt->ret].preferred = ifc->ifa_prefered;
-		ctxt->addrs[ctxt->ret].valid = ifc->ifa_valid;
+		addrs[ctxt->ret].preferred = ifc->ifa_prefered;
+		addrs[ctxt->ret].valid = ifc->ifa_valid;
 	}
 
 	if (ifa->ifa_flags & IFA_F_DEPRECATED)
-		ctxt->addrs[ctxt->ret].preferred = 0;
+		addrs[ctxt->ret].preferred = 0;
 
 	ctxt->ret++;
+	*(ctxt->addrs) = addrs;
 
 	return NL_OK;
 }
@@ -288,8 +294,7 @@ static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *er
 }
 
 // Detect an IPV6-address currently assigned to the given interface
-ssize_t odhcpd_get_interface_addresses(int ifindex,
-		struct odhcpd_ipaddr *addrs, size_t cnt)
+ssize_t odhcpd_get_interface_addresses(int ifindex, struct odhcpd_ipaddr **addrs)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
@@ -302,7 +307,6 @@ ssize_t odhcpd_get_interface_addresses(int ifindex,
 	struct addr_info ctxt = {
 		.ifindex = ifindex,
 		.addrs = addrs,
-		.addrs_sz = cnt,
 		.ret = 0,
 		.pending = 1,
 	};

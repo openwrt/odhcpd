@@ -352,9 +352,9 @@ static int prefixcmp(const void *va, const void *vb)
 // Check address update
 static void check_addr_updates(struct interface *iface)
 {
-	struct odhcpd_ipaddr addr[RELAYD_MAX_ADDRS] = {{IN6ADDR_ANY_INIT, 0, 0, 0, 0}};
+	struct odhcpd_ipaddr *addr = NULL;
 	time_t now = odhcpd_time();
-	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, addr, ARRAY_SIZE(addr));
+	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, &addr);
 
 	if (len < 0)
 		return;
@@ -380,7 +380,8 @@ static void check_addr_updates(struct interface *iface)
 	if (change)
 		dhcpv6_ia_preupdate(iface);
 
-	memcpy(iface->ia_addr, addr, len * sizeof(*addr));
+	free(iface->ia_addr);
+	iface->ia_addr = addr;
 	iface->ia_addr_len = len;
 
 	if (change)

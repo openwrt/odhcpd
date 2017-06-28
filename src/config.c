@@ -237,6 +237,7 @@ static void close_interface(struct interface *iface)
 	setup_dhcpv4_interface(iface, false);
 
 	clean_interface(iface);
+	free(iface->ia_addr);
 	free(iface->ifname);
 	free(iface);
 }

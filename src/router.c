@@ -38,7 +38,6 @@ static void sigusr1_refresh(int signal);
 static struct odhcpd_event router_event = {.uloop = {.fd = -1}, .handle_dgram = handle_icmpv6, };
 
 static FILE *fp_route = NULL;
-#define RA_IOV_LEN 7
 
 #define TIME_LEFT(t1, now) ((t1) != UINT32_MAX ? (t1) - (now) : UINT32_MAX)
 
@@ -254,6 +253,17 @@ static uint16_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 
 	return lifetime;
 }
+
+enum {
+	IOV_RA_ADV=0,
+	IOV_RA_PFXS,
+	IOV_RA_ROUTES,
+	IOV_RA_DNS,
+	IOV_RA_DNS_ADDR,
+	IOV_RA_SEARCH,
+	IOV_RA_ADV_INTERVAL,
+	IOV_RA_TOTAL,
+};
 
 // Router Advert server mode
 static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
@@ -529,14 +539,14 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		.data = {0, 0, (maxival*1000) >> 24, (maxival*1000) >> 16, (maxival*1000) >> 8, maxival*1000}
 	};
 
-	struct iovec iov[RA_IOV_LEN] = {
-			{&adv, sizeof(adv)},
-			{pfxs, pfxs_cnt * sizeof(*pfxs)},
-			{routes, routes_cnt * sizeof(*routes)},
-			{&dns, (dns_cnt) ? sizeof(dns) : 0},
-			{dns_addr, dns_cnt * sizeof(*dns_addr)},
-			{search, search->len * 8},
-			{&adv_interval, adv_interval.len * 8}};
+	struct iovec iov[IOV_RA_TOTAL] = {
+			[IOV_RA_ADV] = {&adv, sizeof(adv)},
+			[IOV_RA_PFXS] = {pfxs, pfxs_cnt * sizeof(*pfxs)},
+			[IOV_RA_ROUTES] = {routes, routes_cnt * sizeof(*routes)},
+			[IOV_RA_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
+			[IOV_RA_DNS_ADDR] = {dns_addr, dns_cnt * sizeof(*dns_addr)},
+			[IOV_RA_SEARCH] = {search, search->len * 8},
+			[IOV_RA_ADV_INTERVAL] = {&adv_interval, adv_interval.len * 8}};
 	struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
 
 	if (from && !IN6_IS_ADDR_UNSPECIFIED(from))

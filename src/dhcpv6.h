@@ -190,4 +190,4 @@ void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c, 
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_write_statefile(void);
 void dhcpv6_ia_preupdate(struct interface *iface);
-void dhcpv6_ia_postupdate(struct interface *iface, time_t now);
+void dhcpv6_ia_postupdate(struct interface *iface);

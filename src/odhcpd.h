@@ -68,10 +68,16 @@ struct odhcpd_event {
 	void (*recv_msgs)(struct odhcpd_event *e);
 };
 
+union if_addr {
+	struct in_addr in;
+	struct in6_addr in6;
+};
 
 struct odhcpd_ipaddr {
-	struct in6_addr addr;
+	union if_addr addr;
 	uint8_t prefix;
+
+	/* ipv6 only */
 	uint8_t dprefix;
 	uint32_t preferred;
 	uint32_t valid;
@@ -203,7 +209,7 @@ struct nl_sock *odhcpd_create_nl_socket(int protocol);
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface);
-ssize_t odhcpd_get_interface_addresses(int ifindex,
+ssize_t odhcpd_get_interface_addresses(int ifindex, bool v6,
 		struct odhcpd_ipaddr **addrs);
 int odhcpd_get_interface_dns_addr(const struct interface *iface,
 		struct in6_addr *addr);
@@ -228,9 +234,6 @@ int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
-
-void ndp_handle_addr6_dump(void);
-void ndp_rqs_addr6_dump(void);
 
 #ifdef WITH_UBUS
 int init_ubus(void);

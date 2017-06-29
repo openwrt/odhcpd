@@ -48,7 +48,6 @@ static void handle_rtnl_event(struct odhcpd_event *ev);
 static int cb_rtnl_valid(struct nl_msg *msg, void *arg);
 static void catch_rtnl_err(struct odhcpd_event *e, int error);
 
-static int addr6_dump_rqs = 0;
 static int ping_socket = -1;
 static struct event_socket rtnl_event = {
 	.ev = {
@@ -150,11 +149,11 @@ static void dump_neigh_table(const bool proxy)
 	nlmsg_free(msg);
 }
 
-static void dump_addr6_table(void)
+static void dump_addr_table(bool v6)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
-		.ifa_family = AF_INET6,
+		.ifa_family = v6 ? AF_INET6 : AF_INET,
 	};
 
 	msg = nlmsg_alloc_simple(RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP);
@@ -166,20 +165,6 @@ static void dump_addr6_table(void)
 	nl_send_auto_complete(rtnl_event.sock, msg);
 
 	nlmsg_free(msg);
-}
-
-void ndp_handle_addr6_dump(void)
-{
-	if (!addr6_dump_rqs)
-		return;
-
-	dump_addr6_table();
-	addr6_dump_rqs = 0;
-}
-
-inline void ndp_rqs_addr6_dump(void)
-{
-	addr6_dump_rqs++;
 }
 
 int setup_ndp_interface(struct interface *iface, bool enable)
@@ -253,8 +238,6 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 			dump_neigh_table(false);
 		else
 			dump_neigh = false;
-
-		ndp_rqs_addr6_dump();
 	}
 
 	if (dump_neigh)
@@ -340,38 +323,18 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 		odhcpd_setup_route(addr, 128, iface, NULL, 1024, add);
 }
 
-// compare prefixes
-static int prefixcmp(const void *va, const void *vb)
-{
-	const struct odhcpd_ipaddr *a = va, *b = vb;
-	uint32_t a_pref = IN6_IS_ADDR_ULA(&a->addr) ? 1 : a->preferred;
-	uint32_t b_pref = IN6_IS_ADDR_ULA(&b->addr) ? 1 : b->preferred;
-	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
-}
-
 // Check address update
-static void check_addr_updates(struct interface *iface)
+static void check_addr6_updates(struct interface *iface)
 {
 	struct odhcpd_ipaddr *addr = NULL;
-	time_t now = odhcpd_time();
-	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, &addr);
+	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, true, &addr);
 
 	if (len < 0)
 		return;
 
-	qsort(addr, len, sizeof(*addr), prefixcmp);
-
-	for (int i = 0; i < len; ++i) {
-		if (addr[i].preferred < UINT32_MAX - now)
-			addr[i].preferred += now;
-
-		if (addr[i].valid < UINT32_MAX - now)
-			addr[i].valid += now;
-	}
-
 	bool change = len != (ssize_t)iface->ia_addr_len;
 	for (ssize_t i = 0; !change && i < len; ++i)
-		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr, &iface->ia_addr[i].addr) ||
+		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->ia_addr[i].addr.in6) ||
 				(addr[i].preferred > 0) != (iface->ia_addr[i].preferred > 0) ||
 				addr[i].valid < iface->ia_addr[i].valid ||
 				addr[i].preferred < iface->ia_addr[i].preferred)
@@ -385,7 +348,7 @@ static void check_addr_updates(struct interface *iface)
 	iface->ia_addr_len = len;
 
 	if (change)
-		dhcpv6_ia_postupdate(iface, now);
+		dhcpv6_ia_postupdate(iface);
 
 	if (change) {
 		syslog(LOG_INFO, "Raising SIGUSR1 due to address change on %s", iface->ifname);
@@ -477,7 +440,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newaddr" : "deladdr",
 			ipbuf, iface->ifname);
 
-		check_addr_updates(iface);
+		check_addr6_updates(iface);
 
 		if (iface->ndp != RELAYD_RELAY)
 			break;
@@ -562,7 +525,7 @@ static void catch_rtnl_err(struct odhcpd_event *e, int error)
 	if (nl_socket_set_buffer_size(ev_sock->sock, ev_sock->sock_bufsize, 0))
 		goto err;
 
-	dump_addr6_table();
+	dump_addr_table(true);
 	return;
 
 err:

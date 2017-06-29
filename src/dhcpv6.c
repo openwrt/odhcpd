@@ -90,9 +90,6 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 		if (iface->dhcpv6 == RELAYD_SERVER)
 			setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
 
-		if (iface->dhcpv6 != RELAYD_RELAY || !iface->master)
-			ndp_rqs_addr6_dump();
-
 		iface->dhcpv6_event.uloop.fd = sock;
 		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;
 		odhcpd_register(&iface->dhcpv6_event);
@@ -336,7 +333,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
 				struct odhcpd_ipaddr *addrs;
-				ssize_t len = odhcpd_get_interface_addresses(0, &addrs);
+				ssize_t len = odhcpd_get_interface_addresses(0, true, &addrs);
 
 				for (ssize_t i = 0; i < len; ++i)
 					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
@@ -483,6 +480,26 @@ static void relay_server_response(uint8_t *data, size_t len)
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
 }
 
+static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
+{
+	struct odhcpd_ipaddr *addr = NULL;
+	time_t now = odhcpd_time();
+
+	for (size_t i = 0; i < iface->ia_addr_len; i++) {
+		if (iface->ia_addr[i].valid <= (uint32_t)now)
+			continue;
+
+		if (iface->ia_addr[i].preferred > (uint32_t)now) {
+			addr = &iface->ia_addr[i];
+			break;
+		}
+
+		if (!addr || (iface->ia_addr[i].valid > addr->valid))
+			addr = &iface->ia_addr[i];
+	}
+
+	return addr;
+}
 
 // Relay client request (regular DHCPv6-relay)
 static void relay_client_request(struct sockaddr_in6 *source,
@@ -522,18 +539,19 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	memcpy(&hdr.interface_id_data, &ifindex, sizeof(ifindex));
 
 	// Detect public IP of slave interface to use as link-address
-	struct odhcpd_ipaddr *ip = NULL;
-	if (odhcpd_get_interface_addresses(iface->ifindex, &ip) < 1) {
+	struct odhcpd_ipaddr *ip = relay_link_address(iface);
+	if (!ip) {
 		// No suitable address! Is the slave not configured yet?
 		// Detect public IP of master interface and use it instead
 		// This is WRONG and probably violates the RFC. However
 		// otherwise we have a hen and egg problem because the
 		// slave-interface cannot be auto-configured.
-		if (odhcpd_get_interface_addresses(master->ifindex, &ip) < 1)
+		ip = relay_link_address(master);
+		if (!ip)
 			return; // Could not obtain a suitable address
 	}
-	memcpy(&hdr.link_address, &ip[0].addr, sizeof(hdr.link_address));
-	free(ip);
+
+	memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));
 
 	struct sockaddr_in6 dhcpv6_servers = {AF_INET6,
 			htons(DHCPV6_SERVER_PORT), 0, ALL_DHCPV6_SERVERS, 0};

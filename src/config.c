@@ -388,6 +388,8 @@ err:
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
+	bool get_addrs = false;
+
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, data, len);
 
 	if (tb[IFACE_ATTR_INTERFACE])
@@ -409,7 +411,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		set_interface_defaults(iface);
 
 		list_add(&iface->head, &interfaces);
-		overwrite = true;
+		get_addrs = overwrite = true;
 	}
 
 	const char *ifname = NULL;
@@ -438,6 +440,14 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
 		goto err;
+
+	if (get_addrs) {
+		ssize_t len = odhcpd_get_interface_addresses(iface->ifindex,
+						true, &iface->ia_addr);
+
+		if (len > 0)
+			iface->ia_addr_len = len;
+	}
 
 	iface->inuse = true;
 
@@ -823,7 +833,6 @@ void odhcpd_reload(void)
 			close_interface(i);
 	}
 
-	ndp_handle_addr6_dump();
 	uci_unload(uci, dhcp);
 	uci_free_context(uci);
 }

@@ -248,7 +248,7 @@ void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c,
 		if (!valid_addr(&addrs[i], now))
 			continue;
 
-		addr = addrs[i].addr;
+		addr = addrs[i].addr.in6;
 		pref = addrs[i].preferred;
 		valid = addrs[i].valid;
 		if (prefix == 128) {
@@ -444,7 +444,7 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 	size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
 
 	for (size_t i = 0; i < addrlen; ++i) {
-		struct in6_addr prefix = addrs[i].addr;
+		struct in6_addr prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		odhcpd_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
@@ -661,11 +661,12 @@ void dhcpv6_ia_preupdate(struct interface *iface)
 			apply_lease(iface, c, false);
 }
 
-void dhcpv6_ia_postupdate(struct interface *iface, time_t now)
+void dhcpv6_ia_postupdate(struct interface *iface)
 {
 	if (iface->dhcpv6 != RELAYD_SERVER)
 		return;
 
+	time_t now = odhcpd_time();
 	int minprefix = -1;
 	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
 		if (iface->ia_addr[i].preferred > (uint32_t)now &&
@@ -802,7 +803,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						.preferred = htonl(prefix_pref),
 						.valid = htonl(prefix_valid),
 						.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
-						.addr = addrs[i].addr
+						.addr = addrs[i].addr.in6,
 					};
 					p.addr.s6_addr32[1] |= htonl(a->assigned);
 					p.addr.s6_addr32[2] = p.addr.s6_addr32[3] = 0;
@@ -820,7 +821,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 					struct dhcpv6_ia_addr n = {
 						.type = htons(DHCPV6_OPT_IA_ADDR),
 						.len = htons(sizeof(n) - 4),
-						.addr = addrs[i].addr,
+						.addr = addrs[i].addr.in6,
 						.preferred = htonl(prefix_pref),
 						.valid = htonl(prefix_valid)
 					};
@@ -879,7 +880,7 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 						if (!valid_addr(&addrs[i], now))
 							continue;
 
-						struct in6_addr addr = addrs[i].addr;
+						struct in6_addr addr = addrs[i].addr.in6;
 						if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
 							addr.s6_addr32[1] |= htonl(a->assigned);
 							addr.s6_addr32[2] = addr.s6_addr32[3] = 0;

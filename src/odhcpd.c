@@ -222,6 +222,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 
 struct addr_info {
 	int ifindex;
+	int af;
 	struct odhcpd_ipaddr **addrs;
 	int pending;
 	ssize_t ret;
@@ -240,6 +241,7 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 
 	ifa = NLMSG_DATA(hdr);
 	if (ifa->ifa_scope != RT_SCOPE_UNIVERSE ||
+			(ctxt->af != ifa->ifa_family) ||
 			(ctxt->ifindex && ifa->ifa_index != (unsigned)ctxt->ifindex))
 		return NL_SKIP;
 
@@ -293,12 +295,21 @@ static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *er
 	return NL_STOP;
 }
 
+// compare prefixes
+static int prefixcmp(const void *va, const void *vb)
+{
+	const struct odhcpd_ipaddr *a = va, *b = vb;
+	uint32_t a_pref = IN6_IS_ADDR_ULA(&a->addr.in6) ? 1 : a->preferred;
+	uint32_t b_pref = IN6_IS_ADDR_ULA(&b->addr.in6) ? 1 : b->preferred;
+	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
+}
+
 // Detect an IPV6-address currently assigned to the given interface
-ssize_t odhcpd_get_interface_addresses(int ifindex, struct odhcpd_ipaddr **addrs)
+ssize_t odhcpd_get_interface_addresses(int ifindex, bool v6, struct odhcpd_ipaddr **addrs)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
-		.ifa_family = AF_INET6,
+		.ifa_family = v6? AF_INET6: AF_INET,
 		.ifa_prefixlen = 0,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
@@ -306,6 +317,7 @@ ssize_t odhcpd_get_interface_addresses(int ifindex, struct odhcpd_ipaddr **addrs
 	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
 	struct addr_info ctxt = {
 		.ifindex = ifindex,
+		.af = v6? AF_INET6: AF_INET,
 		.addrs = addrs,
 		.ret = 0,
 		.pending = 1,
@@ -334,6 +346,23 @@ ssize_t odhcpd_get_interface_addresses(int ifindex, struct odhcpd_ipaddr **addrs
 		nl_recvmsgs(rtnl_socket, cb);
 
 	nlmsg_free(msg);
+
+	if (ctxt.ret <= 0)
+		goto out;
+
+	time_t now = odhcpd_time();
+	struct odhcpd_ipaddr *addr = *addrs;
+
+	qsort(addr, ctxt.ret, sizeof(*addr), prefixcmp);
+
+	for (ssize_t i = 0; i < ctxt.ret; ++i) {
+		if (addr[i].preferred < UINT32_MAX - now)
+			addr[i].preferred += now;
+
+		if (addr[i].valid < UINT32_MAX - now)
+			addr[i].valid += now;
+	}
+
 out:
 	nl_cb_put(cb);
 
@@ -383,12 +412,12 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 				iface->ia_addr[i].preferred < (uint32_t)now)
 			continue;
 
-		if (IN6_IS_ADDR_ULA(&iface->ia_addr[i].addr)) {
-			if (!IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr)) {
+		if (IN6_IS_ADDR_ULA(&iface->ia_addr[i].addr.in6)) {
+			if (!IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr.in6)) {
 				m = i;
 				continue;
 			}
-		} else if (IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr))
+		} else if (IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr.in6))
 			continue;
 
 		if (iface->ia_addr[i].preferred > iface->ia_addr[m].preferred)
@@ -396,7 +425,7 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 	}
 
 	if (m >= 0) {
-		*addr = iface->ia_addr[m].addr;
+		*addr = iface->ia_addr[m].addr.in6;
 		return 0;
 	}
 

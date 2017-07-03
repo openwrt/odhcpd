@@ -95,7 +95,8 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			return -1;
 		}
 
-		uint32_t mask = iface->addr4[0].prefix ? htonl(~((1 << (32 - iface->addr4[0].prefix)) - 1)) : 0;
+		uint32_t mask = iface->addr4 && iface->addr4[0].prefix ?
+			htonl(~((1 << (32 - iface->addr4[0].prefix)) - 1)) : 0xffffffff;
 
 		/* Create a range if not specified */
 		if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&

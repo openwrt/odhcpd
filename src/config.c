@@ -240,6 +240,7 @@ static void close_interface(struct interface *iface)
 	setup_dhcpv4_interface(iface, false);
 
 	clean_interface(iface);
+	free(iface->addr4);
 	free(iface->ia_addr);
 	free(iface->ifname);
 	free(iface);
@@ -450,6 +451,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		if (len > 0)
 			iface->ia_addr_len = len;
+
+		len = odhcpd_get_interface_addresses(iface->ifindex,
+						false, &iface->addr4);
+		if (len > 0)
+			iface->addr4_len = len;
 	}
 
 	iface->inuse = true;

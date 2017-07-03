@@ -92,9 +92,10 @@ int init_ndp(void)
 	nl_socket_modify_cb(rtnl_event.sock, NL_CB_VALID, NL_CB_CUSTOM,
 			cb_rtnl_valid, NULL);
 
-	// Receive IPv6 address, IPv6 routes and neighbor events
-	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV6_IFADDR,
-				RTNLGRP_IPV6_ROUTE, RTNLGRP_NEIGH, 0))
+	// Receive IPv4 address, IPv6 address, IPv6 routes and neighbor events
+	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV4_IFADDR,
+				RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_ROUTE,
+				RTNLGRP_NEIGH, 0))
 		goto err;
 
 	odhcpd_register(&rtnl_event.ev);
@@ -324,6 +325,25 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 }
 
 // Check address update
+static void check_addr_updates(struct interface *iface)
+{
+	struct odhcpd_ipaddr *addr = NULL;
+	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, false, &addr);
+
+	if (len < 0)
+		return;
+
+	bool change = len != (ssize_t)iface->addr4_len;
+	for (ssize_t i = 0; !change && i < len; ++i)
+		if (addr[i].addr.in.s_addr != iface->ia_addr[i].addr.in.s_addr)
+			change = true;
+
+	free(iface->addr4);
+	iface->addr4 = addr;
+	iface->addr4_len = len;
+}
+
+// Check v6 address update
 static void check_addr6_updates(struct interface *iface)
 {
 	struct odhcpd_ipaddr *addr = NULL;
@@ -389,7 +409,7 @@ static void handle_rtnl_event(struct odhcpd_event *e)
 static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 {
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
-	struct in6_addr *addr = NULL;
+	struct in6_addr *addr6 = NULL;
 	struct interface *iface = NULL;
 	bool add = false;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -418,7 +438,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		struct nlattr *nla[__IFA_MAX];
 
 		if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
-				ifa->ifa_family != AF_INET6)
+				(ifa->ifa_family != AF_INET6 &&
+				 ifa->ifa_family != AF_INET))
 			return NL_SKIP;
 
 		iface = odhcpd_get_interface_by_index(ifa->ifa_index);
@@ -426,28 +447,42 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			return NL_SKIP;
 
 		nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
-		if (!nla[IFA_ADDRESS])
-			return NL_SKIP;
 
-		addr = nla_data(nla[IFA_ADDRESS]);
-		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
-				IN6_IS_ADDR_MULTICAST(addr))
-			return NL_SKIP;
+		if (ifa->ifa_family == AF_INET6) {
+			if (!nla[IFA_ADDRESS])
+				return NL_SKIP;
 
-		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
-			ipbuf, iface->ifname);
+			addr6 = nla_data(nla[IFA_ADDRESS]);
+			if (!addr6 || IN6_IS_ADDR_LINKLOCAL(addr6) ||
+					IN6_IS_ADDR_MULTICAST(addr6))
+				return NL_SKIP;
 
-		check_addr6_updates(iface);
+			inet_ntop(AF_INET6, addr6, ipbuf, sizeof(ipbuf));
+			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
+				ipbuf, iface->ifname);
 
-		if (iface->ndp != RELAYD_RELAY)
-			break;
+			check_addr6_updates(iface);
 
-		/* handle the relay logic below */
-		setup_addr_for_relaying(addr, iface, add);
+			if (iface->ndp != RELAYD_RELAY)
+				break;
 
-		if (!add)
-			dump_neigh_table(false);
+			/* handle the relay logic below */
+			setup_addr_for_relaying(addr6, iface, add);
+
+			if (!add)
+				dump_neigh_table(false);
+		} else {
+			if (!nla[IFA_LOCAL])
+				return NL_SKIP;
+
+			struct in_addr *addr = nla_data(nla[IFA_ADDRESS]);
+
+			inet_ntop(AF_INET, addr, ipbuf, sizeof(ipbuf));
+			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
+				ipbuf, iface->ifname);
+
+			check_addr_updates(iface);
+		}
 		break;
 	}
 
@@ -470,20 +505,20 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		if (!nla[NDA_DST])
 			return NL_SKIP;
 
-		addr = nla_data(nla[NDA_DST]);
-		if (!addr || IN6_IS_ADDR_LINKLOCAL(addr) ||
-				IN6_IS_ADDR_MULTICAST(addr))
+		addr6 = nla_data(nla[NDA_DST]);
+		if (!addr6 || IN6_IS_ADDR_LINKLOCAL(addr6) ||
+				IN6_IS_ADDR_MULTICAST(addr6))
 			return NL_SKIP;
 
-		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newneigh" : "delneigh",
+		inet_ntop(AF_INET6, addr6, ipbuf, sizeof(ipbuf));
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newneigh" : "delneigh",
 			ipbuf, iface->ifname);
 
 		if (ndm->ndm_flags & NTF_PROXY) {
 			/* Dump and flush proxy entries */
 			if (hdr->nlmsg_type == RTM_NEWNEIGH) {
-				odhcpd_setup_proxy_neigh(addr, iface, false);
-				setup_route(addr, iface, false);
+				odhcpd_setup_proxy_neigh(addr6, iface, false);
+				setup_route(addr6, iface, false);
 				dump_neigh_table(false);
 			}
 
@@ -495,8 +530,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 				 NUD_PERMANENT | NUD_NOARP)))
 			return NL_OK;
 
-		setup_addr_for_relaying(addr, iface, add);
-		setup_route(addr, iface, add);
+		setup_addr_for_relaying(addr6, iface, add);
+		setup_route(addr6, iface, add);
 
 		if (!add)
 			dump_neigh_table(false);

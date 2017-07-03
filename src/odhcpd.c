@@ -234,7 +234,7 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
-	struct nlattr *nla[__IFA_MAX];
+	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
 
 	if (hdr->nlmsg_type != RTM_NEWADDR)
 		return NL_SKIP;
@@ -246,7 +246,22 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 		return NL_SKIP;
 
 	nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
-	if (!nla[IFA_ADDRESS])
+
+	switch (ifa->ifa_family) {
+	case AF_INET6:
+		if (nla[IFA_ADDRESS])
+			nla_addr = nla[IFA_ADDRESS];
+		break;
+
+	case AF_INET:
+		if (nla[IFA_LOCAL])
+			nla_addr = nla[IFA_LOCAL];
+		break;
+
+	default:
+		break;
+	}
+	if (!nla_addr)
 		return NL_SKIP;
 
 	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
@@ -256,8 +271,12 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
 	addrs[ctxt->ret].prefix = ifa->ifa_prefixlen;
 
-	nla_memcpy(&addrs[ctxt->ret].addr, nla[IFA_ADDRESS],
+	nla_memcpy(&addrs[ctxt->ret].addr, nla_addr,
 			sizeof(addrs[ctxt->ret].addr));
+
+	if (nla[IFA_BROADCAST])
+		nla_memcpy(&addrs[ctxt->ret].broadcast, nla[IFA_BROADCAST],
+				sizeof(addrs[ctxt->ret].broadcast));
 
 	if (nla[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ifc = nla_data(nla[IFA_CACHEINFO]);
@@ -295,8 +314,15 @@ static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *er
 	return NL_STOP;
 }
 
-// compare prefixes
-static int prefixcmp(const void *va, const void *vb)
+static int prefix_cmp(const void *va, const void *vb)
+{
+	const struct odhcpd_ipaddr *a = va, *b = vb;
+	return (ntohl(a->addr.in.s_addr) < ntohl(b->addr.in.s_addr)) ? 1 :
+		(ntohl(a->addr.in.s_addr) > ntohl(b->addr.in.s_addr)) ? -1 : 0;
+}
+
+// compare IPv6 prefixes
+static int prefix6_cmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
 	uint32_t a_pref = IN6_IS_ADDR_ULA(&a->addr.in6) ? 1 : a->preferred;
@@ -353,7 +379,7 @@ ssize_t odhcpd_get_interface_addresses(int ifindex, bool v6, struct odhcpd_ipadd
 	time_t now = odhcpd_time();
 	struct odhcpd_ipaddr *addr = *addrs;
 
-	qsort(addr, ctxt.ret, sizeof(*addr), prefixcmp);
+	qsort(addr, ctxt.ret, sizeof(*addr), v6 ? prefix6_cmp : prefix_cmp);
 
 	for (ssize_t i = 0; i < ctxt.ret; ++i) {
 		if (addr[i].preferred < UINT32_MAX - now)

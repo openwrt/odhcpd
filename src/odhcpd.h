@@ -76,11 +76,14 @@ union if_addr {
 struct odhcpd_ipaddr {
 	union if_addr addr;
 	uint8_t prefix;
+	uint32_t preferred;
+	uint32_t valid;
 
 	/* ipv6 only */
 	uint8_t dprefix;
-	uint32_t preferred;
-	uint32_t valid;
+
+	/* ipv4 only */
+	struct in_addr broadcast;
 };
 
 enum odhcpd_mode {
@@ -127,6 +130,8 @@ struct interface {
 	// Runtime data
 	struct uloop_timeout timer_rs;
 	struct list_head ia_assignments;
+	struct odhcpd_ipaddr *addr4;
+	size_t addr4_len;
 	struct odhcpd_ipaddr *ia_addr;
 	size_t ia_addr_len;
 

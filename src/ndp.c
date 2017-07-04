@@ -347,10 +347,8 @@ static void check_addr6_updates(struct interface *iface)
 	iface->ia_addr = addr;
 	iface->ia_addr_len = len;
 
-	if (change)
-		dhcpv6_ia_postupdate(iface);
-
 	if (change) {
+		dhcpv6_ia_postupdate(iface);
 		syslog(LOG_INFO, "Raising SIGUSR1 due to address change on %s", iface->ifname);
 		raise(SIGUSR1);
 	}

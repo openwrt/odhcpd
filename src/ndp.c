@@ -437,7 +437,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			return NL_SKIP;
 
 		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newaddr" : "deladdr",
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
 			ipbuf, iface->ifname);
 
 		check_addr6_updates(iface);
@@ -478,7 +478,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			return NL_SKIP;
 
 		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newneigh" : "delneigh",
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newneigh" : "delneigh",
 			ipbuf, iface->ifname);
 
 		if (ndm->ndm_flags & NTF_PROXY) {

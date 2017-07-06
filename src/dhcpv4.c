@@ -29,16 +29,30 @@
 #include <sys/timerfd.h>
 #include <arpa/inet.h>
 
+#include <libubox/md5.h>
+
 #include "odhcpd.h"
 #include "dhcpv4.h"
 #include "dhcpv6.h"
 
+static int setup_dhcpv4_addresses(struct interface *iface);
+static void update_static_assignments(struct interface *iface);
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
+static void dhcpv4_fr_start(struct dhcpv4_assignment *a);
+static void dhcpv4_fr_stop(struct dhcpv4_assignment *a);
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
-		uint32_t *leasetime, const char *hostname, const size_t hostname_len);
+		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
+		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid);
+static uint32_t serial = 0;
+
+struct odhcpd_ref_ip {
+	struct list_head head;
+	int ref_cnt;
+	struct odhcpd_ipaddr addr;
+};
 
 /* Create socket and register events */
 int init_dhcpv4(void)
@@ -57,6 +71,9 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 	if (iface->dhcpv4 && enable) {
 		if (!iface->dhcpv4_assignments.next)
 			INIT_LIST_HEAD(&iface->dhcpv4_assignments);
+
+		if (!iface->dhcpv4_fr_ips.next)
+			INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
 		int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (sock < 0) {
@@ -89,112 +106,265 @@ int setup_dhcpv4_interface(struct interface *iface, bool enable)
 			return -1;
 		}
 
-
-		if (ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-			syslog(LOG_ERR, "Invalid DHCP range");
-			return -1;
-		}
-
-		uint32_t mask = iface->addr4 && iface->addr4[0].prefix ?
-			htonl(~((1 << (32 - iface->addr4[0].prefix)) - 1)) : 0xffffffff;
-
-		/* Create a range if not specified */
-		if (!(iface->dhcpv4_start.s_addr & htonl(0xffff0000)) &&
-				!(iface->dhcpv4_end.s_addr & htonl(0xffff0000)) &&
-				iface->addr4_len) {
-			struct in_addr *addr = &iface->addr4[0].addr.in;
-
-			uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
-			uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
-
-			if (start && end && start < end &&
-					start > ntohl(addr->s_addr & ~mask) &&
-					(start & ntohl(~mask)) == start &&
-					(end & ntohl(~mask)) == end) {
-				iface->dhcpv4_start.s_addr = htonl(start) |
-						(addr->s_addr & mask);
-				iface->dhcpv4_end.s_addr = htonl(end) |
-						(addr->s_addr & mask);
-			} else if (ntohl(mask) <= 0xfffffff0) {
-				start = addr->s_addr & mask;
-				end = addr->s_addr & mask;
-
-				if (ntohl(mask) <= 0xffffff00) {
-					iface->dhcpv4_start.s_addr = start | htonl(100);
-					iface->dhcpv4_end.s_addr = end | htonl(250);
-				} else if (ntohl(mask) <= 0xffffffc0) {
-					iface->dhcpv4_start.s_addr = start | htonl(10);
-					iface->dhcpv4_end.s_addr = end | htonl(60);
-				} else if (ntohl(mask) <= 0xffffffe0) {
-					iface->dhcpv4_start.s_addr = start | htonl(10);
-					iface->dhcpv4_end.s_addr = end | htonl(30);
-				} else {
-					iface->dhcpv4_start.s_addr = start | htonl(3);
-					iface->dhcpv4_end.s_addr = end | htonl(12);
-				}
-			}
-		}
-
-		/* Parse static entries */
-		struct lease *lease;
-		list_for_each_entry(lease, &leases, head) {
-			/* Construct entry */
-			struct dhcpv4_assignment *a = calloc(1, sizeof(*a));
-			if (!a) {
-				syslog(LOG_ERR, "Calloc failed for static lease on interface %s",
-					iface->ifname);
-				return -1;
-			}
-
-			a->leasetime = lease->dhcpv4_leasetime;
-
-			a->addr = ntohl(lease->ipaddr.s_addr);
-			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
-			/* Static assignment */
-			a->flags |= OAF_STATIC;
-			/* Infinite valid */
-			a->valid_until = 0;
-
-			/* Assign to all interfaces */
-			struct dhcpv4_assignment *c;
-			list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-				if (c->addr > a->addr) {
-					list_add_tail(&a->head, &c->head);
-					break;
-				} else if (c->addr == a->addr)
-					/* Already an assignment with that number */
-					break;
-			}
-
-			if (&c->head == &iface->dhcpv4_assignments)
-				list_add(&a->head, &iface->dhcpv4_assignments);
-
-			if (a->head.next) {
-				if (lease->hostname[0]) {
-					free(a->hostname);
-					a->hostname = strdup(lease->hostname);
-				}
-			} else
-				free_dhcpv4_assignment(a);
-		}
-
-		// Clean invalid assignments
-		struct dhcpv4_assignment *a, *n;
-		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
-			if ((htonl(a->addr) & mask) !=
-					(iface->dhcpv4_start.s_addr & mask))
-				free_dhcpv4_assignment(a);
-		}
-
 		iface->dhcpv4_event.uloop.fd = sock;
 		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
 		odhcpd_register(&iface->dhcpv4_event);
+
+		if (setup_dhcpv4_addresses(iface) < 0)
+			return -1;
+
+		update_static_assignments(iface);
 	} else if (iface->dhcpv4_assignments.next) {
 		while (!list_empty(&iface->dhcpv4_assignments))
 			free_dhcpv4_assignment(list_first_entry(&iface->dhcpv4_assignments,
 							struct dhcpv4_assignment, head));
 	}
 	return 0;
+}
+
+static struct dhcpv4_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
+{
+	struct dhcpv4_assignment *a;
+
+	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
+		if (!memcmp(a->hwaddr, hwaddr, 6))
+			return a;
+
+	return NULL;
+}
+
+static struct dhcpv4_assignment *find_assignment_by_addr(struct interface *iface, const uint32_t addr)
+{
+	struct dhcpv4_assignment *a;
+
+	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
+		if (a->addr == addr)
+			return a;
+
+	return NULL;
+}
+
+static int setup_dhcpv4_addresses(struct interface *iface)
+{
+	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
+	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
+	iface->dhcpv4_local.s_addr = INADDR_ANY;
+	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
+	iface->dhcpv4_mask.s_addr = INADDR_ANY;
+
+	/* Sanity checks */
+	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
+	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
+	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
+		syslog(LOG_ERR, "invalid DHCP range for %s", iface->name);
+		return -1;
+	}
+
+	if (!iface->addr4_len) {
+		syslog(LOG_WARNING, "no network(s) available on %s", iface->name);
+		return -1;
+	}
+
+	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
+	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
+
+	for (size_t i = 0; i < iface->addr4_len && start && end; i++) {
+		struct in_addr *addr = &iface->addr4[i].addr.in;
+		struct in_addr mask;
+
+		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
+		if ((start & ntohl(~mask.s_addr)) == start &&
+			    (end & ntohl(~mask.s_addr)) == end) {
+			iface->dhcpv4_start_ip.s_addr = htonl(start) |
+							(addr->s_addr & mask.s_addr);
+			iface->dhcpv4_end_ip.s_addr = htonl(end) |
+							(addr->s_addr & mask.s_addr);
+			iface->dhcpv4_local = *addr;
+			iface->dhcpv4_bcast = iface->addr4[i].broadcast;
+			iface->dhcpv4_mask = mask;
+			return 0;
+		}
+	}
+
+	/* Don't allocate IP range for subnets bigger than 28 */
+	if (iface->addr4[0].prefix > 28) {
+		syslog(LOG_WARNING, "auto allocation of DHCP range fails on %s", iface->name);
+		return -1;
+	}
+
+	iface->dhcpv4_local = iface->addr4[0].addr.in;
+	iface->dhcpv4_bcast = iface->addr4[0].broadcast;
+	odhcpd_bitlen2netmask(false, iface->addr4[0].prefix, &iface->dhcpv4_mask);
+	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
+
+	/* Auto allocate ranges */
+	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {
+		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(250);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {
+		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(60);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {
+		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(30);
+	} else {
+		iface->dhcpv4_start_ip.s_addr = start | htonl(3);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(12);
+	}
+
+	return 0;
+}
+
+static void update_static_assignments(struct interface *iface)
+{
+	struct dhcpv4_assignment *a, *c;
+
+	/* Cleanup static entries not belonging to the network */
+	list_for_each_entry_safe(a, c, &iface->dhcpv4_assignments, head) {
+		if ((a->flags & OAF_STATIC) &&
+				((a->addr & iface->dhcpv4_mask.s_addr) !=
+				 (iface->dhcpv4_start.s_addr & iface->dhcpv4_mask.s_addr)))
+			free_dhcpv4_assignment(a);
+	}
+
+	/* Parse static entries */
+	struct lease *lease;
+	list_for_each_entry(lease, &leases, head) {
+		if ((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
+				(lease->ipaddr.s_addr & iface->dhcpv4_mask.s_addr)) {
+			continue;
+		}
+
+		a = find_assignment_by_hwaddr(iface, lease->mac.ether_addr_octet);
+
+		if (!a) {
+			/* Check if there's an assignment with the specified IP address */
+			if (find_assignment_by_addr(iface, lease->ipaddr.s_addr))
+				continue;
+
+			/* Construct entry */
+			a = calloc(1, sizeof(*a));
+			if (!a) {
+				syslog(LOG_ERR, "Calloc failed for static lease on interface %s",
+					iface->ifname);
+				continue;
+			}
+			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
+		}
+
+		a->leasetime = lease->dhcpv4_leasetime;
+
+		a->addr = lease->ipaddr.s_addr;
+		/* Static assignment */
+		a->flags |= OAF_STATIC;
+		/* Infinite valid */
+		a->valid_until = 0;
+		a->iface = iface;
+		if (lease->hostname[0]) {
+			free(a->hostname);
+			a->hostname = strdup(lease->hostname);
+		}
+
+		/* Assign to all interfaces */
+		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+			if (ntohl(c->addr) > ntohl(a->addr)) {
+				list_add_tail(&a->head, &c->head);
+				break;
+			}
+		}
+
+		if (&c->head == &iface->dhcpv4_assignments)
+			list_add(&a->head, &iface->dhcpv4_assignments);
+	}
+}
+
+static void inc_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct odhcpd_ref_ip *ip)
+{
+	*ptr = ip;
+	ip->ref_cnt++;
+}
+
+static void decr_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct interface *iface)
+{
+	struct odhcpd_ref_ip *ip = *ptr;
+
+	if (--ip->ref_cnt == 0) {
+		odhcpd_setup_addr(&ip->addr, iface, false, false);
+
+		list_del(&ip->head);
+		free(ip);
+	}
+
+	*ptr = NULL;
+}
+
+static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *addr,
+				uint32_t mask)
+{
+	struct dhcpv4_assignment *a = NULL;
+	struct odhcpd_ref_ip *fr_ip = NULL;
+
+	list_for_each_entry(a, &iface->dhcpv4_assignments, head) {
+		if ((a->accept_fr_nonce || iface->dhcpv4_forcereconf) &&
+		    !a->fr_ip &&
+		    ((a->addr & mask) == (addr->addr.in.s_addr & mask))) {
+			if (!fr_ip) {
+				fr_ip = calloc(1, sizeof(*fr_ip));
+				if (!fr_ip)
+					break;
+
+				list_add(&fr_ip->head, &iface->dhcpv4_fr_ips);
+				fr_ip->addr = *addr;
+			}
+			inc_ref_cnt_ip(&a->fr_ip, fr_ip);
+		}
+	}
+
+	return fr_ip ? true : false;
+}
+
+void dhcpv4_addr_update(struct interface *iface)
+{
+	if (iface->dhcpv4 == MODE_DISABLED)
+		return;
+
+	struct odhcpd_ipaddr ip;
+	struct odhcpd_ref_ip *a;
+	struct dhcpv4_assignment *c;
+	uint32_t mask = iface->dhcpv4_mask.s_addr;
+
+	memset(&ip, sizeof(ip), 0);
+	ip.addr.in = iface->dhcpv4_local;
+	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
+	ip.broadcast = iface->dhcpv4_bcast;
+
+	setup_dhcpv4_addresses(iface);
+
+	if ((ip.addr.in.s_addr & mask) ==
+	    (iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr))
+		return;
+
+	if (ip.addr.in.s_addr && !leases_require_fr(iface, &ip, mask))
+		return;
+
+	if (iface->dhcpv4_local.s_addr == INADDR_ANY || list_empty(&iface->dhcpv4_fr_ips))
+		return;
+
+	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
+
+	if (odhcpd_setup_addr(&a->addr, iface, false, true)) {
+		syslog(LOG_ERR, "Failed to add ip address");
+		return;
+	}
+
+	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+		if ((c->flags & OAF_BOUND) && c->fr_ip && !c->fr_cnt) {
+			if (c->accept_fr_nonce || iface->dhcpv4_forcereconf)
+				dhcpv4_fr_start(c);
+			else
+				dhcpv4_fr_stop(c);
+		}
+	}
 }
 
 static char *dhcpv4_msg_to_string(uint8_t reqmsg)
@@ -216,6 +386,8 @@ static char *dhcpv4_msg_to_string(uint8_t reqmsg)
 		return "DHCPV4_MSG_RELEASE";
 	case (DHCPV4_MSG_INFORM):
 		return "DHCPV4_MSG_INFORM";
+	case (DHCPV4_MSG_FORCERENEW):
+		return "DHCPV4_MSG_FORCERENEW";
 	default:
 		return "UNKNOWN";
 	}
@@ -225,6 +397,9 @@ static void free_dhcpv4_assignment(struct dhcpv4_assignment *a)
 {
 	if (a->head.next)
 		list_del(&a->head);
+
+	if (a->fr_ip)
+		dhcpv4_fr_stop(a);
 
 	free(a->hostname);
 	free(a);
@@ -244,6 +419,123 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 	*cookie = c + len;
 }
 
+static void dhcpv4_fr_send(struct dhcpv4_assignment *a)
+{
+	struct dhcpv4_message fr_msg = {
+		.op = DHCPV4_BOOTREPLY,
+		.htype = 1,
+		.hlen = 6,
+		.hops = 0,
+		.secs = 0,
+		.flags = 0,
+		.ciaddr = {INADDR_ANY},
+		.yiaddr = {INADDR_ANY},
+		.siaddr = {INADDR_ANY},
+		.giaddr = {INADDR_ANY},
+		.chaddr = {0},
+		.sname = {0},
+		.file = {0},
+	};
+	struct dhcpv4_auth_forcerenew *auth_o, auth = {
+		.protocol = 3,
+		.algorithm = 1,
+		.rdm = 0,
+		.replay = {htonl(time(NULL)), htonl(++serial)},
+		.type = 2,
+		.key = {0},
+	};
+	struct interface *iface = a->iface;
+
+	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
+	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
+
+	fr_msg.options[0] = 0x63;
+	fr_msg.options[1] = 0x82;
+	fr_msg.options[2] = 0x53;
+	fr_msg.options[3] = 0x63;
+
+	uint8_t *cookie = &fr_msg.options[4];
+	uint8_t msg = DHCPV4_MSG_FORCERENEW;
+
+	dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
+	if (a->accept_fr_nonce) {
+		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+		auth_o = (struct dhcpv4_auth_forcerenew *)(cookie - sizeof(auth));
+		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
+
+		md5_ctx_t md5;
+		uint8_t secretbytes[64];
+		memset(secretbytes, 0, sizeof(secretbytes));
+		memcpy(secretbytes, a->key, sizeof(a->key));
+
+		for (size_t i = 0; i < sizeof(secretbytes); ++i)
+			secretbytes[i] ^= 0x36;
+
+		md5_begin(&md5);
+		md5_hash(secretbytes, sizeof(secretbytes), &md5);
+		md5_hash(&fr_msg, sizeof(fr_msg), &md5);
+		md5_end(auth_o->key, &md5);
+
+		for (size_t i = 0; i < sizeof(secretbytes); ++i) {
+			secretbytes[i] ^= 0x36;
+			secretbytes[i] ^= 0x5c;
+		}
+
+		md5_begin(&md5);
+		md5_hash(secretbytes, sizeof(secretbytes), &md5);
+		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
+		md5_end(auth_o->key, &md5);
+	} else {
+		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_SERVERID, 4,
+				&a->fr_ip->addr.addr.in.s_addr);
+		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
+	}
+
+	struct sockaddr_in dest;
+	memset(&dest, 0, sizeof(dest));
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
+	dest.sin_addr.s_addr = a->addr;
+
+	syslog(LOG_WARNING, "sending %s to %02x:%02x:%02x:%02x:%02x:%02x - %s",
+			dhcpv4_msg_to_string(msg),
+			a->hwaddr[0], a->hwaddr[1], a->hwaddr[2],
+			a->hwaddr[3], a->hwaddr[4], a->hwaddr[5],
+			inet_ntoa(dest.sin_addr));
+
+	sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, sizeof(fr_msg),
+			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+}
+
+static void dhcpv4_fr_timer(struct uloop_timeout *event)
+{
+	struct dhcpv4_assignment *a = container_of(event, struct dhcpv4_assignment, fr_timer);
+
+	if (a->fr_cnt > 0 && a->fr_cnt < 8) {
+		dhcpv4_fr_send(a);
+		uloop_timeout_set(&a->fr_timer, 1000 << a->fr_cnt);
+		a->fr_cnt++;
+	} else
+		dhcpv4_fr_stop(a);
+}
+
+static void dhcpv4_fr_start(struct dhcpv4_assignment *a)
+{
+	uloop_timeout_set(&a->fr_timer, 1000 << a->fr_cnt);
+	a->fr_timer.cb = dhcpv4_fr_timer;
+	a->fr_cnt++;
+
+	dhcpv4_fr_send(a);
+}
+
+static void dhcpv4_fr_stop(struct dhcpv4_assignment *a)
+{
+	uloop_timeout_cancel(&a->fr_timer);
+	decr_ref_cnt_ip(&a->fr_ip, a->iface);
+	a->fr_cnt = 0;
+	a->fr_timer.cb = NULL;
+}
+
 // Handler for DHCPv4 messages
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr)
@@ -259,34 +551,24 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	syslog(LOG_NOTICE, "Got DHCPv4 request");
 
-	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "DHCPv4 no address found on %s", iface->name);
+	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
+		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
 		return;
 	}
 
-	struct in_addr *ifaddr = &iface->addr4[0].addr.in;
-	struct in_addr *ifbroadcast = &iface->addr4[0].broadcast;
-	uint32_t mask = iface->addr4[0].prefix ? htonl(~((1 << (32 - iface->addr4[0].prefix)) - 1)) : 0;
-	uint32_t network = iface->addr4[0].addr.in.s_addr & mask;
 	int sock = iface->dhcpv4_event.uloop.fd;
-
-	if ((iface->dhcpv4_start.s_addr & mask) != network ||
-			(iface->dhcpv4_end.s_addr & mask) != network) {
-		syslog(LOG_WARNING, "DHCPv4 range out of assigned network");
-		return;
-	}
 
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_BOOTREPLY,
-		.htype = 1,
-		.hlen = 6,
+		.htype = req->htype,
+		.hlen = req->hlen,
 		.hops = 0,
 		.xid = req->xid,
 		.secs = 0,
 		.flags = req->flags,
 		.ciaddr = {INADDR_ANY},
 		.giaddr = req->giaddr,
-		.siaddr = *ifaddr,
+		.siaddr = iface->dhcpv4_local,
 	};
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
@@ -303,6 +585,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	uint32_t leasetime = 0;
 	size_t hostname_len = 0;
 	char hostname[256];
+	bool accept_fr_nonce = false;
+	bool incl_fr_opt = false;
 
 	uint8_t *start = &req->options[4];
 	uint8_t *end = ((uint8_t*)data) + len;
@@ -317,7 +601,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		} else if (opt->type == DHCPV4_OPT_IPADDRESS && opt->len == 4)
 			memcpy(&reqaddr, opt->data, 4);
 		else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
-			if (memcmp(opt->data, ifaddr, 4))
+			if (memcmp(opt->data, &iface->dhcpv4_local, 4))
 				return;
 		} else if (iface->filter_class && opt->type == DHCPV4_OPT_USER_CLASS) {
 			uint8_t *c = opt->data, *cend = &opt->data[opt->len];
@@ -328,6 +612,15 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			}
 		} else if (opt->type == DHCPV4_OPT_LEASETIME && opt->len == 4)
 			memcpy(&leasetime, opt->data, 4);
+		else if (opt->type == DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE && opt->len > 0) {
+			for (uint8_t i = 0; i < opt->len; i++) {
+				if (opt->data[i] == 1) {
+					accept_fr_nonce = true;
+					break;
+				}
+			}
+
+		}
 	}
 
 	if (reqmsg != DHCPV4_MSG_DISCOVER && reqmsg != DHCPV4_MSG_REQUEST &&
@@ -336,9 +629,13 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		return;
 
 	struct dhcpv4_assignment *lease = NULL;
+	uint32_t serverid = iface->dhcpv4_local.s_addr;
+	uint32_t fr_serverid = INADDR_ANY;
+
 	if (reqmsg != DHCPV4_MSG_INFORM)
 		lease = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
-					&leasetime, hostname, hostname_len);
+					&leasetime, hostname, hostname_len,
+					accept_fr_nonce, &incl_fr_opt, &fr_serverid);
 
 	if (!lease) {
 		if (reqmsg == DHCPV4_MSG_REQUEST)
@@ -347,19 +644,35 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			return;
 	} else if (reqmsg == DHCPV4_MSG_DISCOVER)
 		msg = DHCPV4_MSG_OFFER;
-	else if (reqmsg == DHCPV4_MSG_REQUEST && reqaddr.s_addr &&
-			reqaddr.s_addr != htonl(lease->addr)) {
+	else if (reqmsg == DHCPV4_MSG_REQUEST &&
+			((reqaddr.s_addr && reqaddr.s_addr != lease->addr) ||
+			 (req->ciaddr.s_addr && req->ciaddr.s_addr != lease->addr))) {
 		msg = DHCPV4_MSG_NAK;
 		/*
 		 * DHCP client requested an IP which we can't offer to him. Probably the
-		 * client changed the network. The reply type is set to DHCPV4_MSG_NAK,
-		 * because the client should not use that IP.
+		 * client changed the network or the network has been changed. The reply
+		 * type is set to DHCPV4_MSG_NAK, because the client should not use that IP.
 		 *
 		 * For modern devices we build an answer that includes a valid IP, like
 		 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
 		 * perform additional DHCP round trips.
 		 *
 		 */
+
+		/*
+		 *
+		 * Buggy clients do serverid checking in nack messages; therefore set the
+		 * serverid in nack messages triggered by a previous force renew equal to
+		 * the server id in use at that time by the server
+		 *
+		 */
+		if (fr_serverid)
+			serverid = fr_serverid;
+
+		if (req->ciaddr.s_addr &&
+				((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
+				 (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
+			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
 	syslog(LOG_WARNING, "received %s from %02x:%02x:%02x:%02x:%02x:%02x",
@@ -371,12 +684,12 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		return;
 
 	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SERVERID, 4, ifaddr);
+	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SERVERID, 4, &serverid);
 
 	if (lease) {
 		uint32_t val;
 
-		reply.yiaddr.s_addr = htonl(lease->addr);
+		reply.yiaddr.s_addr = lease->addr;
 
 		val = htonl(leasetime);
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_LEASETIME, 4, &val);
@@ -389,14 +702,35 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
 		}
 
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4, &mask);
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4,
+				&iface->dhcpv4_mask.s_addr);
 
 		if (lease->hostname)
 			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_HOSTNAME,
 					strlen(lease->hostname), lease->hostname);
 
-		if (ifbroadcast->s_addr != INADDR_ANY)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_BROADCAST, 4, ifbroadcast);
+		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
+
+		if (incl_fr_opt) {
+			if (reqmsg == DHCPV4_MSG_REQUEST) {
+				struct dhcpv4_auth_forcerenew auth = {
+					.protocol = 3,
+					.algorithm = 1,
+					.rdm = 0,
+					.replay = {htonl(time(NULL)), htonl(++serial)},
+					.type = 1,
+					.key = {0},
+				};
+
+				memcpy(auth.key, lease->key, sizeof(auth.key));
+				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+			} else {
+				uint8_t one = 1;
+				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+					sizeof(one), &one);
+			}
+		}
 	}
 
 	struct ifreq ifr = {.ifr_name = ""};
@@ -420,14 +754,14 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	}
 
 	if (iface->dhcpv4_router_cnt == 0)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, ifaddr);
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
 	else
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER,
 				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
 
 
 	if (iface->dhcpv4_dns_cnt == 0)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, ifaddr);
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
 	else
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
@@ -503,7 +837,6 @@ static bool dhcpv4_test(struct interface *iface, uint32_t try)
 	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 		if (c->addr == try)
 			return false;
-
 	}
 
 	return true;
@@ -512,18 +845,18 @@ static bool dhcpv4_test(struct interface *iface, uint32_t try)
 static bool dhcpv4_assign(struct interface *iface,
 		struct dhcpv4_assignment *assign, uint32_t raddr)
 {
-	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
-	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
+	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
+	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
 	uint32_t count = end - start + 1;
 
 	// try to assign the IP the client asked for
-	if (start <= raddr && raddr <= end && dhcpv4_test(iface, raddr)) {
+	if (start <= ntohl(raddr) && ntohl(raddr) <= end && dhcpv4_test(iface, raddr)) {
 		assign->addr = raddr;
 		syslog(LOG_INFO, "assigning the IP the client asked for: %u.%u.%u.%u",
-				(assign->addr & 0xff000000) >> 24,
-				(assign->addr & 0x00ff0000) >> 16,
-				(assign->addr & 0x0000ff00) >> 8,
-				(assign->addr & 0x000000ff));
+				((uint8_t *)&assign->addr)[0],
+				((uint8_t *)&assign->addr)[1],
+				((uint8_t *)&assign->addr)[2],
+				((uint8_t *)&assign->addr)[3]);
 		return true;
 	}
 
@@ -540,24 +873,25 @@ static bool dhcpv4_assign(struct interface *iface,
 	uint32_t try = (((uint32_t)rand()) % count) + start;
 
 	if (list_empty(&iface->dhcpv4_assignments)) {
-		assign->addr = try;
+		assign->addr = htonl(try);
 		syslog(LOG_INFO, "assigning mapped IP (empty list): %u.%u.%u.%u",
-				(assign->addr & 0xff000000) >> 24,
-				(assign->addr & 0x00ff0000) >> 16,
-				(assign->addr & 0x0000ff00) >> 8,
-				(assign->addr & 0x000000ff));
+				((uint8_t *)&assign->addr)[0],
+				((uint8_t *)&assign->addr)[1],
+				((uint8_t *)&assign->addr)[2],
+				((uint8_t *)&assign->addr)[3]);
 		return true;
 	}
 
 	for (uint32_t i = 0; i < count; ++i) {
-		if (dhcpv4_test(iface, try)) {
+		if (dhcpv4_test(iface, htonl(try))) {
 			/* test was successful: IP address is not assigned, assign it */
-			assign->addr = try;
+			assign->addr = htonl(try);
 			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
-					(assign->addr & 0xff000000) >> 24,
-					(assign->addr & 0x00ff0000) >> 16,
-					(assign->addr & 0x0000ff00) >> 8,
-					(assign->addr & 0x000000ff), i, count);
+					((uint8_t *)&assign->addr)[0],
+					((uint8_t *)&assign->addr)[1],
+					((uint8_t *)&assign->addr)[2],
+					((uint8_t *)&assign->addr)[3],
+					i, count);
 			return true;
 		}
 		try = (((try - start) + 1) % count) + start;
@@ -570,37 +904,54 @@ static bool dhcpv4_assign(struct interface *iface,
 
 static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
-		uint32_t *leasetime, const char *hostname, const size_t hostname_len)
+		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
+		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid)
 {
 	struct dhcpv4_assignment *lease = NULL;
-	uint32_t raddr = ntohl(reqaddr.s_addr);
 	time_t now = odhcpd_time();
 
 	struct dhcpv4_assignment *c, *n, *a = NULL;
 	list_for_each_entry_safe(c, n, &iface->dhcpv4_assignments, head) {
 		if (!memcmp(c->hwaddr, mac, 6)) {
 			a = c;
-			if (c->addr == raddr)
+			if (c->addr == reqaddr.s_addr)
 				break;
 		} else if (!INFINITE_VALID(c->valid_until) && c->valid_until < now)
 			free_dhcpv4_assignment(c);
 	}
 
+	if (a && (a->flags & OAF_BOUND) && a->fr_ip) {
+		*fr_serverid = a->fr_ip->addr.addr.in.s_addr;
+		dhcpv4_fr_stop(a);
+	}
+
 	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
 		bool assigned = !!a;
 
-		if (!a && !iface->no_dynamic_dhcp) {
-			/* Create new binding */
-			a = calloc(1, sizeof(*a));
-			if (!a) {
-				syslog(LOG_ERR, "Failed to calloc binding on interface %s", iface->ifname);
-				return NULL;
-			}
-			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
-			/* Don't consider new assignment as infinite */
-			a->valid_until = now;
+		if (!a) {
+			if (!iface->no_dynamic_dhcp) {
+				/* Create new binding */
+				a = calloc(1, sizeof(*a));
+				if (!a) {
+					syslog(LOG_ERR, "Failed to calloc binding on interface %s",
+							iface->ifname);
+					return NULL;
+				}
+				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
+				/* Don't consider new assignment as infinite */
+				a->valid_until = now;
 
-			assigned = dhcpv4_assign(iface, a, raddr);
+				assigned = dhcpv4_assign(iface, a, reqaddr.s_addr);
+				if (assigned) {
+					a->iface = iface;
+					list_add(&a->head, &iface->dhcpv4_assignments);
+				}
+			}
+		} else if ((a->addr & iface->dhcpv4_mask.s_addr) !=
+				(iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) {
+			list_del(&a->head);
+
+			assigned = dhcpv4_assign(iface, a, reqaddr.s_addr);
 			if (assigned)
 				list_add(&a->head, &iface->dhcpv4_assignments);
 		}
@@ -619,6 +970,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			if (msg == DHCPV4_MSG_DISCOVER) {
 				a->flags &= ~OAF_BOUND;
 
+				*incl_fr_opt = accept_fr_nonce;
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = now;
 			} else {
@@ -630,7 +982,13 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 					}
 				}
 
-				a->flags |= OAF_BOUND;
+				if (!(a->flags & OAF_BOUND)) {
+					a->accept_fr_nonce = accept_fr_nonce;
+					*incl_fr_opt = accept_fr_nonce;
+					odhcpd_urandom(a->key, sizeof(a->key));
+					a->flags |= OAF_BOUND;
+				} else
+					*incl_fr_opt = false;
 
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));

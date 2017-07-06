@@ -45,6 +45,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
+			blobmsg_add_u8(&b, "accept-reconf-nonce", c->accept_fr_nonce);
 
 			m = blobmsg_open_array(&b, "flags");
 			if (c->flags & OAF_BOUND)
@@ -55,7 +56,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_close_array(&b, m);
 
 			buf = blobmsg_alloc_string_buffer(&b, "ip", INET_ADDRSTRLEN);
-			struct in_addr addr = {htonl(c->addr)};
+			struct in_addr addr = {.s_addr = c->addr};
 			inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
 

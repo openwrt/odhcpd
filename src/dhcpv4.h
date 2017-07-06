@@ -33,6 +33,7 @@ enum dhcpv4_msg {
 	DHCPV4_MSG_NAK = 6,
 	DHCPV4_MSG_RELEASE = 7,
 	DHCPV4_MSG_INFORM = 8,
+	DHCPV4_MSG_FORCERENEW = 9,
 };
 
 enum dhcpv4_opt {
@@ -52,7 +53,9 @@ enum dhcpv4_opt {
 	DHCPV4_OPT_HOSTNAME = 12,
 	DHCPV4_OPT_REQUEST = 17,
 	DHCPV4_OPT_USER_CLASS = 77,
+	DHCPV4_OPT_AUTHENTICATION = 90,
 	DHCPV4_OPT_SEARCH_DOMAIN = 119,
+	DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE = 145,
 	DHCPV4_OPT_END = 255,
 };
 
@@ -74,13 +77,33 @@ struct dhcpv4_message {
 	uint8_t options[312];
 };
 
+struct dhcpv4_auth_forcerenew {
+	uint8_t protocol;
+	uint8_t algorithm;
+	uint8_t rdm;
+	uint32_t replay[2];
+	uint8_t type;
+	uint8_t key[16];
+} _packed;
+
+struct odhcpd_ref_ip;
+
 struct dhcpv4_assignment {
 	struct list_head head;
+	struct interface *iface;
+
+	struct uloop_timeout fr_timer;
+	struct odhcpd_ref_ip *fr_ip;
+	bool accept_fr_nonce;
+	int fr_cnt;
+	uint8_t key[16];
+
+	unsigned int flags;
+
 	uint32_t addr;
 	time_t valid_until;
 	uint8_t hwaddr[6];
 	uint32_t leasetime;
-	unsigned int flags;
 	char *hostname;
 };
 

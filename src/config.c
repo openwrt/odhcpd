@@ -42,6 +42,7 @@ enum {
 	IFACE_ATTR_DNS,
 	IFACE_ATTR_DOMAIN,
 	IFACE_ATTR_FILTER_CLASS,
+	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
 	IFACE_ATTR_RA_DEFAULT,
@@ -83,6 +84,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_FILTER_CLASS] = { .name = "filter_class", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
@@ -620,6 +622,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->filter_class = realloc(iface->filter_class, blobmsg_data_len(c) + 1);
 		memcpy(iface->filter_class, blobmsg_get_string(c), blobmsg_data_len(c) + 1);
 	}
+
+	if ((c = tb[IFACE_ATTR_DHCPV4_FORCERECONF]))
+		iface->dhcpv4_forcereconf = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_RAW])) {
 		iface->dhcpv6_raw_len = blobmsg_data_len(c) / 2;

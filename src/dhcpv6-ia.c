@@ -397,9 +397,9 @@ void dhcpv6_write_statefile(void)
 								(c->valid_until > now ?
 									(c->valid_until - now + wall_time) :
 									(INFINITE_VALID(c->valid_until) ? -1 : 0)),
-								c->addr);
+								ntohl(c->addr));
 
-					struct in_addr addr = {htonl(c->addr)};
+					struct in_addr addr = {.s_addr = c->addr};
 					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
 					if (c->hostname) {

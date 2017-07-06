@@ -317,8 +317,15 @@ static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *er
 static int prefix_cmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
-	return (ntohl(a->addr.in.s_addr) < ntohl(b->addr.in.s_addr)) ? 1 :
-		(ntohl(a->addr.in.s_addr) > ntohl(b->addr.in.s_addr)) ? -1 : 0;
+	int ret = 0;
+
+	if (a->prefix == b->prefix) {
+		ret = (ntohl(a->addr.in.s_addr) < ntohl(b->addr.in.s_addr)) ? 1 :
+			(ntohl(a->addr.in.s_addr) > ntohl(b->addr.in.s_addr)) ? -1 : 0;
+	} else
+		ret = a->prefix < b->prefix ? 1 : -1;
+
+	return ret;
 }
 
 // compare IPv6 prefixes
@@ -518,6 +525,74 @@ int odhcpd_setup_proxy_neigh(const struct in6_addr *addr,
 	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
 
 	nla_put(msg, NDA_DST, sizeof(*addr), addr);
+
+	ret = nl_send_auto_complete(rtnl_socket, msg);
+	nlmsg_free(msg);
+
+	if (ret < 0)
+		return ret;
+
+	return nl_wait_for_ack(rtnl_socket);
+}
+
+int odhcpd_setup_addr(struct odhcpd_ipaddr *addr,
+		const struct interface *iface, const bool v6,
+		const bool add)
+{
+	struct nl_msg *msg;
+	struct ifaddrmsg ifa = {
+		.ifa_family = v6 ? AF_INET6 : AF_INET,
+		.ifa_prefixlen = addr->prefix,
+		.ifa_flags = 0,
+		.ifa_scope = 0,
+		.ifa_index = iface->ifindex, };
+	int ret = 0, flags = NLM_F_REQUEST;
+
+	if (add)
+		flags |= NLM_F_REPLACE | NLM_F_CREATE;
+
+	msg = nlmsg_alloc_simple(add ? RTM_NEWADDR : RTM_DELADDR, 0);
+	if (!msg)
+		return -1;
+
+	nlmsg_append(msg, &ifa, sizeof(ifa), flags);
+	nla_put(msg, IFA_LOCAL, v6 ? 16 : 4, &addr->addr);
+	if (v6) {
+		struct ifa_cacheinfo cinfo = {	.ifa_prefered = 0xffffffffU,
+						.ifa_valid = 0xffffffffU,
+						.cstamp = 0,
+						.tstamp = 0 };
+		time_t now = odhcpd_time();
+
+		if (addr->preferred) {
+			int64_t preferred = addr->preferred - now;
+			if (preferred < 0)
+				preferred = 0;
+			else if (preferred > UINT32_MAX)
+				preferred = UINT32_MAX;
+
+			cinfo.ifa_prefered = preferred;
+		}
+
+		if (addr->valid) {
+			int64_t valid = addr->valid - now;
+			if (valid <= 0) {
+				nlmsg_free(msg);
+				return -1;
+			}
+			else if (valid > UINT32_MAX)
+				valid = UINT32_MAX;
+
+			cinfo.ifa_valid = valid;
+		}
+
+		nla_put(msg, IFA_CACHEINFO, sizeof(cinfo), &cinfo);
+
+		nla_put_u32(msg, IFA_FLAGS, IFA_F_NOPREFIXROUTE);
+	} else {
+		if (addr->broadcast.s_addr)
+			nla_put_u32(msg, IFA_BROADCAST, addr->broadcast.s_addr);
+	}
 
 	ret = nl_send_auto_complete(rtnl_socket, msg);
 	nlmsg_free(msg);
@@ -763,4 +838,55 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits)
 		uint8_t mask = (1 << (8 - bits)) - 1;
 		a[bytes] = (a[bytes] & mask) | ((~mask) & b[bytes]);
 	}
+}
+
+
+int odhcpd_netmask2bitlen(bool inet6, void *mask)
+{
+	int bits;
+	struct in_addr *v4;
+	struct in6_addr *v6;
+
+	if (inet6)
+		for (bits = 0, v6 = mask;
+		     bits < 128 && (v6->s6_addr[bits / 8] << (bits % 8)) & 128;
+		     bits++);
+	else
+		for (bits = 0, v4 = mask;
+		     bits < 32 && (ntohl(v4->s_addr) << bits) & 0x80000000;
+		     bits++);
+
+	return bits;
+}
+
+bool odhcpd_bitlen2netmask(bool inet6, unsigned int bits, void *mask)
+{
+	uint8_t b;
+	struct in_addr *v4;
+	struct in6_addr *v6;
+
+	if (inet6)
+	{
+		if (bits > 128)
+			return false;
+
+		v6 = mask;
+
+		for (unsigned int i = 0; i < sizeof(v6->s6_addr); i++)
+		{
+			b = (bits > 8) ? 8 : bits;
+			v6->s6_addr[i] = (uint8_t)(0xFF << (8 - b));
+			bits -= b;
+		}
+	}
+	else
+	{
+		if (bits > 32)
+			return false;
+
+		v4 = mask;
+		v4->s_addr = bits ? htonl(~((1 << (32 - bits)) - 1)) : 0;
+	}
+
+	return true;
 }

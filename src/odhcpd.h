@@ -125,19 +125,28 @@ struct interface {
 	char *ifname;
 	const char *name;
 
-	// Runtime data
-	struct uloop_timeout timer_rs;
-	struct list_head ia_assignments;
-	struct odhcpd_ipaddr *addr4;
-	size_t addr4_len;
+	// IPv6 runtime data
 	struct odhcpd_ipaddr *ia_addr;
 	size_t ia_addr_len;
 
-	// DHCPv4
+	// RA runtime data
+	struct uloop_timeout timer_rs;
+
+	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
-	struct odhcpd_event dhcpv4_event;
+	struct list_head ia_assignments;
+
+	// NDP runtime data
 	struct odhcpd_event ndp_event;
+
+	// IPv4 runtime data
+	struct odhcpd_ipaddr *addr4;
+	size_t addr4_len;
+
+	// DHCPv4 runtime data
+	struct odhcpd_event dhcpv4_event;
 	struct list_head dhcpv4_assignments;
+	struct list_head dhcpv4_fr_ips;
 
 	// Managed PD
 	char dhcpv6_pd_manager[128];
@@ -176,11 +185,17 @@ struct interface {
 	// DHCPv4
 	struct in_addr dhcpv4_start;
 	struct in_addr dhcpv4_end;
+	struct in_addr dhcpv4_start_ip;
+	struct in_addr dhcpv4_end_ip;
+	struct in_addr dhcpv4_local;
+	struct in_addr dhcpv4_bcast;
+	struct in_addr dhcpv4_mask;
 	struct in_addr *dhcpv4_router;
 	size_t dhcpv4_router_cnt;
 	struct in_addr *dhcpv4_dns;
 	size_t dhcpv4_dns_cnt;
 	uint32_t dhcpv4_leasetime;
+	bool dhcpv4_forcereconf;
 
 	// DNS
 	struct in6_addr *dns;
@@ -230,6 +245,9 @@ int odhcpd_setup_route(const struct in6_addr *addr, const int prefixlen,
 		const uint32_t metric, const bool add);
 int odhcpd_setup_proxy_neigh(const struct in6_addr *addr,
 		const struct interface *iface, const bool add);
+int odhcpd_setup_addr(struct odhcpd_ipaddr *addr,
+		const struct interface *iface, const bool v6,
+		const bool add);
 
 void odhcpd_run(void);
 time_t odhcpd_time(void);
@@ -239,7 +257,12 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
+int odhcpd_netmask2bitlen(bool v6, void *mask);
+bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
+
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
+
+void dhcpv4_addr_update(struct interface *iface);
 
 #ifdef WITH_UBUS
 int init_ubus(void);

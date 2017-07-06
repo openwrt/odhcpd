@@ -341,6 +341,9 @@ static void check_addr_updates(struct interface *iface)
 	free(iface->addr4);
 	iface->addr4 = addr;
 	iface->addr4_len = len;
+
+	if (change)
+		dhcpv4_addr_update(iface);
 }
 
 // Check v6 address update

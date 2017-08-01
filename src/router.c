@@ -298,7 +298,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (iface->dhcpv6)
 		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
 
-	if (iface->managed >= RELAYD_MANAGED_MFLAG)
+	if (iface->ra_managed >= RA_MANAGED_MFLAG)
 		adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
 
 	if (iface->route_preference < 0)
@@ -408,7 +408,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
-		if (iface->managed < RELAYD_MANAGED_NO_AFLAG && addr->prefix <= 64)
+		if (iface->ra_managed < RA_MANAGED_NO_AFLAG && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;

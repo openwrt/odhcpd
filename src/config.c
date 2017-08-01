@@ -205,7 +205,7 @@ static struct interface* get_interface(const char *name)
 
 static void set_interface_defaults(struct interface *iface)
 {
-	iface->managed = 1;
+	iface->ra_managed = RA_MANAGED_MFLAG;
 	iface->learn_routes = 1;
 	iface->dhcpv4_leasetime = 43200;
 	iface->ra_maxinterval = 600;
@@ -621,7 +621,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->default_router = blobmsg_get_u32(c);
 
 	if ((c = tb[IFACE_ATTR_RA_MANAGEMENT]))
-		iface->managed = blobmsg_get_u32(c);
+		iface->ra_managed = blobmsg_get_u32(c);
 
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);

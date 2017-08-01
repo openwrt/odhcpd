@@ -36,7 +36,7 @@
 #include <libubox/usock.h>
 
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
-    ((iface)->managed == RELAYD_MANAGED_NO_AFLAG || (i) == (m) || \
+    ((iface)->ra_managed == RA_MANAGED_NO_AFLAG || (i) == (m) || \
      (addrs)[(i)].prefix > 64)
 
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
@@ -657,7 +657,8 @@ void dhcpv6_ia_preupdate(struct interface *iface)
 			&iface->ia_assignments, struct dhcpv6_assignment, head);
 
 	list_for_each_entry(c, &iface->ia_assignments, head)
-		if (c != border && !iface->managed && (c->flags & OAF_BOUND))
+		if (c != border && iface->ra_managed == RA_MANAGED_NO_MFLAG
+				&& (c->flags & OAF_BOUND))
 			apply_lease(iface, c, false);
 }
 

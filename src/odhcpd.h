@@ -160,7 +160,7 @@ struct interface {
 	// RA
 	int learn_routes;
 	int default_router;
-	int managed;
+	int ra_managed;
 	int route_preference;
 	int ra_maxinterval;
 	int ra_mininterval;
@@ -196,8 +196,9 @@ struct interface {
 
 extern struct list_head interfaces;
 
-#define RELAYD_MANAGED_MFLAG	1
-#define RELAYD_MANAGED_NO_AFLAG	2
+#define RA_MANAGED_NO_MFLAG	0
+#define RA_MANAGED_MFLAG	1
+#define RA_MANAGED_NO_AFLAG	2
 
 
 // Exported main functions

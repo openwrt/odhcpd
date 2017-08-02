@@ -177,8 +177,10 @@ struct interface {
 	uint8_t *search;
 	size_t search_len;
 
+	// DHCPV6
 	void *dhcpv6_raw;
 	size_t dhcpv6_raw_len;
+	bool dhcpv6_assignall;
 
 	char *upstream;
 	size_t upstream_len;

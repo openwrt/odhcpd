@@ -35,7 +35,7 @@
 #include <sys/timerfd.h>
 
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
-    ((iface)->managed == RELAYD_MANAGED_NO_AFLAG || (i) == (m) || \
+    ((iface)->dhcpv6_assignall || (i) == (m) || \
      (addrs)[(i)].prefix > 64)
 
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);

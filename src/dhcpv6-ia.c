@@ -40,14 +40,16 @@
      (addrs)[(i)].prefix > 64)
 
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
-static void reconf_timer(struct uloop_timeout *event);
-static struct uloop_timeout reconf_event = {.cb = reconf_timer};
+static void stop_reconf(struct dhcpv6_assignment *a);
+static void valid_until_cb(struct uloop_timeout *event);
+
+static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
 
 int dhcpv6_ia_init(void)
 {
-	uloop_timeout_set(&reconf_event, 2000);
+	uloop_timeout_set(&valid_until_timeout, 1000);
 	return 0;
 }
 
@@ -120,6 +122,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 			}
 
 			if (a->head.next) {
+				a->iface = iface;
 				if (lease->hostname[0]) {
 					free(a->hostname);
 					a->hostname = strdup(lease->hostname);
@@ -140,6 +143,9 @@ static void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 
 	if (c->head.next)
 		list_del(&c->head);
+
+	if (c->reconf_cnt)
+		stop_reconf(c);
 
 	free(c->managed);
 	free(c->hostname);
@@ -170,7 +176,7 @@ static size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t
 	return m;
 }
 
-static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign)
+static int send_reconf(struct dhcpv6_assignment *assign)
 {
 	struct {
 		struct dhcpv6_client_header hdr;
@@ -202,6 +208,7 @@ static int send_reconf(struct interface *iface, struct dhcpv6_assignment *assign
 		.clid_len = htons(assign->clid_len),
 		.clid_data = {0},
 	};
+	struct interface *iface = assign->iface;
 
 	odhcpd_get_mac(iface, reconf_msg.mac);
 	memcpy(reconf_msg.clid_data, assign->clid_data, assign->clid_len);
@@ -662,6 +669,36 @@ void dhcpv6_ia_preupdate(struct interface *iface)
 			apply_lease(iface, c, false);
 }
 
+static void reconf_timeout_cb(struct uloop_timeout *event)
+{
+	struct dhcpv6_assignment *a = container_of(event, struct dhcpv6_assignment, reconf_timer);
+
+	if (a->reconf_cnt > 0 && a->reconf_cnt < DHCPV6_REC_MAX_RC) {
+		send_reconf(a);
+		uloop_timeout_set(&a->reconf_timer,
+					DHCPV6_REC_TIMEOUT << a->reconf_cnt);
+		a->reconf_cnt++;
+	} else
+		stop_reconf(a);
+}
+
+static void start_reconf(struct dhcpv6_assignment *a)
+{
+	uloop_timeout_set(&a->reconf_timer,
+				DHCPV6_REC_TIMEOUT << a->reconf_cnt);
+	a->reconf_timer.cb = reconf_timeout_cb;
+	a->reconf_cnt++;
+
+	send_reconf(a);
+}
+
+static void stop_reconf(struct dhcpv6_assignment *a)
+{
+	uloop_timeout_cancel(&a->reconf_timer);
+	a->reconf_cnt = 0;
+	a->reconf_timer.cb = NULL;
+}
+
 void dhcpv6_ia_postupdate(struct interface *iface)
 {
 	if (iface->dhcpv6 != RELAYD_SERVER)
@@ -697,16 +734,14 @@ void dhcpv6_ia_postupdate(struct interface *iface)
 			apply_lease(iface, c, true);
 
 		if (c->accept_reconf && c->reconf_cnt == 0) {
-			c->reconf_cnt = 1;
-			c->reconf_sent = now;
-			send_reconf(iface, c);
+			start_reconf(c);
 
 			/* Leave all other assignments of that client alone */
 			struct dhcpv6_assignment *a;
 			list_for_each_entry(a, &iface->ia_assignments, head)
 				if (a != c && a->clid_len == c->clid_len &&
 						!memcmp(a->clid_data, c->clid_data, a->clid_len))
-					c->reconf_cnt = INT_MAX;
+					a->reconf_cnt = INT_MAX;
 		}
 	}
 
@@ -722,7 +757,7 @@ void dhcpv6_ia_postupdate(struct interface *iface)
 	dhcpv6_write_statefile();
 }
 
-static void reconf_timer(struct uloop_timeout *event)
+static void valid_until_cb(struct uloop_timeout *event)
 {
 	time_t now = odhcpd_time();
 	struct interface *iface;
@@ -737,15 +772,10 @@ static void reconf_timer(struct uloop_timeout *event)
 						(a->length == 128 && a->clid_len == 0))
 					free_dhcpv6_assignment(a);
 
-			} else if (a->reconf_cnt > 0 && a->reconf_cnt < 8 &&
-					now > a->reconf_sent + (1 << a->reconf_cnt)) {
-				++a->reconf_cnt;
-				a->reconf_sent = now;
-				send_reconf(iface, a);
 			}
 		}
 	}
-	uloop_timeout_set(event, 2000);
+	uloop_timeout_set(event, 1000);
 }
 
 static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
@@ -1124,8 +1154,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->clid_len = clid_len;
 				a->iaid = ia->iaid;
 				a->peer = *addr;
-				a->reconf_cnt = 0;
-				a->reconf_sent = 0;
+				stop_reconf(a);
 				break;
 			}
 		}
@@ -1152,6 +1181,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					/* Set valid time to current time indicating  */
 					/* assignment is not having infinite lifetime */
 					a->valid_until = now;
+					a->iface = iface;
 
 					if (first)
 						memcpy(a->key, first->key, sizeof(a->key));

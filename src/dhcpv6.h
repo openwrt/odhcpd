@@ -76,6 +76,9 @@
 
 #define DHCPV6_HOP_COUNT_LIMIT 32
 
+#define DHCPV6_REC_TIMEOUT	2000 /* msec */
+#define DHCPV6_REC_MAX_RC	8
+
 struct dhcpv6_client_header {
 	uint8_t msg_type;
 	uint8_t transaction_id[3];
@@ -139,17 +142,21 @@ struct dhcpv6_ia_addr {
 
 struct dhcpv6_assignment {
 	struct list_head head;
+	struct interface *iface;
+
 	struct sockaddr_in6 peer;
 	time_t valid_until;
-	time_t reconf_sent;
+
+	struct uloop_timeout reconf_timer;
+	bool accept_reconf;
 	int reconf_cnt;
-	char *hostname;
 	uint8_t key[16];
+
+	char *hostname;
 	uint32_t assigned;
 	uint32_t iaid;
 	uint8_t mac[6];
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
-	bool accept_reconf;
 
 	struct odhcpd_ipaddr *managed;
 	ssize_t managed_size;

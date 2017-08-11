@@ -95,7 +95,7 @@ int init_ndp(void)
 	// Receive IPv4 address, IPv6 address, IPv6 routes and neighbor events
 	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV4_IFADDR,
 				RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_ROUTE,
-				RTNLGRP_NEIGH, 0))
+				RTNLGRP_NEIGH, RTNLGRP_LINK, 0))
 		goto err;
 
 	odhcpd_register(&rtnl_event.ev);
@@ -415,6 +415,29 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	switch (hdr->nlmsg_type) {
+	case RTM_NEWLINK: {
+		struct ifinfomsg *ifi = nlmsg_data(hdr);
+		struct nlattr *nla[__IFLA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ifi)) ||
+				ifi->ifi_family != AF_UNSPEC)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(struct ifinfomsg), nla, __IFLA_MAX - 1, NULL);
+		if (!nla[IFLA_IFNAME])
+			return NL_SKIP;
+
+		struct interface *iface = odhcpd_get_interface_by_name(nla_data(nla[IFLA_IFNAME]));
+		if (!iface)
+			return NL_SKIP;
+
+		if (iface->ifindex != ifi->ifi_index) {
+			iface->ifindex = ifi->ifi_index;
+			check_addr_updates(iface);
+		}
+		break;
+	}
+
 	case RTM_NEWROUTE:
 	case RTM_DELROUTE: {
 		struct rtmsg *rtm = nlmsg_data(hdr);
@@ -427,7 +450,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			syslog(LOG_INFO, "Raising SIGUSR1 due to default route change");
 			raise(SIGUSR1);
 		}
-		return NL_OK;
+		break;
 	}
 
 	case RTM_NEWADDR:

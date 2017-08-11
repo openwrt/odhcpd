@@ -440,10 +440,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		if (!iface->ifname)
 			goto err;
-	}
 
-	if ((iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
-		goto err;
+		if (!iface->ifindex &&
+		    (iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
+			goto err;
+	}
 
 	if (get_addrs) {
 		ssize_t len = odhcpd_get_interface_addresses(iface->ifindex,

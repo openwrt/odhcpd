@@ -335,7 +335,7 @@ static void check_addr_updates(struct interface *iface)
 
 	bool change = len != (ssize_t)iface->addr4_len;
 	for (ssize_t i = 0; !change && i < len; ++i)
-		if (addr[i].addr.in.s_addr != iface->ia_addr[i].addr.in.s_addr)
+		if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
 			change = true;
 
 	free(iface->addr4);

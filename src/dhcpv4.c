@@ -587,7 +587,6 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 
 	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
 		bool assigned = !!a;
-		uint32_t my_leasetime;
 
 		if (!a && !iface->no_dynamic_dhcp) {
 			/* Create new binding */
@@ -605,15 +604,17 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 				list_add(&a->head, &iface->dhcpv4_assignments);
 		}
 
-		if (a->leasetime)
-			my_leasetime = a->leasetime;
-		else
-			my_leasetime = iface->dhcpv4_leasetime;
-
-		if ((*leasetime == 0) || (my_leasetime < *leasetime))
-			*leasetime = my_leasetime;
-
 		if (assigned) {
+			uint32_t my_leasetime;
+
+			if (a->leasetime)
+				my_leasetime = a->leasetime;
+			else
+				my_leasetime = iface->dhcpv4_leasetime;
+
+			if ((*leasetime == 0) || (my_leasetime < *leasetime))
+				*leasetime = my_leasetime;
+
 			if (msg == DHCPV4_MSG_DISCOVER) {
 				a->flags &= ~OAF_BOUND;
 

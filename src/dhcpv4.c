@@ -518,7 +518,6 @@ static bool dhcpv4_assign(struct interface *iface,
 	// try to assign the IP the client asked for
 	if (start <= raddr && raddr <= end && dhcpv4_test(iface, raddr)) {
 		assign->addr = raddr;
-		list_add(&assign->head, &iface->dhcpv4_assignments);
 		syslog(LOG_INFO, "assigning the IP the client asked for: %u.%u.%u.%u",
 				(assign->addr & 0xff000000) >> 24,
 				(assign->addr & 0x00ff0000) >> 16,
@@ -541,7 +540,6 @@ static bool dhcpv4_assign(struct interface *iface,
 
 	if (list_empty(&iface->dhcpv4_assignments)) {
 		assign->addr = try;
-		list_add(&assign->head, &iface->dhcpv4_assignments);
 		syslog(LOG_INFO, "assigning mapped IP (empty list): %u.%u.%u.%u",
 				(assign->addr & 0xff000000) >> 24,
 				(assign->addr & 0x00ff0000) >> 16,
@@ -554,7 +552,6 @@ static bool dhcpv4_assign(struct interface *iface,
 		if (dhcpv4_test(iface, try)) {
 			/* test was successful: IP address is not assigned, assign it */
 			assign->addr = try;
-			list_add(&assign->head, &iface->dhcpv4_assignments);
 			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
 					(assign->addr & 0xff000000) >> 24,
 					(assign->addr & 0x00ff0000) >> 16,
@@ -604,6 +601,8 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 			a->valid_until = now;
 
 			assigned = dhcpv4_assign(iface, a, raddr);
+			if (assigned)
+				list_add(&a->head, &iface->dhcpv4_assignments);
 		}
 
 		if (a->leasetime)

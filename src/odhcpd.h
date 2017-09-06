@@ -40,8 +40,6 @@
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNS_SEARCH 31
 
-#define RELAYD_BUFFER_SIZE 8192
-
 #define INFINITE_VALID(x) ((x) == 0)
 
 #define _unused __attribute__((unused))
@@ -87,10 +85,10 @@ struct odhcpd_ipaddr {
 };
 
 enum odhcpd_mode {
-	RELAYD_DISABLED,
-	RELAYD_SERVER,
-	RELAYD_RELAY,
-	RELAYD_HYBRID
+	MODE_DISABLED,
+	MODE_SERVER,
+	MODE_RELAY,
+	MODE_HYBRID
 };
 
 

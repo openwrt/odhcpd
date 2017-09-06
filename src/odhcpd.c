@@ -566,7 +566,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 {
 	struct odhcpd_event *e = container_of(u, struct odhcpd_event, uloop);
 
-	uint8_t data_buf[RELAYD_BUFFER_SIZE], cmsg_buf[128];
+	uint8_t data_buf[8192], cmsg_buf[128];
 	union {
 		struct sockaddr_in6 in6;
 		struct sockaddr_in in;

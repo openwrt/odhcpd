@@ -113,15 +113,15 @@ int setup_router_interface(struct interface *iface, bool enable)
 	} else {
 		void *mreq = &all_routers;
 
-		if (iface->ra == RELAYD_RELAY && iface->master) {
+		if (iface->ra == MODE_RELAY && iface->master) {
 			mreq = &all_nodes;
 			forward_router_solicitation(iface);
-		} else if (iface->ra == RELAYD_SERVER && !iface->master) {
+		} else if (iface->ra == MODE_SERVER && !iface->master) {
 			iface->timer_rs.cb = trigger_router_advert;
 			uloop_timeout_set(&iface->timer_rs, 1000);
 		}
 
-		if (iface->ra == RELAYD_RELAY || (iface->ra == RELAYD_SERVER && !iface->master))
+		if (iface->ra == MODE_RELAY || (iface->ra == MODE_SERVER && !iface->master))
 			setsockopt(router_event.uloop.fd, IPPROTO_IPV6,
 					IPV6_ADD_MEMBERSHIP, mreq, sizeof(all_nodes));
 	}
@@ -134,7 +134,7 @@ static void sigusr1_refresh(_unused int signal)
 {
 	struct interface *iface;
 	list_for_each_entry(iface, &interfaces, head)
-		if (iface->ra == RELAYD_SERVER && !iface->master)
+		if (iface->ra == MODE_SERVER && !iface->master)
 			uloop_timeout_set(&iface->timer_rs, 1000);
 }
 
@@ -584,10 +584,10 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 	if (!router_icmpv6_valid(addr, data, len))
 		return;
 
-	if ((iface->ra == RELAYD_SERVER && !iface->master)) { // Server mode
+	if ((iface->ra == MODE_SERVER && !iface->master)) { // Server mode
 		if (hdr->icmp6_type == ND_ROUTER_SOLICIT)
 			send_router_advert(iface, &from->sin6_addr);
-	} else if (iface->ra == RELAYD_RELAY) { // Relay mode
+	} else if (iface->ra == MODE_RELAY) { // Relay mode
 		if (hdr->icmp6_type == ND_ROUTER_ADVERT && iface->master)
 			forward_router_advertisement(data, len);
 		else if (hdr->icmp6_type == ND_ROUTER_SOLICIT && !iface->master)
@@ -646,7 +646,7 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 
 	struct interface *iface;
 	list_for_each_entry(iface, &interfaces, head) {
-		if (iface->ra != RELAYD_RELAY || iface->master)
+		if (iface->ra != MODE_RELAY || iface->master)
 			continue;
 
 		// Fixup source hardware address option

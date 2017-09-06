@@ -249,13 +249,13 @@ static void close_interface(struct interface *iface)
 static int parse_mode(const char *mode)
 {
 	if (!strcmp(mode, "disabled"))
-		return RELAYD_DISABLED;
+		return MODE_DISABLED;
 	else if (!strcmp(mode, "server"))
-		return RELAYD_SERVER;
+		return MODE_SERVER;
 	else if (!strcmp(mode, "relay"))
-		return RELAYD_RELAY;
+		return MODE_RELAY;
 	else if (!strcmp(mode, "hybrid"))
-		return RELAYD_HYBRID;
+		return MODE_HYBRID;
 	else
 		return -1;
 }
@@ -478,7 +478,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
 
 		if (config.main_dhcpv4 && config.legacy)
-			iface->dhcpv4 = RELAYD_SERVER;
+			iface->dhcpv4 = MODE_SERVER;
 	}
 
 	if ((c = tb[IFACE_ATTR_LIMIT]))
@@ -778,13 +778,13 @@ void odhcpd_reload(void)
 		if (i->master)
 			continue;
 
-		if (i->dhcpv6 == RELAYD_HYBRID || i->dhcpv6 == RELAYD_RELAY)
+		if (i->dhcpv6 == MODE_HYBRID || i->dhcpv6 == MODE_RELAY)
 			any_dhcpv6_slave = true;
 
-		if (i->ra == RELAYD_HYBRID || i->ra == RELAYD_RELAY)
+		if (i->ra == MODE_HYBRID || i->ra == MODE_RELAY)
 			any_ra_slave = true;
 
-		if (i->ndp == RELAYD_HYBRID || i->ndp == RELAYD_RELAY)
+		if (i->ndp == MODE_HYBRID || i->ndp == MODE_RELAY)
 			any_ndp_slave = true;
 	}
 
@@ -793,31 +793,31 @@ void odhcpd_reload(void)
 		if (!i->master)
 			continue;
 
-		enum odhcpd_mode hybrid_mode = RELAYD_DISABLED;
+		enum odhcpd_mode hybrid_mode = MODE_DISABLED;
 #ifdef WITH_UBUS
 		if (!ubus_has_prefix(i->name, i->ifname))
-			hybrid_mode = RELAYD_RELAY;
+			hybrid_mode = MODE_RELAY;
 #endif
 
-		if (i->dhcpv6 == RELAYD_HYBRID)
+		if (i->dhcpv6 == MODE_HYBRID)
 			i->dhcpv6 = hybrid_mode;
 
-		if (i->dhcpv6 == RELAYD_RELAY && !any_dhcpv6_slave)
-			i->dhcpv6 = RELAYD_DISABLED;
+		if (i->dhcpv6 == MODE_RELAY && !any_dhcpv6_slave)
+			i->dhcpv6 = MODE_DISABLED;
 
-		if (i->ra == RELAYD_HYBRID)
+		if (i->ra == MODE_HYBRID)
 			i->ra = hybrid_mode;
 
-		if (i->ra == RELAYD_RELAY && !any_ra_slave)
-			i->ra = RELAYD_DISABLED;
+		if (i->ra == MODE_RELAY && !any_ra_slave)
+			i->ra = MODE_DISABLED;
 
-		if (i->ndp == RELAYD_HYBRID)
+		if (i->ndp == MODE_HYBRID)
 			i->ndp = hybrid_mode;
 
-		if (i->ndp == RELAYD_RELAY && !any_ndp_slave)
-			i->ndp = RELAYD_DISABLED;
+		if (i->ndp == MODE_RELAY && !any_ndp_slave)
+			i->ndp = MODE_DISABLED;
 
-		if (i->dhcpv6 == RELAYD_RELAY || i->ra == RELAYD_RELAY || i->ndp == RELAYD_RELAY)
+		if (i->dhcpv6 == MODE_RELAY || i->ra == MODE_RELAY || i->ndp == MODE_RELAY)
 			master = i;
 	}
 
@@ -825,22 +825,22 @@ void odhcpd_reload(void)
 	list_for_each_entry_safe(i, n, &interfaces, head) {
 		if (i->inuse) {
 			/* Resolve hybrid mode */
-			if (i->dhcpv6 == RELAYD_HYBRID)
-				i->dhcpv6 = (master && master->dhcpv6 == RELAYD_RELAY) ?
-						RELAYD_RELAY : RELAYD_SERVER;
+			if (i->dhcpv6 == MODE_HYBRID)
+				i->dhcpv6 = (master && master->dhcpv6 == MODE_RELAY) ?
+						MODE_RELAY : MODE_SERVER;
 
-			if (i->ra == RELAYD_HYBRID)
-				i->ra = (master && master->ra == RELAYD_RELAY) ?
-						RELAYD_RELAY : RELAYD_SERVER;
+			if (i->ra == MODE_HYBRID)
+				i->ra = (master && master->ra == MODE_RELAY) ?
+						MODE_RELAY : MODE_SERVER;
 
-			if (i->ndp == RELAYD_HYBRID)
-				i->ndp = (master && master->ndp == RELAYD_RELAY) ?
-						RELAYD_RELAY : RELAYD_DISABLED;
+			if (i->ndp == MODE_HYBRID)
+				i->ndp = (master && master->ndp == MODE_RELAY) ?
+						MODE_RELAY : MODE_DISABLED;
 
-			setup_router_interface(i, !i->ignore || i->ra != RELAYD_DISABLED);
-			setup_dhcpv6_interface(i, !i->ignore || i->dhcpv6 != RELAYD_DISABLED);
-			setup_ndp_interface(i, !i->ignore || i->ndp != RELAYD_DISABLED);
-			setup_dhcpv4_interface(i, !i->ignore || i->dhcpv4 != RELAYD_DISABLED);
+			setup_router_interface(i, !i->ignore || i->ra != MODE_DISABLED);
+			setup_dhcpv6_interface(i, !i->ignore || i->dhcpv6 != MODE_DISABLED);
+			setup_ndp_interface(i, !i->ignore || i->ndp != MODE_DISABLED);
+			setup_dhcpv4_interface(i, !i->ignore || i->dhcpv4 != MODE_DISABLED);
 		} else
 			close_interface(i);
 	}

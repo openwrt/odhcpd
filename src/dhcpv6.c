@@ -87,7 +87,7 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 		struct ipv6_mreq server = {ALL_DHCPV6_SERVERS, iface->ifindex};
 		setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &relay, sizeof(relay));
 
-		if (iface->dhcpv6 == RELAYD_SERVER)
+		if (iface->dhcpv6 == MODE_SERVER)
 			setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
 
 		iface->dhcpv6_event.uloop.fd = sock;
@@ -381,9 +381,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 static void handle_dhcpv6(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr)
 {
-	if (iface->dhcpv6 == RELAYD_SERVER) {
+	if (iface->dhcpv6 == MODE_SERVER) {
 		handle_client_request(addr, data, len, iface, dest_addr);
-	} else if (iface->dhcpv6 == RELAYD_RELAY) {
+	} else if (iface->dhcpv6 == MODE_RELAY) {
 		if (iface->master)
 			relay_server_response(data, len);
 		else
@@ -507,7 +507,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 {
 	struct interface *master = odhcpd_get_master_interface();
 	const struct dhcpv6_relay_header *h = data;
-	if (!master || master->dhcpv6 != RELAYD_RELAY ||
+	if (!master || master->dhcpv6 != MODE_RELAY ||
 			h->msg_type == DHCPV6_MSG_RELAY_REPL ||
 			h->msg_type == DHCPV6_MSG_RECONFIGURE ||
 			h->msg_type == DHCPV6_MSG_REPLY ||

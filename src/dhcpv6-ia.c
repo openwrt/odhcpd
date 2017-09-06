@@ -64,7 +64,7 @@ int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
 		}
 	}
 
-	if (enable && iface->dhcpv6 == RELAYD_SERVER) {
+	if (enable && iface->dhcpv6 == MODE_SERVER) {
 		if (!iface->ia_assignments.next)
 			INIT_LIST_HEAD(&iface->ia_assignments);
 
@@ -347,11 +347,11 @@ void dhcpv6_write_statefile(void)
 		ctxt.buf_len = sizeof(leasebuf);
 
 		list_for_each_entry(ctxt.iface, &interfaces, head) {
-			if (ctxt.iface->dhcpv6 != RELAYD_SERVER &&
-					ctxt.iface->dhcpv4 != RELAYD_SERVER)
+			if (ctxt.iface->dhcpv6 != MODE_SERVER &&
+					ctxt.iface->dhcpv4 != MODE_SERVER)
 				continue;
 
-			if (ctxt.iface->dhcpv6 == RELAYD_SERVER &&
+			if (ctxt.iface->dhcpv6 == MODE_SERVER &&
 					ctxt.iface->ia_assignments.next) {
 				list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
 					if (!(ctxt.c->flags & OAF_BOUND) || ctxt.c->managed_size < 0)
@@ -379,7 +379,7 @@ void dhcpv6_write_statefile(void)
 				}
 			}
 
-			if (ctxt.iface->dhcpv4 == RELAYD_SERVER &&
+			if (ctxt.iface->dhcpv4 == MODE_SERVER &&
 					ctxt.iface->dhcpv4_assignments.next) {
 				struct dhcpv4_assignment *c;
 				list_for_each_entry(c, &ctxt.iface->dhcpv4_assignments, head) {
@@ -657,7 +657,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 
 void dhcpv6_ia_preupdate(struct interface *iface)
 {
-	if (iface->dhcpv6 != RELAYD_SERVER)
+	if (iface->dhcpv6 != MODE_SERVER)
 		return;
 
 	struct dhcpv6_assignment *c, *border = list_last_entry(
@@ -701,7 +701,7 @@ static void stop_reconf(struct dhcpv6_assignment *a)
 
 void dhcpv6_ia_postupdate(struct interface *iface)
 {
-	if (iface->dhcpv6 != RELAYD_SERVER)
+	if (iface->dhcpv6 != MODE_SERVER)
 		return;
 
 	time_t now = odhcpd_time();
@@ -762,7 +762,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 	time_t now = odhcpd_time();
 	struct interface *iface;
 	list_for_each_entry(iface, &interfaces, head) {
-		if (iface->dhcpv6 != RELAYD_SERVER || iface->ia_assignments.next == NULL)
+		if (iface->dhcpv6 != MODE_SERVER || iface->ia_assignments.next == NULL)
 			continue;
 
 		struct dhcpv6_assignment *a, *n;

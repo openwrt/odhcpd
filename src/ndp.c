@@ -187,13 +187,13 @@ int setup_ndp_interface(struct interface *iface, bool enable)
 		close(iface->ndp_event.uloop.fd);
 		iface->ndp_event.uloop.fd = -1;
 
-		if (!enable || iface->ndp != RELAYD_RELAY)
+		if (!enable || iface->ndp != MODE_RELAY)
 			if (write(procfd, "0\n", 2) < 0) {}
 
 		dump_neigh = true;
 	}
 
-	if (enable && iface->ndp == RELAYD_RELAY) {
+	if (enable && iface->ndp == MODE_RELAY) {
 		if (write(procfd, "1\n", 2) < 0) {}
 
 		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
@@ -286,7 +286,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	// Don't process solicit messages on non relay interfaces
 	// Don't forward any non-DAD solicitation for external ifaces
 	// TODO: check if we should even forward DADs for them
-	if (iface->ndp != RELAYD_RELAY || (iface->external && !ns_is_dad))
+	if (iface->ndp != MODE_RELAY || (iface->external && !ns_is_dad))
 		return;
 
 	if (len < sizeof(*ip6) + sizeof(*req))
@@ -306,7 +306,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 	struct interface *c;
 	list_for_each_entry(c, &interfaces, head)
-		if (iface != c && c->ndp == RELAYD_RELAY &&
+		if (iface != c && c->ndp == MODE_RELAY &&
 				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
 }
@@ -382,10 +382,10 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
 	list_for_each_entry(c, &interfaces, head) {
-		if (iface == c || (c->ndp != RELAYD_RELAY && !add))
+		if (iface == c || (c->ndp != MODE_RELAY && !add))
 			continue;
 
-		bool neigh_add = (c->ndp == RELAYD_RELAY ? add : false);
+		bool neigh_add = (c->ndp == MODE_RELAY ? add : false);
 
 		if (odhcpd_setup_proxy_neigh(addr, c, neigh_add))
 			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
@@ -463,7 +463,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 			check_addr6_updates(iface);
 
-			if (iface->ndp != RELAYD_RELAY)
+			if (iface->ndp != MODE_RELAY)
 				break;
 
 			/* handle the relay logic below */
@@ -498,7 +498,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			return NL_SKIP;
 
 		iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
-		if (!iface || iface->ndp != RELAYD_RELAY)
+		if (!iface || iface->ndp != MODE_RELAY)
 			return (iface ? NL_OK : NL_SKIP);
 
 		nlmsg_parse(hdr, sizeof(*ndm), nla, __NDA_MAX - 1, NULL);

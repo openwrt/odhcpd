@@ -128,6 +128,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 
 			blobmsg_add_u32(&b, "iaid", ntohl(a->iaid));
 			blobmsg_add_string(&b, "hostname", (a->hostname) ? a->hostname : "");
+			blobmsg_add_u8(&b, "accept-reconf", a->accept_reconf);
 			blobmsg_add_u32(&b, "assigned", a->assigned);
 
 			m = blobmsg_open_array(&b, "flags");

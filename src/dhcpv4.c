@@ -37,6 +37,7 @@
 
 static int setup_dhcpv4_addresses(struct interface *iface);
 static void update_static_assignments(struct interface *iface);
+static void valid_until_cb(struct uloop_timeout *event);
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_start(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_stop(struct dhcpv4_assignment *a);
@@ -46,6 +47,8 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, struct in_addr reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid);
+
+static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 
 struct odhcpd_ref_ip {
@@ -57,6 +60,7 @@ struct odhcpd_ref_ip {
 /* Create socket and register events */
 int init_dhcpv4(void)
 {
+	uloop_timeout_set(&valid_until_timeout, 1000);
 	return 0;
 }
 
@@ -321,6 +325,23 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	}
 
 	return fr_ip ? true : false;
+}
+
+static void valid_until_cb(struct uloop_timeout *event)
+{
+	time_t now = odhcpd_time();
+	struct interface *iface;
+	list_for_each_entry(iface, &interfaces, head) {
+		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
+			continue;
+
+		struct dhcpv4_assignment *a, *n;
+		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
+			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
+				free_dhcpv4_assignment(a);
+		}
+	}
+	uloop_timeout_set(event, 1000);
 }
 
 void dhcpv4_addr_update(struct interface *iface)
@@ -910,14 +931,13 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 	struct dhcpv4_assignment *lease = NULL;
 	time_t now = odhcpd_time();
 
-	struct dhcpv4_assignment *c, *n, *a = NULL;
-	list_for_each_entry_safe(c, n, &iface->dhcpv4_assignments, head) {
+	struct dhcpv4_assignment *c, *a = NULL;
+	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 		if (!memcmp(c->hwaddr, mac, 6)) {
 			a = c;
 			if (c->addr == reqaddr.s_addr)
 				break;
-		} else if (!INFINITE_VALID(c->valid_until) && c->valid_until < now)
-			free_dhcpv4_assignment(c);
+		}
 	}
 
 	if (a && (a->flags & OAF_BOUND) && a->fr_ip) {

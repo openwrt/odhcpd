@@ -852,17 +852,6 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			(struct sockaddr*)&dest, sizeof(dest));
 }
 
-static bool dhcpv4_test(struct interface *iface, uint32_t try)
-{
-	struct dhcpv4_assignment *c;
-	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-		if (c->addr == try)
-			return false;
-	}
-
-	return true;
-}
-
 static bool dhcpv4_assign(struct interface *iface,
 		struct dhcpv4_assignment *assign, uint32_t raddr)
 {
@@ -871,7 +860,8 @@ static bool dhcpv4_assign(struct interface *iface,
 	uint32_t count = end - start + 1;
 
 	// try to assign the IP the client asked for
-	if (start <= ntohl(raddr) && ntohl(raddr) <= end && dhcpv4_test(iface, raddr)) {
+	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
+			!find_assignment_by_addr(iface, raddr)) {
 		assign->addr = raddr;
 		syslog(LOG_INFO, "assigning the IP the client asked for: %u.%u.%u.%u",
 				((uint8_t *)&assign->addr)[0],
@@ -904,7 +894,7 @@ static bool dhcpv4_assign(struct interface *iface,
 	}
 
 	for (uint32_t i = 0; i < count; ++i) {
-		if (dhcpv4_test(iface, htonl(try))) {
+		if (!find_assignment_by_addr(iface, htonl(try))) {
 			/* test was successful: IP address is not assigned, assign it */
 			assign->addr = htonl(try);
 			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %u of %u)",

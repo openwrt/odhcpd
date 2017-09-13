@@ -354,7 +354,7 @@ void dhcpv4_addr_update(struct interface *iface)
 	struct dhcpv4_assignment *c;
 	uint32_t mask = iface->dhcpv4_mask.s_addr;
 
-	memset(&ip, sizeof(ip), 0);
+	memset(&ip, 0, sizeof(ip));
 	ip.addr.in = iface->dhcpv4_local;
 	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
 	ip.broadcast = iface->dhcpv4_bcast;

@@ -34,16 +34,14 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
 
 
-
 // Create socket and register events
-int init_dhcpv6(void)
+int dhcpv6_init(void)
 {
 	dhcpv6_ia_init();
 	return 0;
 }
 
-
-int setup_dhcpv6_interface(struct interface *iface, bool enable)
+int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
 	if (iface->dhcpv6_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
@@ -95,7 +93,7 @@ int setup_dhcpv6_interface(struct interface *iface, bool enable)
 		odhcpd_register(&iface->dhcpv6_event);
 	}
 
-	return setup_dhcpv6_ia_interface(iface, enable);
+	return dhcpv6_setup_ia_interface(iface, enable);
 }
 
 enum {

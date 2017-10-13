@@ -53,7 +53,7 @@ int dhcpv6_ia_init(void)
 	return 0;
 }
 
-int setup_dhcpv6_ia_interface(struct interface *iface, bool enable)
+int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 {
 	if (!enable && iface->ia_assignments.next) {
 		struct dhcpv6_assignment *c;

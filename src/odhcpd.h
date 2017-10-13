@@ -265,7 +265,7 @@ int config_parse_interface(void *data, size_t len, const char *iname, bool overw
 void dhcpv4_addr_update(struct interface *iface);
 
 #ifdef WITH_UBUS
-int init_ubus(void);
+int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
@@ -273,14 +273,14 @@ bool ubus_has_prefix(const char *name, const char *ifname);
 
 
 // Exported module initializers
-int init_router(void);
-int init_dhcpv6(void);
-int init_dhcpv4(void);
-int init_ndp(void);
+int router_init(void);
+int dhcpv6_init(void);
+int dhcpv4_init(void);
+int ndp_init(void);
 
-int setup_router_interface(struct interface *iface, bool enable);
-int setup_dhcpv6_interface(struct interface *iface, bool enable);
-int setup_ndp_interface(struct interface *iface, bool enable);
-int setup_dhcpv4_interface(struct interface *iface, bool enable);
+int router_setup_interface(struct interface *iface, bool enable);
+int dhcpv6_setup_interface(struct interface *iface, bool enable);
+int ndp_setup_interface(struct interface *iface, bool enable);
+int dhcpv4_setup_interface(struct interface *iface, bool enable);
 
 void odhcpd_reload(void);

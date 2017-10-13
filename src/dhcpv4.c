@@ -58,13 +58,13 @@ struct odhcpd_ref_ip {
 };
 
 /* Create socket and register events */
-int init_dhcpv4(void)
+int dhcpv4_init(void)
 {
 	uloop_timeout_set(&valid_until_timeout, 1000);
 	return 0;
 }
 
-int setup_dhcpv4_interface(struct interface *iface, bool enable)
+int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	if (iface->dhcpv4_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);

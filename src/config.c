@@ -236,10 +236,10 @@ static void close_interface(struct interface *iface)
 	if (iface->head.next)
 		list_del(&iface->head);
 
-	setup_router_interface(iface, false);
-	setup_dhcpv6_interface(iface, false);
-	setup_ndp_interface(iface, false);
-	setup_dhcpv4_interface(iface, false);
+	router_setup_interface(iface, false);
+	dhcpv6_setup_interface(iface, false);
+	ndp_setup_interface(iface, false);
+	dhcpv4_setup_interface(iface, false);
 
 	clean_interface(iface);
 	free(iface->addr4);
@@ -843,10 +843,10 @@ void odhcpd_reload(void)
 				i->ndp = (master && master->ndp == MODE_RELAY) ?
 						MODE_RELAY : MODE_DISABLED;
 
-			setup_router_interface(i, !i->ignore || i->ra != MODE_DISABLED);
-			setup_dhcpv6_interface(i, !i->ignore || i->dhcpv6 != MODE_DISABLED);
-			setup_ndp_interface(i, !i->ignore || i->ndp != MODE_DISABLED);
-			setup_dhcpv4_interface(i, !i->ignore || i->dhcpv4 != MODE_DISABLED);
+			router_setup_interface(i, !i->ignore || i->ra != MODE_DISABLED);
+			dhcpv6_setup_interface(i, !i->ignore || i->dhcpv6 != MODE_DISABLED);
+			ndp_setup_interface(i, !i->ignore || i->ndp != MODE_DISABLED);
+			dhcpv4_setup_interface(i, !i->ignore || i->dhcpv4 != MODE_DISABLED);
 		} else
 			close_interface(i);
 	}
@@ -887,7 +887,7 @@ void odhcpd_run(void)
 	signal(SIGHUP, handle_signal);
 
 #ifdef WITH_UBUS
-	while (init_ubus())
+	while (ubus_init())
 		sleep(1);
 #endif
 

@@ -192,7 +192,7 @@ int dhcpv6_init_ia(struct interface *iface, int socket);
 ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
 int dhcpv6_ia_init(void);
-int setup_dhcpv6_ia_interface(struct interface *iface, bool enable);
+int dhcpv6_setup_ia_interface(struct interface *iface, bool enable);
 void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c, time_t now,
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_write_statefile(void);

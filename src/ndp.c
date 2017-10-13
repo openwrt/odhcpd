@@ -74,7 +74,7 @@ static const struct sock_fprog bpf_prog = {sizeof(bpf) / sizeof(*bpf), bpf};
 
 
 // Initialize NDP-proxy
-int init_ndp(void)
+int ndp_init(void)
 {
 	int val = 2;
 
@@ -168,7 +168,7 @@ static void dump_addr_table(bool v6)
 	nlmsg_free(msg);
 }
 
-int setup_ndp_interface(struct interface *iface, bool enable)
+int ndp_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0, procfd;
 	bool dump_neigh = false;

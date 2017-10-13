@@ -108,16 +108,16 @@ int main(int argc, char **argv)
 	signal(SIGINT, sighandler);
 	signal(SIGTERM, sighandler);
 
-	if (init_router())
+	if (router_init())
 		return 4;
 
-	if (init_dhcpv6())
+	if (dhcpv6_init())
 		return 4;
 
-	if (init_ndp())
+	if (ndp_init())
 		return 4;
 
-	if (init_dhcpv4())
+	if (dhcpv4_init())
 		return 4;
 
 	odhcpd_run();

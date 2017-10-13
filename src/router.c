@@ -41,7 +41,7 @@ static FILE *fp_route = NULL;
 
 #define TIME_LEFT(t1, now) ((t1) != UINT32_MAX ? (t1) - (now) : UINT32_MAX)
 
-int init_router(void)
+int router_init(void)
 {
 	// Open ICMPv6 socket
 	int sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
@@ -88,7 +88,7 @@ int init_router(void)
 }
 
 
-int setup_router_interface(struct interface *iface, bool enable)
+int router_setup_interface(struct interface *iface, bool enable)
 {
 	if (!fp_route || router_event.uloop.fd < 0)
 		return -1;

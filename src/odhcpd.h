@@ -226,12 +226,9 @@ int odhcpd_register(struct odhcpd_event *event);
 int odhcpd_deregister(struct odhcpd_event *event);
 void odhcpd_process(struct odhcpd_event *event);
 
-struct nl_sock *odhcpd_create_nl_socket(int protocol);
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface);
-ssize_t odhcpd_get_interface_addresses(int ifindex, bool v6,
-		struct odhcpd_ipaddr **addrs);
 int odhcpd_get_interface_dns_addr(const struct interface *iface,
 		struct in6_addr *addr);
 struct interface* odhcpd_get_interface_by_name(const char *name);
@@ -240,14 +237,6 @@ int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);
 struct interface* odhcpd_get_interface_by_index(int ifindex);
 struct interface* odhcpd_get_master_interface(void);
 int odhcpd_urandom(void *data, size_t len);
-int odhcpd_setup_route(const struct in6_addr *addr, const int prefixlen,
-		const struct interface *iface, const struct in6_addr *gw,
-		const uint32_t metric, const bool add);
-int odhcpd_setup_proxy_neigh(const struct in6_addr *addr,
-		const struct interface *iface, const bool add);
-int odhcpd_setup_addr(struct odhcpd_ipaddr *addr,
-		const struct interface *iface, const bool v6,
-		const bool add);
 
 void odhcpd_run(void);
 time_t odhcpd_time(void);
@@ -271,8 +260,21 @@ void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 #endif
 
+struct nl_sock *netlink_create_socket(int protocol);
+ssize_t netlink_get_interface_addrs(int ifindex, bool v6,
+		struct odhcpd_ipaddr **addrs);
+int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
+		const struct interface *iface, const struct in6_addr *gw,
+		const uint32_t metric, const bool add);
+int netlink_setup_proxy_neigh(const struct in6_addr *addr,
+		const struct interface *iface, const bool add);
+int netlink_setup_addr(struct odhcpd_ipaddr *addr,
+		const struct interface *iface, const bool v6,
+		const bool add);
+
 
 // Exported module initializers
+int netlink_init(void);
 int router_init(void);
 int dhcpv6_init(void);
 int dhcpv4_init(void);

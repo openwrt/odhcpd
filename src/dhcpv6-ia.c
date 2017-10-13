@@ -454,7 +454,7 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 		struct in6_addr prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
-		odhcpd_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
+		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
 				iface, &a->peer.sin6_addr, 1024, add);
 	}
 }

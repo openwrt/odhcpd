@@ -293,7 +293,7 @@ static void decr_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct interface *iface)
 	struct odhcpd_ref_ip *ip = *ptr;
 
 	if (--ip->ref_cnt == 0) {
-		odhcpd_setup_addr(&ip->addr, iface, false, false);
+		netlink_setup_addr(&ip->addr, iface, false, false);
 
 		list_del(&ip->head);
 		free(ip);
@@ -373,7 +373,7 @@ void dhcpv4_addr_update(struct interface *iface)
 
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
-	if (odhcpd_setup_addr(&a->addr, iface, false, true)) {
+	if (netlink_setup_addr(&a->addr, iface, false, true)) {
 		syslog(LOG_ERR, "Failed to add ip address");
 		return;
 	}

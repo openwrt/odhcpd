@@ -78,7 +78,7 @@ int ndp_init(void)
 {
 	int val = 2;
 
-	rtnl_event.sock = odhcpd_create_nl_socket(NETLINK_ROUTE);
+	rtnl_event.sock = netlink_create_socket(NETLINK_ROUTE);
 	if (!rtnl_event.sock)
 		goto err;
 
@@ -265,9 +265,9 @@ static void ping6(struct in6_addr *addr,
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 	syslog(LOG_NOTICE, "Pinging for %s%%%s", ipbuf, iface->ifname);
 
-	odhcpd_setup_route(addr, 128, iface, NULL, 128, true);
+	netlink_setup_route(addr, 128, iface, NULL, 128, true);
 	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
-	odhcpd_setup_route(addr, 128, iface, NULL, 128, false);
+	netlink_setup_route(addr, 128, iface, NULL, 128, false);
 }
 
 // Handle solicitations
@@ -321,14 +321,14 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 			(add) ? "Learned" : "Forgot", ipbuf, iface->ifname);
 
 	if (iface->learn_routes)
-		odhcpd_setup_route(addr, 128, iface, NULL, 1024, add);
+		netlink_setup_route(addr, 128, iface, NULL, 1024, add);
 }
 
 // Check address update
 static void check_addr_updates(struct interface *iface)
 {
 	struct odhcpd_ipaddr *addr = NULL;
-	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, false, &addr);
+	ssize_t len = netlink_get_interface_addrs(iface->ifindex, false, &addr);
 
 	if (len < 0)
 		return;
@@ -350,7 +350,7 @@ static void check_addr_updates(struct interface *iface)
 static void check_addr6_updates(struct interface *iface)
 {
 	struct odhcpd_ipaddr *addr = NULL;
-	ssize_t len = odhcpd_get_interface_addresses(iface->ifindex, true, &addr);
+	ssize_t len = netlink_get_interface_addrs(iface->ifindex, true, &addr);
 
 	if (len < 0)
 		return;
@@ -390,7 +390,7 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 
 		bool neigh_add = (c->ndp == MODE_RELAY ? add : false);
 
-		if (odhcpd_setup_proxy_neigh(addr, c, neigh_add))
+		if (netlink_setup_proxy_neigh(addr, c, neigh_add))
 			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
 				neigh_add ? "add" : "delete", ipbuf, c->ifname);
 		else
@@ -543,7 +543,7 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		if (ndm->ndm_flags & NTF_PROXY) {
 			/* Dump and flush proxy entries */
 			if (hdr->nlmsg_type == RTM_NEWNEIGH) {
-				odhcpd_setup_proxy_neigh(addr6, iface, false);
+				netlink_setup_proxy_neigh(addr6, iface, false);
 				setup_route(addr6, iface, false);
 				dump_neigh_table(false);
 			}

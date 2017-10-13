@@ -449,13 +449,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if (get_addrs) {
-		ssize_t len = odhcpd_get_interface_addresses(iface->ifindex,
+		ssize_t len = netlink_get_interface_addrs(iface->ifindex,
 						true, &iface->ia_addr);
 
 		if (len > 0)
 			iface->ia_addr_len = len;
 
-		len = odhcpd_get_interface_addresses(iface->ifindex,
+		len = netlink_get_interface_addrs(iface->ifindex,
 						false, &iface->addr4);
 		if (len > 0)
 			iface->addr4_len = len;

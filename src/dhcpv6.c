@@ -483,17 +483,17 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 	struct odhcpd_ipaddr *addr = NULL;
 	time_t now = odhcpd_time();
 
-	for (size_t i = 0; i < iface->ia_addr_len; i++) {
-		if (iface->ia_addr[i].valid <= (uint32_t)now)
+	for (size_t i = 0; i < iface->addr6_len; i++) {
+		if (iface->addr6[i].valid <= (uint32_t)now)
 			continue;
 
-		if (iface->ia_addr[i].preferred > (uint32_t)now) {
-			addr = &iface->ia_addr[i];
+		if (iface->addr6[i].preferred > (uint32_t)now) {
+			addr = &iface->addr6[i];
 			break;
 		}
 
-		if (!addr || (iface->ia_addr[i].valid > addr->valid))
-			addr = &iface->ia_addr[i];
+		if (!addr || (iface->addr6[i].valid > addr->valid))
+			addr = &iface->addr6[i];
 	}
 
 	return addr;

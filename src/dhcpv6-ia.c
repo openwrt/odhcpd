@@ -39,10 +39,14 @@
     ((iface)->dhcpv6_assignall || (i) == (m) || \
      (addrs)[(i)].prefix > 64)
 
+static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
+static void handle_addrlist_change(struct netevent_handler_info *info);
+static void start_reconf(struct dhcpv6_assignment *a);
 static void stop_reconf(struct dhcpv6_assignment *a);
 static void valid_until_cb(struct uloop_timeout *event);
 
+static struct netevent_handler dhcpv6_netevent_handler = { .cb = dhcpv6_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
@@ -50,6 +54,9 @@ static uint8_t statemd5[16];
 int dhcpv6_ia_init(void)
 {
 	uloop_timeout_set(&valid_until_timeout, 1000);
+
+	netlink_add_netevent_handler(&dhcpv6_netevent_handler);
+
 	return 0;
 }
 
@@ -133,6 +140,24 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 	}
 	return 0;
 }
+
+
+static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info *info)
+{
+	struct interface *iface = info->iface;
+
+	if (!iface || iface->dhcpv6 != MODE_SERVER)
+		return;
+
+	switch (event) {
+	case NETEV_ADDR6LIST_CHANGE:
+		handle_addrlist_change(info);
+		break;
+	default:
+		break;
+	}
+}
+
 
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c)
 {
@@ -243,8 +268,8 @@ static int send_reconf(struct dhcpv6_assignment *assign)
 void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c,
 				time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
-	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->ia_addr;
-	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->ia_addr_len;
+	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
+	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
 	size_t m = get_preferred_addr(addrs, addrlen);
 
 	for (size_t i = 0; i < addrlen; ++i) {
@@ -441,22 +466,27 @@ void dhcpv6_write_statefile(void)
 	}
 }
 
-
-static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bool add)
+static void __apply_lease(struct interface *iface, struct dhcpv6_assignment *a,
+		struct odhcpd_ipaddr *addrs, ssize_t addr_len, bool add)
 {
-	if (a->length > 64 || a->managed_size < 0)
+	if (a->length > 64)
 		return;
 
-	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
-	size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
-
-	for (size_t i = 0; i < addrlen; ++i) {
+	for (ssize_t i = 0; i < addr_len; ++i) {
 		struct in6_addr prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
-				iface, &a->peer.sin6_addr, 1024, add);
+				iface->ifindex, &a->peer.sin6_addr, 1024, add);
 	}
+}
+
+static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bool add)
+{
+	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
+	ssize_t addrlen = (a->managed) ? a->managed_size : (ssize_t)iface->addr6_len;
+
+	__apply_lease(iface, a, addrs, addrlen, add);
 }
 
 /* More data was received from TCP connection */
@@ -577,7 +607,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 		}
 
 		return false;
-	} else if (iface->ia_addr_len < 1)
+	} else if (iface->addr6_len < 1)
 		return false;
 
 	/* Try honoring the hint first */
@@ -655,66 +685,26 @@ static bool assign_na(struct interface *iface, struct dhcpv6_assignment *assign)
 	return false;
 }
 
-void dhcpv6_ia_preupdate(struct interface *iface)
+static void handle_addrlist_change(struct netevent_handler_info *info)
 {
-	if (iface->dhcpv6 != MODE_SERVER)
-		return;
-
-	struct dhcpv6_assignment *c, *border = list_last_entry(
+	struct interface *iface = info->iface;
+	struct dhcpv6_assignment *c, *d, *border = list_last_entry(
 			&iface->ia_assignments, struct dhcpv6_assignment, head);
+	time_t now = odhcpd_time();
+	int minprefix = -1;
 
 	list_for_each_entry(c, &iface->ia_assignments, head)
 		if (c != border && iface->ra_managed == RA_MANAGED_NO_MFLAG
 				&& (c->flags & OAF_BOUND))
-			apply_lease(iface, c, false);
-}
+			__apply_lease(iface, c, info->addrs_old.addrs,
+					info->addrs_old.len, false);
 
-static void reconf_timeout_cb(struct uloop_timeout *event)
-{
-	struct dhcpv6_assignment *a = container_of(event, struct dhcpv6_assignment, reconf_timer);
-
-	if (a->reconf_cnt > 0 && a->reconf_cnt < DHCPV6_REC_MAX_RC) {
-		send_reconf(a);
-		uloop_timeout_set(&a->reconf_timer,
-					DHCPV6_REC_TIMEOUT << a->reconf_cnt);
-		a->reconf_cnt++;
-	} else
-		stop_reconf(a);
-}
-
-static void start_reconf(struct dhcpv6_assignment *a)
-{
-	uloop_timeout_set(&a->reconf_timer,
-				DHCPV6_REC_TIMEOUT << a->reconf_cnt);
-	a->reconf_timer.cb = reconf_timeout_cb;
-	a->reconf_cnt++;
-
-	send_reconf(a);
-}
-
-static void stop_reconf(struct dhcpv6_assignment *a)
-{
-	uloop_timeout_cancel(&a->reconf_timer);
-	a->reconf_cnt = 0;
-	a->reconf_timer.cb = NULL;
-}
-
-void dhcpv6_ia_postupdate(struct interface *iface)
-{
-	if (iface->dhcpv6 != MODE_SERVER)
-		return;
-
-	time_t now = odhcpd_time();
-	int minprefix = -1;
-	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-		if (iface->ia_addr[i].preferred > (uint32_t)now &&
-				iface->ia_addr[i].prefix < 64 &&
-				iface->ia_addr[i].prefix > minprefix)
-			minprefix = iface->ia_addr[i].prefix;
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		if (iface->addr6[i].preferred > (uint32_t)now &&
+				iface->addr6[i].prefix < 64 &&
+				iface->addr6[i].prefix > minprefix)
+			minprefix = iface->addr6[i].prefix;
 	}
-
-	struct dhcpv6_assignment *border = list_last_entry(
-			&iface->ia_assignments, struct dhcpv6_assignment, head);
 
 	if (minprefix > 32 && minprefix <= 64)
 		border->assigned = 1U << (64 - minprefix);
@@ -722,7 +712,6 @@ void dhcpv6_ia_postupdate(struct interface *iface)
 		border->assigned = 0;
 
 	struct list_head reassign = LIST_HEAD_INIT(reassign);
-	struct dhcpv6_assignment *c, *d;
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
 		if (c->clid_len == 0 || (!INFINITE_VALID(c->valid_until) && c->valid_until < now) ||
 				c->managed_size)
@@ -755,6 +744,36 @@ void dhcpv6_ia_postupdate(struct interface *iface)
 	}
 
 	dhcpv6_write_statefile();
+}
+
+static void reconf_timeout_cb(struct uloop_timeout *event)
+{
+	struct dhcpv6_assignment *a = container_of(event, struct dhcpv6_assignment, reconf_timer);
+
+	if (a->reconf_cnt > 0 && a->reconf_cnt < DHCPV6_REC_MAX_RC) {
+		send_reconf(a);
+		uloop_timeout_set(&a->reconf_timer,
+					DHCPV6_REC_TIMEOUT << a->reconf_cnt);
+		a->reconf_cnt++;
+	} else
+		stop_reconf(a);
+}
+
+static void start_reconf(struct dhcpv6_assignment *a)
+{
+	uloop_timeout_set(&a->reconf_timer,
+				DHCPV6_REC_TIMEOUT << a->reconf_cnt);
+	a->reconf_timer.cb = reconf_timeout_cb;
+	a->reconf_cnt++;
+
+	send_reconf(a);
+}
+
+static void stop_reconf(struct dhcpv6_assignment *a)
+{
+	uloop_timeout_cancel(&a->reconf_timer);
+	a->reconf_cnt = 0;
+	a->reconf_timer.cb = NULL;
 }
 
 static void valid_until_cb(struct uloop_timeout *event)
@@ -810,8 +829,8 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 			uint32_t pref = leasetime;
 			uint32_t valid = leasetime;
 
-			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
-			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
+			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
+			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 			size_t m = get_preferred_addr(addrs, addrlen);
 
 			for (size_t i = 0; i < addrlen; ++i) {
@@ -904,8 +923,8 @@ static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
 
 				bool found = false;
 				if (a) {
-					struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->ia_addr;
-					size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->ia_addr_len;
+					struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
+					size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 
 					for (size_t i = 0; i < addrlen; ++i) {
 						if (!valid_addr(&addrs[i], now))
@@ -1200,7 +1219,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				}
 			}
 
-			if (!assigned || iface->ia_addr_len == 0)
+			if (!assigned || iface->addr6_len == 0)
 				/* Set error status */
 				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
 			else if (assigned && !first && hdr->msg_type != DHCPV6_MSG_REBIND) {

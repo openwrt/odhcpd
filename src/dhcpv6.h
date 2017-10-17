@@ -196,5 +196,3 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable);
 void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c, time_t now,
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_write_statefile(void);
-void dhcpv6_ia_preupdate(struct interface *iface);
-void dhcpv6_ia_postupdate(struct interface *iface);

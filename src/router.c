@@ -33,11 +33,13 @@ static void forward_router_advertisement(uint8_t *data, size_t len);
 static void handle_icmpv6(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 static void trigger_router_advert(struct uloop_timeout *event);
-static void sigusr1_refresh(int signal);
+static void router_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 
 static struct odhcpd_event router_event = {.uloop = {.fd = -1}, .handle_dgram = handle_icmpv6, };
+static struct netevent_handler router_netevent_handler = { .cb = router_netevent_cb, };
 
 static FILE *fp_route = NULL;
+
 
 #define TIME_LEFT(t1, now) ((t1) != UINT32_MAX ? (t1) - (now) : UINT32_MAX)
 
@@ -83,7 +85,8 @@ int router_init(void)
 		syslog(LOG_ERR, "Failed to open routing table: %s",
 				strerror(errno));
 
-	signal(SIGUSR1, sigusr1_refresh);
+	netlink_add_netevent_handler(&router_netevent_handler);
+
 	return 0;
 }
 
@@ -129,14 +132,31 @@ int router_setup_interface(struct interface *iface, bool enable)
 }
 
 
-// Signal handler to resend all RDs
-static void sigusr1_refresh(_unused int signal)
+static void router_netevent_cb(unsigned long event, struct netevent_handler_info *info)
 {
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head)
-		if (iface->ra == MODE_SERVER && !iface->master)
+
+	switch (event) {
+	case NETEV_ROUTE6_ADD:
+	case NETEV_ROUTE6_DEL:
+		if (info->rt.dst_len)
+			break;
+
+		list_for_each_entry(iface, &interfaces, head) {
+			if (iface->ra == MODE_SERVER && !iface->master)
+				uloop_timeout_set(&iface->timer_rs, 1000);
+		}
+		break;
+	case NETEV_ADDR6LIST_CHANGE:
+		iface = info->iface;
+		if (iface && iface->ra == MODE_SERVER && !iface->master)
 			uloop_timeout_set(&iface->timer_rs, 1000);
+		break;
+	default:
+		break;
+	}
 }
+
 
 static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size_t len)
 {
@@ -320,11 +340,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	// If not shutdown
 	if (iface->timer_rs.cb) {
-		size_t size = sizeof(*addrs) * iface->ia_addr_len;
+		size_t size = sizeof(*addrs) * iface->addr6_len;
 		addrs = alloca(size);
-		memcpy(addrs, iface->ia_addr, size);
+		memcpy(addrs, iface->addr6, size);
 
-		ipcnt = iface->ia_addr_len;
+		ipcnt = iface->addr6_len;
 
 		// Check default route
 		if (iface->default_router) {

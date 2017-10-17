@@ -71,6 +71,46 @@ union if_addr {
 	struct in6_addr in6;
 };
 
+struct netevent_handler_info {
+	struct interface *iface;
+	union {
+		struct {
+			union if_addr dst;
+			uint8_t dst_len;
+			union if_addr gateway;
+		} rt;
+		struct {
+			union if_addr dst;
+			uint16_t state;
+			uint8_t flags;
+		} neigh;
+		struct {
+			struct odhcpd_ipaddr *addrs;
+			size_t len;
+		} addrs_old;
+		union if_addr addr;
+	};
+};
+
+enum netevents {
+	NETEV_IFINDEX_CHANGE,
+	NETEV_ADDR_ADD,
+	NETEV_ADDR_DEL,
+	NETEV_ADDRLIST_CHANGE,
+	NETEV_ADDR6_ADD,
+	NETEV_ADDR6_DEL,
+	NETEV_ADDR6LIST_CHANGE,
+	NETEV_ROUTE6_ADD,
+	NETEV_ROUTE6_DEL,
+	NETEV_NEIGH6_ADD,
+	NETEV_NEIGH6_DEL,
+};
+
+struct netevent_handler {
+	struct list_head head;
+	void (*cb) (unsigned long event, struct netevent_handler_info *info);
+};
+
 struct odhcpd_ipaddr {
 	union if_addr addr;
 	uint8_t prefix;
@@ -126,8 +166,8 @@ struct interface {
 	const char *name;
 
 	// IPv6 runtime data
-	struct odhcpd_ipaddr *ia_addr;
-	size_t ia_addr_len;
+	struct odhcpd_ipaddr *addr6;
+	size_t addr6_len;
 
 	// RA runtime data
 	struct uloop_timeout timer_rs;
@@ -251,8 +291,6 @@ bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 
-void dhcpv4_addr_update(struct interface *iface);
-
 #ifdef WITH_UBUS
 int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
@@ -260,18 +298,18 @@ void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 #endif
 
-struct nl_sock *netlink_create_socket(int protocol);
-ssize_t netlink_get_interface_addrs(int ifindex, bool v6,
+int netlink_add_netevent_handler(struct netevent_handler *hdlr);
+ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
 		struct odhcpd_ipaddr **addrs);
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
-		const struct interface *iface, const struct in6_addr *gw,
+		const int ifindex, const struct in6_addr *gw,
 		const uint32_t metric, const bool add);
 int netlink_setup_proxy_neigh(const struct in6_addr *addr,
-		const struct interface *iface, const bool add);
+		const int ifindex, const bool add);
 int netlink_setup_addr(struct odhcpd_ipaddr *addr,
-		const struct interface *iface, const bool v6,
-		const bool add);
-
+		const int ifindex, const bool v6, const bool add);
+void netlink_dump_neigh_table(const bool proxy);
+void netlink_dump_addr_table(const bool v6);
 
 // Exported module initializers
 int netlink_init(void);

@@ -35,9 +35,11 @@
 #include "dhcpv4.h"
 #include "dhcpv6.h"
 
+static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static int setup_dhcpv4_addresses(struct interface *iface);
 static void update_static_assignments(struct interface *iface);
 static void valid_until_cb(struct uloop_timeout *event);
+static void handle_addrlist_change(struct interface *iface);
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_start(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_stop(struct dhcpv4_assignment *a);
@@ -48,6 +50,7 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid);
 
+static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 
@@ -61,6 +64,8 @@ struct odhcpd_ref_ip {
 int dhcpv4_init(void)
 {
 	uloop_timeout_set(&valid_until_timeout, 1000);
+	netlink_add_netevent_handler(&dhcpv4_netevent_handler);
+
 	return 0;
 }
 
@@ -124,6 +129,26 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 							struct dhcpv4_assignment, head));
 	}
 	return 0;
+}
+
+
+static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info)
+{
+	struct interface *iface = info->iface;
+
+	if (!iface || iface->dhcpv4 == MODE_DISABLED)
+		return;
+
+	switch (event) {
+	case NETEV_IFINDEX_CHANGE:
+		dhcpv4_setup_interface(iface, true);
+		break;
+	case NETEV_ADDRLIST_CHANGE:
+		handle_addrlist_change(iface);
+		break;
+	default:
+		break;
+	}
 }
 
 static struct dhcpv4_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
@@ -293,7 +318,7 @@ static void decr_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct interface *iface)
 	struct odhcpd_ref_ip *ip = *ptr;
 
 	if (--ip->ref_cnt == 0) {
-		netlink_setup_addr(&ip->addr, iface, false, false);
+		netlink_setup_addr(&ip->addr, iface->ifindex, false, false);
 
 		list_del(&ip->head);
 		free(ip);
@@ -344,11 +369,8 @@ static void valid_until_cb(struct uloop_timeout *event)
 	uloop_timeout_set(event, 1000);
 }
 
-void dhcpv4_addr_update(struct interface *iface)
+static void handle_addrlist_change(struct interface *iface)
 {
-	if (iface->dhcpv4 == MODE_DISABLED)
-		return;
-
 	struct odhcpd_ipaddr ip;
 	struct odhcpd_ref_ip *a;
 	struct dhcpv4_assignment *c;
@@ -373,7 +395,7 @@ void dhcpv4_addr_update(struct interface *iface)
 
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
-	if (netlink_setup_addr(&a->addr, iface, false, true)) {
+	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
 		syslog(LOG_ERR, "Failed to add ip address");
 		return;
 	}

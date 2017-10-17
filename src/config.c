@@ -243,7 +243,7 @@ static void close_interface(struct interface *iface)
 
 	clean_interface(iface);
 	free(iface->addr4);
-	free(iface->ia_addr);
+	free(iface->addr6);
 	free(iface->ifname);
 	free(iface);
 }
@@ -450,10 +450,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if (get_addrs) {
 		ssize_t len = netlink_get_interface_addrs(iface->ifindex,
-						true, &iface->ia_addr);
+						true, &iface->addr6);
 
 		if (len > 0)
-			iface->ia_addr_len = len;
+			iface->addr6_len = len;
 
 		len = netlink_get_interface_addrs(iface->ifindex,
 						false, &iface->addr4);

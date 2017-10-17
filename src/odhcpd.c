@@ -224,8 +224,8 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 	time_t now = odhcpd_time();
 	ssize_t m = -1;
 
-	for (size_t i = 0; i < iface->ia_addr_len; ++i) {
-		if (iface->ia_addr[i].valid <= (uint32_t)now)
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		if (iface->addr6[i].valid <= (uint32_t)now)
 			continue;
 
 		if (m < 0) {
@@ -233,24 +233,24 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 			continue;
 		}
 
-		if (iface->ia_addr[m].preferred >= (uint32_t)now &&
-				iface->ia_addr[i].preferred < (uint32_t)now)
+		if (iface->addr6[m].preferred >= (uint32_t)now &&
+				iface->addr6[i].preferred < (uint32_t)now)
 			continue;
 
-		if (IN6_IS_ADDR_ULA(&iface->ia_addr[i].addr.in6)) {
-			if (!IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr.in6)) {
+		if (IN6_IS_ADDR_ULA(&iface->addr6[i].addr.in6)) {
+			if (!IN6_IS_ADDR_ULA(&iface->addr6[m].addr.in6)) {
 				m = i;
 				continue;
 			}
-		} else if (IN6_IS_ADDR_ULA(&iface->ia_addr[m].addr.in6))
+		} else if (IN6_IS_ADDR_ULA(&iface->addr6[m].addr.in6))
 			continue;
 
-		if (iface->ia_addr[i].preferred > iface->ia_addr[m].preferred)
+		if (iface->addr6[i].preferred > iface->addr6[m].preferred)
 			m = i;
 	}
 
 	if (m >= 0) {
-		*addr = iface->ia_addr[m].addr.in6;
+		*addr = iface->addr6[m].addr.in6;
 		return 0;
 	}
 

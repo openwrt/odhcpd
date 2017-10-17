@@ -25,23 +25,348 @@
 #include <netlink/socket.h>
 #include <netlink/attr.h>
 
+#include <arpa/inet.h>
+#include <libubox/list.h>
+
 #include "odhcpd.h"
 
-static struct nl_sock *rtnl_socket = NULL;
+struct event_socket {
+	struct odhcpd_event ev;
+	struct nl_sock *sock;
+	int sock_bufsize;
+};
 
+static void handle_rtnl_event(struct odhcpd_event *ev);
+static int cb_rtnl_valid(struct nl_msg *msg, void *arg);
+static void catch_rtnl_err(struct odhcpd_event *e, int error);
+static struct nl_sock *create_socket(int protocol);
+
+static struct nl_sock *rtnl_socket = NULL;
+struct list_head netevent_handler_list = LIST_HEAD_INIT(netevent_handler_list);
+static struct event_socket rtnl_event = {
+	.ev = {
+		.uloop = {.fd = - 1, },
+		.handle_dgram = NULL,
+		.handle_error = catch_rtnl_err,
+		.recv_msgs = handle_rtnl_event,
+	},
+	.sock = NULL,
+	.sock_bufsize = 133120,
+};
 
 int netlink_init(void)
 {
-	if (!(rtnl_socket = netlink_create_socket(NETLINK_ROUTE))) {
+	rtnl_socket = create_socket(NETLINK_ROUTE);
+	if (!rtnl_socket) {
 		syslog(LOG_ERR, "Unable to open nl socket: %s", strerror(errno));
-		return -1;
+		goto err;
 	}
+
+	rtnl_event.sock = create_socket(NETLINK_ROUTE);
+	if (!rtnl_event.sock) {
+		syslog(LOG_ERR, "Unable to open nl event socket: %s", strerror(errno));
+		goto err;
+	}
+
+	rtnl_event.ev.uloop.fd = nl_socket_get_fd(rtnl_event.sock);
+
+	if (nl_socket_set_buffer_size(rtnl_event.sock, rtnl_event.sock_bufsize, 0))
+		goto err;
+
+	nl_socket_disable_seq_check(rtnl_event.sock);
+
+	nl_socket_modify_cb(rtnl_event.sock, NL_CB_VALID, NL_CB_CUSTOM,
+			cb_rtnl_valid, NULL);
+
+	// Receive IPv4 address, IPv6 address, IPv6 routes and neighbor events
+	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV4_IFADDR,
+				RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_ROUTE,
+				RTNLGRP_NEIGH, RTNLGRP_LINK, 0))
+		goto err;
+
+	odhcpd_register(&rtnl_event.ev);
+
+	return 0;
+
+err:
+	if (rtnl_socket) {
+		nl_socket_free(rtnl_socket);
+		rtnl_socket = NULL;
+	}
+
+	if (rtnl_event.sock) {
+		nl_socket_free(rtnl_event.sock);
+		rtnl_event.sock = NULL;
+		rtnl_event.ev.uloop.fd = -1;
+	}
+
+	return -1;
+}
+
+
+int netlink_add_netevent_handler(struct netevent_handler *handler)
+{
+	if (!handler->cb)
+		return -1;
+
+	list_add(&handler->head, &netevent_handler_list);
 
 	return 0;
 }
 
+static void call_netevent_handler_list(unsigned long event, struct netevent_handler_info *info)
+{
+	struct netevent_handler *handler;
 
-struct nl_sock *netlink_create_socket(int protocol)
+	list_for_each_entry(handler, &netevent_handler_list, head)
+		handler->cb(event, info);
+}
+
+static void handle_rtnl_event(struct odhcpd_event *e)
+{
+	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
+
+	nl_recvmsgs_default(ev_sock->sock);
+}
+
+static void refresh_iface_addr4(struct netevent_handler_info *event_info)
+{
+	struct odhcpd_ipaddr *addr = NULL;
+	struct interface *iface = event_info->iface;
+	ssize_t len = netlink_get_interface_addrs(iface->ifindex, false, &addr);
+
+	if (len < 0)
+		return;
+
+	bool change = len != (ssize_t)iface->addr4_len;
+	for (ssize_t i = 0; !change && i < len; ++i)
+		if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
+			change = true;
+
+	event_info->addrs_old.addrs = iface->addr4;
+	event_info->addrs_old.len = iface->addr4_len;
+
+	iface->addr4 = addr;
+	iface->addr4_len = len;
+
+	if (change)
+		call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, event_info);
+
+	free(event_info->addrs_old.addrs);
+}
+
+static void refresh_iface_addr6(struct netevent_handler_info *event_info)
+{
+	struct odhcpd_ipaddr *addr = NULL;
+	struct interface *iface = event_info->iface;
+	ssize_t len = netlink_get_interface_addrs(iface->ifindex, true, &addr);
+
+	if (len < 0)
+		return;
+
+	bool change = len != (ssize_t)iface->addr6_len;
+	for (ssize_t i = 0; !change && i < len; ++i)
+		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
+				(addr[i].preferred > 0) != (iface->addr6[i].preferred > 0) ||
+				addr[i].valid < iface->addr6[i].valid ||
+				addr[i].preferred < iface->addr6[i].preferred)
+			change = true;
+
+	event_info->addrs_old.addrs = iface->addr6;
+	event_info->addrs_old.len = iface->addr6_len;
+
+	iface->addr6 = addr;
+	iface->addr6_len = len;
+
+	if (change)
+		call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, event_info);
+
+	free(event_info->addrs_old.addrs);
+}
+
+// Handler for neighbor cache entries from the kernel. This is our source
+// to learn and unlearn hosts on interfaces.
+static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
+{
+	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	struct netevent_handler_info event_info;
+	bool add = false;
+	char ipbuf[INET6_ADDRSTRLEN];
+
+	memset(&event_info, 0, sizeof(event_info));
+	switch (hdr->nlmsg_type) {
+	case RTM_NEWLINK: {
+		struct ifinfomsg *ifi = nlmsg_data(hdr);
+		struct nlattr *nla[__IFLA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ifi)) ||
+				ifi->ifi_family != AF_UNSPEC)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(*ifi), nla, __IFLA_MAX - 1, NULL);
+		if (!nla[IFLA_IFNAME])
+			return NL_SKIP;
+
+		event_info.iface = odhcpd_get_interface_by_name(nla_get_string(nla[IFLA_IFNAME]));
+		if (!event_info.iface)
+			return NL_SKIP;
+
+		if (event_info.iface->ifindex != ifi->ifi_index) {
+			event_info.iface->ifindex = ifi->ifi_index;
+			call_netevent_handler_list(NETEV_IFINDEX_CHANGE, &event_info);
+		}
+		break;
+	}
+
+	case RTM_NEWROUTE:
+		add = true;
+		/* fall through */
+	case RTM_DELROUTE: {
+		struct rtmsg *rtm = nlmsg_data(hdr);
+		struct nlattr *nla[__RTA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*rtm)) ||
+				rtm->rtm_family != AF_INET6)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(*rtm), nla, __RTA_MAX - 1, NULL);
+
+		event_info.rt.dst_len = rtm->rtm_dst_len;
+		if (nla[RTA_DST])
+			nla_memcpy(&event_info.rt.dst, nla[RTA_DST],
+					sizeof(&event_info.rt.dst));
+
+		if (nla[RTA_OIF])
+			event_info.iface = odhcpd_get_interface_by_index(nla_get_u32(nla[RTA_OIF]));
+
+		if (nla[RTA_GATEWAY])
+			nla_memcpy(&event_info.rt.gateway, nla[RTA_GATEWAY],
+					sizeof(&event_info.rt.gateway));
+
+		call_netevent_handler_list(add ? NETEV_ROUTE6_ADD : NETEV_ROUTE6_DEL,
+					&event_info);
+		break;
+	}
+
+	case RTM_NEWADDR:
+		add = true;
+		/* fall through */
+	case RTM_DELADDR: {
+		struct ifaddrmsg *ifa = nlmsg_data(hdr);
+		struct nlattr *nla[__IFA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
+				(ifa->ifa_family != AF_INET6 &&
+				 ifa->ifa_family != AF_INET))
+			return NL_SKIP;
+
+		event_info.iface = odhcpd_get_interface_by_index(ifa->ifa_index);
+		if (!event_info.iface)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
+
+		if (ifa->ifa_family == AF_INET6) {
+			if (!nla[IFA_ADDRESS])
+				return NL_SKIP;
+
+			nla_memcpy(&event_info.addr, nla[IFA_ADDRESS], sizeof(event_info.addr));
+
+			if (IN6_IS_ADDR_LINKLOCAL(&event_info.addr) ||
+			    IN6_IS_ADDR_MULTICAST(&event_info.addr))
+				return NL_SKIP;
+
+			inet_ntop(AF_INET6, &event_info.addr, ipbuf, sizeof(ipbuf));
+			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
+				ipbuf, event_info.iface->ifname);
+
+			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
+							&event_info);
+
+			refresh_iface_addr6(&event_info);
+		} else {
+			if (!nla[IFA_LOCAL])
+				return NL_SKIP;
+
+			nla_memcpy(&event_info.addr, nla[IFA_LOCAL], sizeof(event_info.addr));
+
+			inet_ntop(AF_INET, &event_info.addr, ipbuf, sizeof(ipbuf));
+			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
+				ipbuf, event_info.iface->ifname);
+
+			call_netevent_handler_list(add ? NETEV_ADDR_ADD : NETEV_ADDR_DEL,
+							&event_info);
+
+			refresh_iface_addr4(&event_info);
+		}
+		break;
+	}
+
+	case RTM_NEWNEIGH:
+		add = true;
+		/* fall through */
+	case RTM_DELNEIGH: {
+		struct ndmsg *ndm = nlmsg_data(hdr);
+		struct nlattr *nla[__NDA_MAX];
+
+		if (!nlmsg_valid_hdr(hdr, sizeof(*ndm)) ||
+				ndm->ndm_family != AF_INET6)
+			return NL_SKIP;
+
+		event_info.iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
+		if (!event_info.iface)
+			return NL_SKIP;
+
+		nlmsg_parse(hdr, sizeof(*ndm), nla, __NDA_MAX - 1, NULL);
+		if (!nla[NDA_DST])
+			return NL_SKIP;
+
+		nla_memcpy(&event_info.neigh.dst, nla[NDA_DST], sizeof(event_info.neigh.dst));
+
+		if (IN6_IS_ADDR_LINKLOCAL(&event_info.neigh.dst) ||
+		    IN6_IS_ADDR_MULTICAST(&event_info.neigh.dst))
+			return NL_SKIP;
+
+		inet_ntop(AF_INET6, &event_info.neigh.dst, ipbuf, sizeof(ipbuf));
+		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newneigh" : "delneigh",
+			ipbuf, event_info.iface->ifname);
+
+		event_info.neigh.state = ndm->ndm_state;
+		event_info.neigh.flags = ndm->ndm_flags;
+
+		call_netevent_handler_list(add ? NETEV_NEIGH6_ADD : NETEV_NEIGH6_DEL,
+						&event_info);
+		break;
+	}
+
+	default:
+		return NL_SKIP;
+	}
+
+	return NL_OK;
+}
+
+static void catch_rtnl_err(struct odhcpd_event *e, int error)
+{
+	struct event_socket *ev_sock = container_of(e, struct event_socket, ev);
+
+	if (error != ENOBUFS)
+		goto err;
+
+	/* Double netlink event buffer size */
+	ev_sock->sock_bufsize *= 2;
+
+	if (nl_socket_set_buffer_size(ev_sock->sock, ev_sock->sock_bufsize, 0))
+		goto err;
+
+	netlink_dump_addr_table(true);
+	return;
+
+err:
+	odhcpd_deregister(e);
+}
+
+static struct nl_sock *create_socket(int protocol)
 {
 	struct nl_sock *nl_sock;
 
@@ -252,7 +577,7 @@ out:
 
 
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
-		const struct interface *iface, const struct in6_addr *gw,
+		const int ifindex, const struct in6_addr *gw,
 		const uint32_t metric, const bool add)
 {
 	struct nl_msg *msg;
@@ -275,7 +600,7 @@ int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
 	nlmsg_append(msg, &rtm, sizeof(rtm), 0);
 
 	nla_put(msg, RTA_DST, sizeof(*addr), addr);
-	nla_put_u32(msg, RTA_OIF, iface->ifindex);
+	nla_put_u32(msg, RTA_OIF, ifindex);
 	nla_put_u32(msg, RTA_PRIORITY, metric);
 
 	if (gw)
@@ -292,13 +617,13 @@ int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
 
 
 int netlink_setup_proxy_neigh(const struct in6_addr *addr,
-		const struct interface *iface, const bool add)
+		const int ifindex, const bool add)
 {
 	struct nl_msg *msg;
 	struct ndmsg ndm = {
 		.ndm_family = AF_INET6,
 		.ndm_flags = NTF_PROXY,
-		.ndm_ifindex = iface->ifindex,
+		.ndm_ifindex = ifindex,
 	};
 	int ret = 0, flags = NLM_F_REQUEST;
 
@@ -324,8 +649,7 @@ int netlink_setup_proxy_neigh(const struct in6_addr *addr,
 
 
 int netlink_setup_addr(struct odhcpd_ipaddr *addr,
-		const struct interface *iface, const bool v6,
-		const bool add)
+		const int ifindex, const bool v6, const bool add)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
@@ -333,7 +657,7 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 		.ifa_prefixlen = addr->prefix,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
-		.ifa_index = iface->ifindex, };
+		.ifa_index = ifindex, };
 	int ret = 0, flags = NLM_F_REQUEST;
 
 	if (add)
@@ -389,4 +713,41 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 		return ret;
 
 	return nl_wait_for_ack(rtnl_socket);
+}
+
+void netlink_dump_neigh_table(const bool proxy)
+{
+	struct nl_msg *msg;
+	struct ndmsg ndm = {
+		.ndm_family = AF_INET6,
+		.ndm_flags = proxy ? NTF_PROXY : 0,
+	};
+
+	msg = nlmsg_alloc_simple(RTM_GETNEIGH, NLM_F_REQUEST | NLM_F_DUMP);
+	if (!msg)
+		return;
+
+	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
+
+	nl_send_auto_complete(rtnl_event.sock, msg);
+
+	nlmsg_free(msg);
+}
+
+void netlink_dump_addr_table(const bool v6)
+{
+	struct nl_msg *msg;
+	struct ifaddrmsg ifa = {
+		.ifa_family = v6 ? AF_INET6 : AF_INET,
+	};
+
+	msg = nlmsg_alloc_simple(RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP);
+	if (!msg)
+		return;
+
+	nlmsg_append(msg, &ifa, sizeof(ifa), 0);
+
+	nl_send_auto_complete(rtnl_event.sock, msg);
+
+	nlmsg_free(msg);
 }

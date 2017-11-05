@@ -116,8 +116,10 @@ int main(int argc, char **argv)
 	if (init_ndp())
 		return 4;
 
+#ifdef DHCPV4_SUPPORT
 	if (init_dhcpv4())
 		return 4;
+#endif
 
 	odhcpd_run();
 	return 0;

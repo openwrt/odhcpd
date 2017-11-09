@@ -315,12 +315,14 @@ void netlink_dump_addr_table(const bool v6);
 int netlink_init(void);
 int router_init(void);
 int dhcpv6_init(void);
-int dhcpv4_init(void);
 int ndp_init(void);
+#ifdef DHCPV4_SUPPORT
+int dhcpv4_init(void);
 
+int dhcpv4_setup_interface(struct interface *iface, bool enable);
+#endif
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 int ndp_setup_interface(struct interface *iface, bool enable);
-int dhcpv4_setup_interface(struct interface *iface, bool enable);
 
 void odhcpd_reload(void);

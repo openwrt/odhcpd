@@ -178,11 +178,13 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 	case NETEV_ADDR6_DEL:
 		add = false;
 		netlink_dump_neigh_table(false);
+		/* fall through */
 	case NETEV_ADDR6_ADD:
 		setup_addr_for_relaying(&info->addr.in6, iface, add);
 		break;
 	case NETEV_NEIGH6_DEL:
 		add = false;
+		/* fall through */
 	case NETEV_NEIGH6_ADD:
 		if (info->neigh.flags & NTF_PROXY) {
 			if (add) {

@@ -331,12 +331,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
 				struct odhcpd_ipaddr *addrs;
-				ssize_t len = odhcpd_get_interface_addresses(0, true, &addrs);
+				ssize_t len = netlink_get_interface_addrs(0, true, &addrs);
 
 				for (ssize_t i = 0; i < len; ++i)
 					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
 							|| memcmp(&addrs[i].addr, &cerid.addr, sizeof(cerid.addr)) < 0)
-						cerid.addr = addrs[i].addr;
+						cerid.addr = addrs[i].addr.in6;
 
 				free(addrs);
 			}

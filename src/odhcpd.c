@@ -466,6 +466,16 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len)
 	*dst = 0;
 }
 
+const char *odhcpd_print_mac(const uint8_t *mac, const size_t len)
+{
+	static char buf[32];
+
+	snprintf(buf, sizeof(buf), "%02x", mac[0]);
+	for (size_t i = 1, j = 2; i < len && j < sizeof(buf); i++, j += 3)
+		snprintf(buf + j, sizeof(buf) - j, ":%02x", mac[i]);
+
+	return buf;
+}
 
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits)
 {

@@ -723,6 +723,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->chaddr[0],req->chaddr[1],req->chaddr[2],
 			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
 
+#ifdef WITH_UBUS
+	if (reqmsg == DHCPV4_MSG_RELEASE)
+		ubus_bcast_dhcp_event("dhcp.release", req->chaddr, req->hlen,
+					&req->ciaddr, hostname, iface->ifname);
+#endif
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
 
@@ -872,6 +877,12 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 
 	sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest));
+
+#ifdef WITH_UBUS
+	if (msg == DHCPV4_MSG_ACK)
+		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &reply.yiaddr,
+					hostname, iface->ifname);
+#endif
 }
 
 static bool dhcpv4_assign(struct interface *iface,

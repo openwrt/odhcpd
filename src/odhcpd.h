@@ -282,6 +282,7 @@ void odhcpd_run(void);
 time_t odhcpd_time(void);
 ssize_t odhcpd_unhexlify(uint8_t *dst, size_t len, const char *src);
 void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
+const char *odhcpd_print_mac(const uint8_t *mac, const size_t len);
 
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
@@ -296,6 +297,8 @@ int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
+void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t mac_len,
+		const struct in_addr *addr, const char *name, const char *interface);
 #endif
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);

@@ -311,6 +311,25 @@ static const struct blobmsg_policy obj_attrs[OBJ_ATTR_MAX] = {
 	[OBJ_ATTR_PATH] = { .name = "path", .type = BLOBMSG_TYPE_STRING },
 };
 
+void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
+		const size_t mlen, const struct in_addr *addr, const char *name,
+		const char *interface)
+{
+	if (!ubus || !main_object.has_subscribers)
+		return;
+
+	blob_buf_init(&b, 0);
+	if (mac)
+		blobmsg_add_string(&b, "mac", odhcpd_print_mac(mac, mlen));
+	if (addr)
+		blobmsg_add_string(&b, "ip", inet_ntoa(*addr));
+	if (name)
+		blobmsg_add_string(&b, "name", name);
+	if (interface)
+		blobmsg_add_string(&b, "interface", interface);
+
+	ubus_notify(ubus, &main_object, type, b.head, -1);
+}
 
 static void handle_event(_unused struct ubus_context *ctx, _unused struct ubus_event_handler *ev,
                 _unused const char *type, struct blob_attr *msg)

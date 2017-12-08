@@ -380,6 +380,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			continue;
 		}
 
+		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
+				iface->pio_filter_length) != 0 ||
+				addr->prefix < iface->pio_filter_length)
+			continue; // PIO filtered out of this RA
+
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < pfxs_cnt; ++i) {
 			if (addr->prefix == pfxs[i].nd_opt_pi_prefix_len &&

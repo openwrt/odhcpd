@@ -371,12 +371,6 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		if (addr.ll.sll_family == AF_PACKET)
 			destiface = addr.ll.sll_ifindex;
 
-		struct interface *iface =
-				odhcpd_get_interface_by_index(destiface);
-
-		if (!iface && addr.nl.nl_family != AF_NETLINK)
-			continue;
-
 		char ipbuf[INET6_ADDRSTRLEN] = "kernel";
 		if (addr.ll.sll_family == AF_PACKET &&
 				len >= (ssize_t)sizeof(struct ip6_hdr))
@@ -386,10 +380,26 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		else if (addr.in.sin_family == AF_INET)
 			inet_ntop(AF_INET, &addr.in.sin_addr, ipbuf, sizeof(ipbuf));
 
-		syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
-				ipbuf, (iface) ? iface->ifname : "netlink");
+		// From netlink
+		if (addr.nl.nl_family == AF_NETLINK) {
+			syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
+					ipbuf, "netlink");
+			e->handle_dgram(&addr, data_buf, len, NULL, dest);
+			return;
+		} else if (destiface != 0) {
+			struct interface *iface;
+			list_for_each_entry(iface, &interfaces, head) {
+				if (iface->ifindex != destiface)
+					continue;
 
-		e->handle_dgram(&addr, data_buf, len, iface, dest);
+				syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
+						ipbuf, iface->ifname);
+
+				e->handle_dgram(&addr, data_buf, len, iface, dest);
+			}
+		}
+
+
 	}
 }
 

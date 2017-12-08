@@ -62,6 +62,7 @@ enum {
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
+	IFACE_ATTR_PREFIX_FILTER,
 	IFACE_ATTR_MAX
 };
 
@@ -104,6 +105,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_MTU] = { .name = "ra_mtu", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
@@ -719,6 +721,23 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_PREFIX_FILTER])) {
+		const char *str = blobmsg_get_string(c);
+		char *astr = malloc(strlen(str) + 1);
+		char *delim;
+		int l;
+		if (!astr || !strcpy(astr, str) ||
+				(delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
+				sscanf(delim, "%i", &l) == 0 || l > 128 ||
+				inet_pton(AF_INET6, astr, &iface->pio_filter_addr) == 0) {
+			iface->pio_filter_length = 0;
+		} else {
+			iface->pio_filter_length = l;
+		}
+		if (astr)
+			free(astr);
+	}
 
 	return 0;
 

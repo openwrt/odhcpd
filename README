@@ -134,6 +134,9 @@ ra_mtu			integer 0			MTU to be advertised in
 							RA messages
 ndproxy_routing		bool	1			Learn routes from NDP
 ndproxy_slave		bool	0			NDProxy external slave
+prefix_filter		string	::/0			Only advertise on-link prefixes within
+			[IPv6 prefix]			the provided IPv6 prefix; others are
+							filtered out.
 
 
 Sections of type host (static leases)

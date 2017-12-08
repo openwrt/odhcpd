@@ -208,6 +208,8 @@ struct interface {
 	bool ra_advrouter;
 	bool ra_useleasetime;
 	bool no_dynamic_dhcp;
+	uint8_t pio_filter_length;
+	struct in6_addr pio_filter_addr;
 
 	// RA
 	int learn_routes;

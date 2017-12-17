@@ -53,8 +53,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 	if (enable && iface->dhcpv6) {
 		int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (sock < 0) {
-			syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %m");
 			return -1;
 		}
 
@@ -76,8 +75,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 					0, IN6ADDR_ANY_INIT, 0};
 
 		if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
-			syslog(LOG_ERR, "Failed to open DHCPv6 server socket: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Failed to open DHCPv6 server socket: %m");
 			return -1;
 		}
 

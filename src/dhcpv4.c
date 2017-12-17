@@ -86,8 +86,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 		int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (sock < 0) {
-			syslog(LOG_ERR, "Failed to create DHCPv4 server socket: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Failed to create DHCPv4 server socket: %m");
 			return -1;
 		}
 
@@ -110,8 +109,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 					{INADDR_ANY}, {0}};
 
 		if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
-			syslog(LOG_ERR, "Failed to open DHCPv4 server socket: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Failed to open DHCPv4 server socket: %m");
 			return -1;
 		}
 

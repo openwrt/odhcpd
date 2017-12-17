@@ -58,13 +58,13 @@ int netlink_init(void)
 {
 	rtnl_socket = create_socket(NETLINK_ROUTE);
 	if (!rtnl_socket) {
-		syslog(LOG_ERR, "Unable to open nl socket: %s", strerror(errno));
+		syslog(LOG_ERR, "Unable to open nl socket: %m");
 		goto err;
 	}
 
 	rtnl_event.sock = create_socket(NETLINK_ROUTE);
 	if (!rtnl_event.sock) {
-		syslog(LOG_ERR, "Unable to open nl event socket: %s", strerror(errno));
+		syslog(LOG_ERR, "Unable to open nl event socket: %m");
 		goto err;
 	}
 

@@ -186,7 +186,7 @@ static int mkdir_p(char *dir, mode_t mask)
 		return 0;
 
 	if (ret)
-		syslog(LOG_ERR, "mkdir(%s, %d) failed: %s\n", dir, mask, strerror(errno));
+		syslog(LOG_ERR, "mkdir(%s, %d) failed: %m\n", dir, mask);
 
 	return ret;
 }

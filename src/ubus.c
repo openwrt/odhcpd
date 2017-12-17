@@ -412,7 +412,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 int ubus_init(void)
 {
 	if (!(ubus = ubus_connect(NULL))) {
-		syslog(LOG_ERR, "Unable to connect to ubus: %s", strerror(errno));
+		syslog(LOG_ERR, "Unable to connect to ubus: %m");
 		return -1;
 	}
 

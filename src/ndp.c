@@ -62,7 +62,7 @@ int ndp_init(void)
 	// Open ICMPv6 socket
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (ping_socket < 0) {
-		syslog(LOG_ERR, "Unable to open raw socket: %s", strerror(errno));
+		syslog(LOG_ERR, "Unable to open raw socket: %m");
 			return -1;
 	}
 
@@ -113,8 +113,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 
 		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
 		if (sock < 0) {
-			syslog(LOG_ERR, "Unable to open packet socket: %s",
-					strerror(errno));
+			syslog(LOG_ERR, "Unable to open packet socket: %m");
 			ret = -1;
 			goto out;
 		}
@@ -126,7 +125,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 
 		if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER,
 				&bpf_prog, sizeof(bpf_prog))) {
-			syslog(LOG_ERR, "Failed to set BPF: %s", strerror(errno));
+			syslog(LOG_ERR, "Failed to set BPF: %m");
 			ret = -1;
 			goto out;
 		}

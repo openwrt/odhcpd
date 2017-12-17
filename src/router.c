@@ -48,7 +48,7 @@ int router_init(void)
 	// Open ICMPv6 socket
 	int sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (sock < 0 && errno != EAFNOSUPPORT) {
-		syslog(LOG_ERR, "Failed to open RAW-socket: %s", strerror(errno));
+		syslog(LOG_ERR, "Failed to open RAW-socket: %m");
 		return -1;
 	}
 
@@ -82,8 +82,7 @@ int router_init(void)
 	odhcpd_register(&router_event);
 
 	if (!(fp_route = fopen("/proc/net/ipv6_route", "r")))
-		syslog(LOG_ERR, "Failed to open routing table: %s",
-				strerror(errno));
+		syslog(LOG_ERR, "Failed to open routing table: %m");
 
 	netlink_add_netevent_handler(&router_netevent_handler);
 

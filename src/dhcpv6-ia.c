@@ -1222,7 +1222,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (!assigned || iface->addr6_len == 0)
 				/* Set error status */
 				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
-			else if (assigned && !first && hdr->msg_type != DHCPV6_MSG_REBIND) {
+			else if (accept_reconf && assigned && !first &&
+					hdr->msg_type != DHCPV6_MSG_REBIND) {
 				size_t handshake_len = 4;
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_RECONF_ACCEPT;

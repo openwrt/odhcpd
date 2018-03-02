@@ -244,16 +244,12 @@ bool ubus_has_prefix(const char *name, const char *ifname);
 // Exported module initializers
 int init_router(void);
 int init_dhcpv6(void);
-#ifdef DHCPV4_SUPPORT
 int init_dhcpv4(void);
-#endif
 int init_ndp(void);
 
 int setup_router_interface(struct interface *iface, bool enable);
 int setup_dhcpv6_interface(struct interface *iface, bool enable);
 int setup_ndp_interface(struct interface *iface, bool enable);
-#ifdef DHCPV4_SUPPORT
 int setup_dhcpv4_interface(struct interface *iface, bool enable);
-#endif
 
 void odhcpd_reload(void);

@@ -227,9 +227,7 @@ static void close_interface(struct interface *iface)
 	setup_router_interface(iface, false);
 	setup_dhcpv6_interface(iface, false);
 	setup_ndp_interface(iface, false);
-#ifdef DHCPV4_SUPPORT
 	setup_dhcpv4_interface(iface, false);
-#endif
 
 	clean_interface(iface);
 	free(iface);
@@ -775,9 +773,7 @@ void odhcpd_reload(void)
 			setup_router_interface(i, !i->ignore || i->ra != RELAYD_DISABLED);
 			setup_dhcpv6_interface(i, !i->ignore || i->dhcpv6 != RELAYD_DISABLED);
 			setup_ndp_interface(i, !i->ignore || i->ndp != RELAYD_DISABLED);
-#ifdef DHCPV4_SUPPORT
 			setup_dhcpv4_interface(i, !i->ignore || i->dhcpv4 != RELAYD_DISABLED);
-#endif
 		} else
 			close_interface(i);
 	}

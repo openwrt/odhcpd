@@ -519,10 +519,10 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now ||
-				(addr->dprefix == 64 && addr->prefix == 64)) {
+		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now)
 			continue; // Address not suitable
-		} else if (addr->dprefix > 32) {
+
+		if (addr->dprefix > 32) {
 			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));
 		} else if (addr->dprefix <= 32) {
 			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix)) - 1));

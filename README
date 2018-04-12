@@ -70,7 +70,7 @@ Option		Type	Default			Description
 interface	string	<name of UCI section>	logical OpenWrt interface
 ifname		string	<resolved from logical>	physical network interface
 networkid	string	same as ifname		compat. alias for ifname
-ignore		bool	0			ignore this interface
+ignore6		bool	0			ignore this interface
 master		bool	0			is a master interface
 						for relaying
 

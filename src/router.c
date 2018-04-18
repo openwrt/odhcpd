@@ -314,11 +314,12 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (hlim > 0)
 		adv.h.nd_ra_curhoplimit = hlim;
 
-	if (iface->dhcpv6)
+	if (iface->dhcpv6) {
 		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
 
-	if (iface->ra_managed >= RA_MANAGED_MFLAG)
-		adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
+		if (iface->ra_managed >= RA_MANAGED_MFLAG)
+			adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
+	}
 
 	if (iface->route_preference < 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;

@@ -1161,7 +1161,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			if (((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) ||
 					(c->clid_len >= clid_len && !c->clid_data[0] && !c->clid_data[1]
 						&& !memcmp(c->mac, mac, sizeof(mac)))) &&
-					(c->iaid == ia->iaid || INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
+					(!(c->flags & (OAF_BOUND|OAF_TENTATIVE)) || c->iaid == ia->iaid) &&
+					(INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
 					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;
 
@@ -1257,6 +1258,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 			/* Was only a solicitation: mark binding for removal */
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
 				a->flags &= ~OAF_BOUND;
+				a->flags |= OAF_TENTATIVE;
 
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = now;
@@ -1271,6 +1273,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					}
 				}
 				a->accept_reconf = accept_reconf;
+				a->flags &= ~OAF_TENTATIVE;
 				a->flags |= OAF_BOUND;
 				apply_lease(iface, a, true);
 			} else if (!assigned && a && a->managed_size == 0) {

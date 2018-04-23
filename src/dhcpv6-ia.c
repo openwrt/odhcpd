@@ -1261,7 +1261,8 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				a->flags |= OAF_TENTATIVE;
 
 				if (!(a->flags & OAF_STATIC))
-					a->valid_until = now;
+					/* Keep tentative assignment around for 60 seconds */
+					a->valid_until = now + 60;
 			} else if (assigned &&
 					(hdr->msg_type == DHCPV6_MSG_REQUEST ||
 					 hdr->msg_type == DHCPV6_MSG_REBIND)) {

@@ -779,8 +779,10 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		}
 	}
 
-	struct ifreq ifr = {.ifr_name = ""};
-	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name));
+	struct ifreq ifr;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
 
 	if (!ioctl(sock, SIOCGIFMTU, &ifr)) {
 		uint16_t mtu = htons(ifr.ifr_mtu);

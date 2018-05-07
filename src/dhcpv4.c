@@ -241,7 +241,9 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 		uint8_t type, uint8_t len, const void *data)
 {
 	uint8_t *c = *cookie;
-	if (*cookie + 2 + len > (uint8_t*)&msg[1])
+	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
+
+	if (*cookie + 2 + len > end)
 		return;
 
 	*c++ = type;

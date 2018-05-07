@@ -71,6 +71,8 @@ int dhcpv4_init(void)
 
 int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
+	int ret = 0;
+
 	if (iface->dhcpv4_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);
 		close(iface->dhcpv4_event.uloop.fd);
@@ -78,47 +80,81 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	}
 
 	if (iface->dhcpv4 && enable) {
+		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
+					{INADDR_ANY}, {0}};
+		int val = 1;
+
 		if (!iface->dhcpv4_assignments.next)
 			INIT_LIST_HEAD(&iface->dhcpv4_assignments);
 
 		if (!iface->dhcpv4_fr_ips.next)
 			INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
-		int sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-		if (sock < 0) {
-			syslog(LOG_ERR, "Failed to create DHCPv4 server socket: %m");
-			return -1;
+		iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+		if (iface->dhcpv4_event.uloop.fd < 0) {
+			syslog(LOG_ERR, "socket(AF_INET): %m");
+			ret = -1;
+			goto out;
 		}
 
 		/* Basic IPv4 configuration */
-		int val = 1;
-		setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-		setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &val, sizeof(val));
-		setsockopt(sock, IPPROTO_IP, IP_PKTINFO, &val, sizeof(val));
-
-		val = IPTOS_PREC_INTERNETCONTROL;
-		setsockopt(sock, IPPROTO_IP, IP_TOS, &val, sizeof(val));
-
-		val = IP_PMTUDISC_DONT;
-		setsockopt(sock, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val));
-
-		setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE,
-				iface->ifname, strlen(iface->ifname));
-
-		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
-					{INADDR_ANY}, {0}};
-
-		if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
-			syslog(LOG_ERR, "Failed to open DHCPv4 server socket: %m");
-			return -1;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+			ret = -1;
+			goto out;
 		}
 
-		iface->dhcpv4_event.uloop.fd = sock;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
+					&val, sizeof(val))) {
+			syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = IPTOS_PREC_INTERNETCONTROL;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS,
+					&val, sizeof(val))) {
+			syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = IP_PMTUDISC_DONT;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
+					&val, sizeof(val))) {
+			syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
+					iface->ifname, strlen(iface->ifname))) {
+			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
+			syslog(LOG_ERR, "bind(): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setup_dhcpv4_addresses(iface) < 0) {
+			ret = -1;
+			goto out;
+		}
+
 		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
 		odhcpd_register(&iface->dhcpv4_event);
-
-		if (setup_dhcpv4_addresses(iface) < 0)
-			return -1;
 
 		update_static_assignments(iface);
 	} else if (iface->dhcpv4_assignments.next) {
@@ -126,7 +162,14 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 			free_dhcpv4_assignment(list_first_entry(&iface->dhcpv4_assignments,
 							struct dhcpv4_assignment, head));
 	}
-	return 0;
+
+out:
+	if (ret < 0 && iface->dhcpv4_event.uloop.fd > 0) {
+		close(iface->dhcpv4_event.uloop.fd);
+		iface->dhcpv4_event.uloop.fd = -1;
+	}
+
+	return ret;
 }
 
 

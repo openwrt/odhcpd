@@ -57,30 +57,58 @@ static struct netevent_handler ndp_netevent_handler = { .cb = ndp_netevent_cb, }
 // Initialize NDP-proxy
 int ndp_init(void)
 {
-	int val = 2;
+	struct icmp6_filter filt;
+	int val = 2, ret = 0;
 
 	// Open ICMPv6 socket
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (ping_socket < 0) {
-		syslog(LOG_ERR, "Unable to open raw socket: %m");
-			return -1;
+		syslog(LOG_ERR, "socket(AF_INET6): %m");
+		ret = -1;
+		goto out;
 	}
 
-	setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
+	if (setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// This is required by RFC 4861
 	val = 255;
-	setsockopt(ping_socket, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
-	setsockopt(ping_socket, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &val, sizeof(val));
+	if (setsockopt(ping_socket, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(ping_socket, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// Filter all packages, we only want to send
-	struct icmp6_filter filt;
 	ICMP6_FILTER_SETBLOCKALL(&filt);
-	setsockopt(ping_socket, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt));
+	if (setsockopt(ping_socket, IPPROTO_ICMPV6, ICMP6_FILTER,
+				&filt, sizeof(filt)) < 0) {
+		syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
+		ret = -1;
+		goto out;
+	}
 
 	netlink_add_netevent_handler(&ndp_netevent_handler);
 
-	return 0;
+out:
+	if (ret < 0 && ping_socket > 0) {
+		close(ping_socket);
+		ping_socket = -1;
+	}
+
+	return ret;
 }
 
 int ndp_setup_interface(struct interface *iface, bool enable)
@@ -109,42 +137,58 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 	}
 
 	if (enable && iface->ndp == MODE_RELAY) {
+		struct sockaddr_ll ll;
+		struct packet_mreq mreq;
+
 		if (write(procfd, "1\n", 2) < 0) {}
 
-		int sock = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
-		if (sock < 0) {
-			syslog(LOG_ERR, "Unable to open packet socket: %m");
+		iface->ndp_event.uloop.fd = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
+		if (iface->ndp_event.uloop.fd < 0) {
+			syslog(LOG_ERR, "socket(AF_PACKET): %m");
 			ret = -1;
 			goto out;
 		}
 
 #ifdef PACKET_RECV_TYPE
 		int pktt = 1 << PACKET_MULTICAST;
-		setsockopt(sock, SOL_PACKET, PACKET_RECV_TYPE, &pktt, sizeof(pktt));
+		if (setsockopt(iface->ndp_event.uloop.fd, SOL_PACKET, PACKET_RECV_TYPE,
+				&pktt, sizeof(pktt)) < 0) {
+			syslog(LOG_ERR, "setsockopt(PACKET_RECV_TYPE): %m");
+			ret = -1;
+			goto out;
+		}
 #endif
 
-		if (setsockopt(sock, SOL_SOCKET, SO_ATTACH_FILTER,
+		if (setsockopt(iface->ndp_event.uloop.fd, SOL_SOCKET, SO_ATTACH_FILTER,
 				&bpf_prog, sizeof(bpf_prog))) {
-			syslog(LOG_ERR, "Failed to set BPF: %m");
+			syslog(LOG_ERR, "setsockopt(SO_ATTACH_FILTER): %m");
 			ret = -1;
 			goto out;
 		}
 
-		struct sockaddr_ll ll = {
-			.sll_family = AF_PACKET,
-			.sll_ifindex = iface->ifindex,
-			.sll_protocol = htons(ETH_P_IPV6),
-			.sll_hatype = 0,
-			.sll_pkttype = 0,
-			.sll_halen = 0,
-			.sll_addr = {0},
-		};
-		bind(sock, (struct sockaddr*)&ll, sizeof(ll));
+		memset(&ll, 0, sizeof(ll));
+		ll.sll_family = AF_PACKET;
+		ll.sll_ifindex = iface->ifindex;
+		ll.sll_protocol = htons(ETH_P_IPV6);
 
-		struct packet_mreq mreq = {iface->ifindex, PACKET_MR_ALLMULTI, ETH_ALEN, {0}};
-		setsockopt(sock, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+		if (bind(iface->ndp_event.uloop.fd, (struct sockaddr*)&ll, sizeof(ll)) < 0) {
+			syslog(LOG_ERR, "bind(): %m");
+			ret = -1;
+			goto out;
+		}
 
-		iface->ndp_event.uloop.fd = sock;
+		memset(&mreq, 0, sizeof(mreq));
+		mreq.mr_ifindex = iface->ifindex;
+		mreq.mr_type = PACKET_MR_ALLMULTI;
+		mreq.mr_alen = ETH_ALEN;
+
+		if (setsockopt(iface->ndp_event.uloop.fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP,
+				&mreq, sizeof(mreq)) < 0) {
+			syslog(LOG_ERR, "setsockopt(PACKET_ADD_MEMBERSHIP): %m");
+			ret = -1;
+			goto out;
+		}
+
 		iface->ndp_event.handle_dgram = handle_solicit;
 		odhcpd_register(&iface->ndp_event);
 
@@ -158,7 +202,12 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 	if (dump_neigh)
 		netlink_dump_neigh_table(true);
 
-out:
+ out:
+	if (ret < 0 && iface->ndp_event.uloop.fd > 0) {
+		close(iface->ndp_event.uloop.fd);
+		iface->ndp_event.uloop.fd = -1;
+	}
+
 	if (procfd >= 0)
 		close(procfd);
 

@@ -113,7 +113,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 		}
 
 		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
-					&val, sizeof(val))) {
+					&val, sizeof(val)) < 0) {
 			syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
 			ret = -1;
 			goto out;
@@ -121,7 +121,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 		val = IPTOS_PREC_INTERNETCONTROL;
 		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS,
-					&val, sizeof(val))) {
+					&val, sizeof(val)) < 0) {
 			syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
 			ret = -1;
 			goto out;
@@ -129,20 +129,21 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 		val = IP_PMTUDISC_DONT;
 		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
-					&val, sizeof(val))) {
+					&val, sizeof(val)) < 0) {
 			syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
 			ret = -1;
 			goto out;
 		}
 
 		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
-					iface->ifname, strlen(iface->ifname))) {
+					iface->ifname, strlen(iface->ifname)) < 0) {
 			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
 			ret = -1;
 			goto out;
 		}
 
-		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
+		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr,
+					sizeof(bind_addr)) < 0) {
 			syslog(LOG_ERR, "bind(): %m");
 			ret = -1;
 			goto out;

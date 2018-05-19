@@ -43,6 +43,8 @@ int dhcpv6_init(void)
 
 int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
+	int ret = 0;
+
 	if (iface->dhcpv6_event.uloop.fd > 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
@@ -51,47 +53,107 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 	// Configure multicast settings
 	if (enable && iface->dhcpv6) {
-		int sock = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-		if (sock < 0) {
-			syslog(LOG_ERR, "Failed to create DHCPv6 server socket: %m");
-			return -1;
+		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
+					0, IN6ADDR_ANY_INIT, 0};
+		struct ipv6_mreq mreq;
+		int val = 1;
+
+		iface->dhcpv6_event.uloop.fd = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+		if (iface->dhcpv6_event.uloop.fd < 0) {
+			syslog(LOG_ERR, "socket(AF_INET6): %m");
+			ret = -1;
+			goto out;
 		}
 
 		// Basic IPv6 configuration
-		setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, iface->ifname, strlen(iface->ifname));
-
-		int val = 1;
-		setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &val, sizeof(val));
-		setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-		setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
-
-		val = DHCPV6_HOP_COUNT_LIMIT;
-		setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
-
-		val = 0;
-		setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
-
-		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
-					0, IN6ADDR_ANY_INIT, 0};
-
-		if (bind(sock, (struct sockaddr*)&bind_addr, sizeof(bind_addr))) {
-			syslog(LOG_ERR, "Failed to open DHCPv6 server socket: %m");
-			return -1;
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
+					iface->ifname, strlen(iface->ifname)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+			ret = -1;
+			goto out;
 		}
 
-		struct ipv6_mreq relay = {ALL_DHCPV6_RELAYS, iface->ifindex};
-		struct ipv6_mreq server = {ALL_DHCPV6_SERVERS, iface->ifindex};
-		setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &relay, sizeof(relay));
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_V6ONLY,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_V6ONLY): %m");
+			ret = -1;
+			goto out;
+		}
 
-		if (iface->dhcpv6 == MODE_SERVER)
-			setsockopt(sock, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &server, sizeof(server));
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+			ret = -1;
+			goto out;
+		}
 
-		iface->dhcpv6_event.uloop.fd = sock;
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = DHCPV6_HOP_COUNT_LIMIT;
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = 0;
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (bind(iface->dhcpv6_event.uloop.fd, (struct sockaddr*)&bind_addr,
+					sizeof(bind_addr)) < 0) {
+			syslog(LOG_ERR, "bind(): %m");
+			ret = -1;
+			goto out;
+		}
+
+		memset(&mreq, 0, sizeof(mreq));
+		inet_pton(AF_INET6, ALL_DHCPV6_RELAYS, &mreq.ipv6mr_multiaddr);
+		mreq.ipv6mr_interface = iface->ifindex;
+
+		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
+					&mreq, sizeof(mreq)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (iface->dhcpv6 == MODE_SERVER) {
+			memset(&mreq, 0, sizeof(mreq));
+			inet_pton(AF_INET6, ALL_DHCPV6_SERVERS, &mreq.ipv6mr_multiaddr);
+			mreq.ipv6mr_interface = iface->ifindex;
+
+			if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
+						&mreq, sizeof(mreq)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+				ret = -1;
+				goto out;
+			}
+		}
+
 		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;
 		odhcpd_register(&iface->dhcpv6_event);
 	}
 
-	return dhcpv6_setup_ia_interface(iface, enable);
+	ret = dhcpv6_setup_ia_interface(iface, enable);
+
+out:
+	if (ret < 0 && iface->dhcpv6_event.uloop.fd > 0) {
+		close(iface->dhcpv6_event.uloop.fd);
+		iface->dhcpv6_event.uloop.fd = -1;
+	}
+
+	return ret;
 }
 
 enum {
@@ -503,6 +565,8 @@ static void relay_client_request(struct sockaddr_in6 *source,
 {
 	struct interface *master = odhcpd_get_master_interface();
 	const struct dhcpv6_relay_header *h = data;
+	struct sockaddr_in6 s;
+
 	if (!master || master->dhcpv6 != MODE_RELAY ||
 			h->msg_type == DHCPV6_MSG_RELAY_REPL ||
 			h->msg_type == DHCPV6_MSG_RECONFIGURE ||
@@ -549,8 +613,11 @@ static void relay_client_request(struct sockaddr_in6 *source,
 
 	memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));
 
-	struct sockaddr_in6 dhcpv6_servers = {AF_INET6,
-			htons(DHCPV6_SERVER_PORT), 0, ALL_DHCPV6_SERVERS, 0};
+	memset(&s, 0, sizeof(s));
+	s.sin6_family = AF_INET6;
+	s.sin6_port = htons(DHCPV6_SERVER_PORT);
+	inet_pton(AF_INET6, ALL_DHCPV6_SERVERS, &s.sin6_addr);
+
 	struct iovec iov[2] = {{&hdr, sizeof(hdr)}, {(void*)data, len}};
-	odhcpd_send(master->dhcpv6_event.uloop.fd, &dhcpv6_servers, iov, 2, master);
+	odhcpd_send(master->dhcpv6_event.uloop.fd, &s, iov, 2, master);
 }

@@ -55,7 +55,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 				blobmsg_add_string(&b, NULL, "static");
 			blobmsg_close_array(&b, m);
 
-			buf = blobmsg_alloc_string_buffer(&b, "ip", INET_ADDRSTRLEN);
+			buf = blobmsg_alloc_string_buffer(&b, "address", INET_ADDRSTRLEN);
 			struct in_addr addr = {.s_addr = c->addr};
 			inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
@@ -80,7 +80,7 @@ static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t p
 					uint32_t valid, _unused void *arg)
 {
 	void *a	= blobmsg_open_table(&b, NULL);
-	char *buf = blobmsg_alloc_string_buffer(&b, NULL, INET6_ADDRSTRLEN);
+	char *buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
 
 	inet_ntop(AF_INET6, addr, buf, INET6_ADDRSTRLEN);
 	blobmsg_add_string_buffer(&b);

@@ -234,14 +234,14 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 		event_info.rt.dst_len = rtm->rtm_dst_len;
 		if (nla[RTA_DST])
 			nla_memcpy(&event_info.rt.dst, nla[RTA_DST],
-					sizeof(&event_info.rt.dst));
+					sizeof(event_info.rt.dst));
 
 		if (nla[RTA_OIF])
 			event_info.iface = odhcpd_get_interface_by_index(nla_get_u32(nla[RTA_OIF]));
 
 		if (nla[RTA_GATEWAY])
 			nla_memcpy(&event_info.rt.gateway, nla[RTA_GATEWAY],
-					sizeof(&event_info.rt.gateway));
+					sizeof(event_info.rt.gateway));
 
 		call_netevent_handler_list(add ? NETEV_ROUTE6_ADD : NETEV_ROUTE6_DEL,
 					&event_info);

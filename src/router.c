@@ -45,89 +45,154 @@ static FILE *fp_route = NULL;
 
 int router_init(void)
 {
+	struct icmp6_filter filt;
+	int ret = 0;
+
 	// Open ICMPv6 socket
-	int sock = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
-	if (sock < 0 && errno != EAFNOSUPPORT) {
-		syslog(LOG_ERR, "Failed to open RAW-socket: %m");
-		return -1;
+	router_event.uloop.fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
+	if (router_event.uloop.fd < 0) {
+		syslog(LOG_ERR, "socket(AF_INET6): %m");
+		ret = -1;
+		goto out;
 	}
 
 	// Let the kernel compute our checksums
 	int val = 2;
-	setsockopt(sock, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
+	if (setsockopt(router_event.uloop.fd, IPPROTO_RAW, IPV6_CHECKSUM,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// This is required by RFC 4861
 	val = 255;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
-	setsockopt(sock, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &val, sizeof(val));
+	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// We need to know the source interface
 	val = 1;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
-	setsockopt(sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val, sizeof(val));
+	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_RECVHOPLIMIT): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// Don't loop back
 	val = 0;
-	setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val, sizeof(val));
+	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
+				&val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
+		ret = -1;
+		goto out;
+	}
 
 	// Filter ICMPv6 package types
-	struct icmp6_filter filt;
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
-	setsockopt(sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filt, sizeof(filt));
+	if (setsockopt(router_event.uloop.fd, IPPROTO_ICMPV6, ICMP6_FILTER,
+				&filt, sizeof(filt)) < 0) {
+		syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (!(fp_route = fopen("/proc/net/ipv6_route", "r"))) {
+		syslog(LOG_ERR, "fopen(/proc/net/ipv6_route): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (netlink_add_netevent_handler(&router_netevent_handler) < 0) {
+		syslog(LOG_ERR, "Failed to add netevent handler");
+		ret = -1;
+		goto out;
+	}
 
 	// Register socket
-	router_event.uloop.fd = sock;
 	odhcpd_register(&router_event);
+out:
+	if (ret < 0) {
+		if (router_event.uloop.fd > 0) {
+			close(router_event.uloop.fd);
+			router_event.uloop.fd = -1;
+		}
 
-	if (!(fp_route = fopen("/proc/net/ipv6_route", "r")))
-		syslog(LOG_ERR, "Failed to open routing table: %m");
+		if (fp_route) {
+			fclose(fp_route);
+			fp_route = NULL;
+		}
+	}
 
-	netlink_add_netevent_handler(&router_netevent_handler);
-
-	return 0;
+	return ret;
 }
 
 
 int router_setup_interface(struct interface *iface, bool enable)
 {
-	if (!fp_route || router_event.uloop.fd < 0)
-		return -1;
+	struct ipv6_mreq mreq;
+	int ret = 0;
 
-	struct ipv6_mreq all_nodes = {ALL_IPV6_NODES, iface->ifindex};
-	struct ipv6_mreq all_routers = {ALL_IPV6_ROUTERS, iface->ifindex};
+	if (!fp_route || router_event.uloop.fd < 0) {
+		ret = -1;
+		goto out;
+	}
 
 	uloop_timeout_cancel(&iface->timer_rs);
 	iface->timer_rs.cb = NULL;
 
-	if (iface->ifindex <= 0)
-		return -1;
+	memset(&mreq, 0, sizeof(mreq));
+	mreq.ipv6mr_interface = iface->ifindex;
+	inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
+	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
+			&mreq, sizeof(mreq));
 
+	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
 	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-			&all_nodes, sizeof(all_nodes));
-	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-			&all_routers, sizeof(all_routers));
+			&mreq, sizeof(mreq));
 
 	if (!enable) {
 		if (iface->ra)
 			trigger_router_advert(&iface->timer_rs);
 	} else {
-		void *mreq = &all_routers;
-
 		if (iface->ra == MODE_RELAY && iface->master) {
-			mreq = &all_nodes;
+			inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
 			forward_router_solicitation(iface);
 		} else if (iface->ra == MODE_SERVER && !iface->master) {
 			iface->timer_rs.cb = trigger_router_advert;
 			uloop_timeout_set(&iface->timer_rs, 1000);
 		}
 
-		if (iface->ra == MODE_RELAY || (iface->ra == MODE_SERVER && !iface->master))
-			setsockopt(router_event.uloop.fd, IPPROTO_IPV6,
-					IPV6_ADD_MEMBERSHIP, mreq, sizeof(all_nodes));
+		if (iface->ra == MODE_RELAY || (iface->ra == MODE_SERVER && !iface->master)) {
+			if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6,
+					IPV6_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+				ret = -1;
+				syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+			}
+		}
 	}
-	return 0;
+out:
+	return ret;
 }
 
 
@@ -573,10 +638,15 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			[IOV_RA_DNS_ADDR] = {dns_addr, dns_cnt * sizeof(*dns_addr)},
 			[IOV_RA_SEARCH] = {search, search->len * 8},
 			[IOV_RA_ADV_INTERVAL] = {&adv_interval, adv_interval.len * 8}};
-	struct sockaddr_in6 dest = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
+	struct sockaddr_in6 dest;
+
+	memset(&dest, 0, sizeof(dest));
+	dest.sin6_family = AF_INET6;
 
 	if (from && !IN6_IS_ADDR_UNSPECIFIED(from))
 		dest.sin6_addr = *from;
+	else
+		inet_pton(AF_INET6, ALL_IPV6_NODES, &dest.sin6_addr);
 
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);
@@ -624,13 +694,17 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 // Forward router solicitation
 static void forward_router_solicitation(const struct interface *iface)
 {
+	struct icmp6_hdr rs = {ND_ROUTER_SOLICIT, 0, 0, {{0}}};
+	struct iovec iov = {&rs, sizeof(rs)};
+	struct sockaddr_in6 all_routers;
+
 	if (!iface)
 		return;
 
-	struct icmp6_hdr rs = {ND_ROUTER_SOLICIT, 0, 0, {{0}}};
-	struct iovec iov = {&rs, sizeof(rs)};
-	struct sockaddr_in6 all_routers =
-		{AF_INET6, 0, 0, ALL_IPV6_ROUTERS, iface->ifindex};
+	memset(&all_routers, 0, sizeof(all_routers));
+	all_routers.sin6_family = AF_INET6;
+	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &all_routers.sin6_addr);
+	all_routers.sin6_scope_id = iface->ifindex;
 
 	syslog(LOG_NOTICE, "Sending RS to %s", iface->ifname);
 	odhcpd_send(router_event.uloop.fd, &all_routers, &iov, 1, iface);
@@ -641,6 +715,7 @@ static void forward_router_solicitation(const struct interface *iface)
 static void forward_router_advertisement(uint8_t *data, size_t len)
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;
+	struct sockaddr_in6 all_nodes;
 
 	// Rewrite options
 	uint8_t *end = data + len;
@@ -666,7 +741,10 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
 
 	// Forward advertisement to all slave interfaces
-	struct sockaddr_in6 all_nodes = {AF_INET6, 0, 0, ALL_IPV6_NODES, 0};
+	memset(&all_nodes, 0, sizeof(all_nodes));
+	all_nodes.sin6_family = AF_INET6;
+	inet_pton(AF_INET6, ALL_IPV6_NODES, &all_nodes.sin6_addr);
+
 	struct iovec iov = {data, len};
 
 	struct interface *iface;

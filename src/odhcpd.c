@@ -200,20 +200,27 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 
 static int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
 {
-	int status = -1;
-	struct sockaddr_in6 addr = {AF_INET6, 0, 0, ALL_IPV6_ROUTERS, ifindex};
+	int ret = -1;
+	struct sockaddr_in6 addr;
 	socklen_t alen = sizeof(addr);
 	int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+
+	if (sock < 0)
+		return -1;
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sin6_family = AF_INET6;
+	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &addr.sin6_addr);
+	addr.sin6_scope_id = ifindex;
 
 	if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
 			!getsockname(sock, (struct sockaddr*)&addr, &alen)) {
 		*lladdr = addr.sin6_addr;
-		status = 0;
+		ret = 0;
 	}
 
 	close(sock);
-
-	return status;
+	return ret;
 }
 
 /*

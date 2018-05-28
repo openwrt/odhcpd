@@ -120,7 +120,7 @@ int main(int argc, char **argv)
 }
 
 
-// Read IPv6 MTU for interface
+/* Read IPv6 MTU for interface */
 int odhcpd_get_interface_config(const char *ifname, const char *what)
 {
 	char buf[64];
@@ -139,7 +139,7 @@ int odhcpd_get_interface_config(const char *ifname, const char *what)
 }
 
 
-// Read IPv6 MAC for interface
+/* Read IPv6 MAC for interface */
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6])
 {
 	struct ifreq ifr;
@@ -154,12 +154,12 @@ int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6])
 }
 
 
-// Forwards a packet on a specific interface
+/* Forwards a packet on a specific interface */
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface)
 {
-	// Construct headers
+	/* Construct headers */
 	uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
 	struct msghdr msg = {
 		.msg_name = (void *) dest,
@@ -171,7 +171,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		.msg_flags = 0
 	};
 
-	// Set control data (define destination interface)
+	/* Set control data (define destination interface) */
 	struct cmsghdr *chdr = CMSG_FIRSTHDR(&msg);
 	chdr->cmsg_level = IPPROTO_IPV6;
 	chdr->cmsg_type = IPV6_PKTINFO;
@@ -179,7 +179,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 	struct in6_pktinfo *pktinfo = (struct in6_pktinfo*)CMSG_DATA(chdr);
 	pktinfo->ipi6_ifindex = iface->ifindex;
 
-	// Also set scope ID if link-local
+	/* Also set scope ID if link-local */
 	if (IN6_IS_ADDR_LINKLOCAL(&dest->sin6_addr)
 			|| IN6_IS_ADDR_MC_LINKLOCAL(&dest->sin6_addr))
 		dest->sin6_scope_id = iface->ifindex;
@@ -301,7 +301,7 @@ struct interface* odhcpd_get_master_interface(void)
 }
 
 
-// Convenience function to receive and do basic validation of packets
+/* Convenience function to receive and do basic validation of packets */
 static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int events)
 {
 	struct odhcpd_event *e = container_of(u, struct odhcpd_event, uloop);
@@ -349,7 +349,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		}
 
 
-		// Extract destination interface
+		/* Extract destination interface */
 		int destiface = 0;
 		int *hlim = NULL;
 		void *dest = NULL;
@@ -372,11 +372,11 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 			}
 		}
 
-		// Check hoplimit if received
+		/* Check hoplimit if received */
 		if (hlim && *hlim != 255)
 			continue;
 
-		// Detect interface for packet sockets
+		/* Detect interface for packet sockets */
 		if (addr.ll.sll_family == AF_PACKET)
 			destiface = addr.ll.sll_ifindex;
 
@@ -389,7 +389,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 		else if (addr.in.sin_family == AF_INET)
 			inet_ntop(AF_INET, &addr.in.sin_addr, ipbuf, sizeof(ipbuf));
 
-		// From netlink
+		/* From netlink */
 		if (addr.nl.nl_family == AF_NETLINK) {
 			syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
 					ipbuf, "netlink");
@@ -412,7 +412,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 	}
 }
 
-// Register events for the multiplexer
+/* Register events for the multiplexer */
 int odhcpd_register(struct odhcpd_event *event)
 {
 	event->uloop.cb = odhcpd_receive_packets;

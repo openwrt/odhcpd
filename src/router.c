@@ -48,7 +48,7 @@ int router_init(void)
 	struct icmp6_filter filt;
 	int ret = 0;
 
-	// Open ICMPv6 socket
+	/* Open ICMPv6 socket */
 	router_event.uloop.fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (router_event.uloop.fd < 0) {
 		syslog(LOG_ERR, "socket(AF_INET6): %m");
@@ -56,7 +56,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// Let the kernel compute our checksums
+	/* Let the kernel compute our checksums */
 	int val = 2;
 	if (setsockopt(router_event.uloop.fd, IPPROTO_RAW, IPV6_CHECKSUM,
 				&val, sizeof(val)) < 0) {
@@ -65,7 +65,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// This is required by RFC 4861
+	/* This is required by RFC 4861 */
 	val = 255;
 	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
 				&val, sizeof(val)) < 0) {
@@ -81,7 +81,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// We need to know the source interface
+	/* We need to know the source interface */
 	val = 1;
 	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
 				&val, sizeof(val)) < 0) {
@@ -97,7 +97,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// Don't loop back
+	/* Don't loop back */
 	val = 0;
 	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
 				&val, sizeof(val)) < 0) {
@@ -106,7 +106,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// Filter ICMPv6 package types
+	/* Filter ICMPv6 package types */
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
 	ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
@@ -129,7 +129,7 @@ int router_init(void)
 		goto out;
 	}
 
-	// Register socket
+	/* Register socket */
 	odhcpd_register(&router_event);
 out:
 	if (ret < 0) {
@@ -253,12 +253,12 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 				hdr->icmp6_type == ND_ROUTER_SOLICIT)
 			return false;
 
-	// Check all options parsed successfully
+	/* Check all options parsed successfully */
 	return opt == end;
 }
 
 
-// Detect whether a default route exists, also find the source prefixes
+/* Detect whether a default route exists, also find the source prefixes */
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
 	rewind(fp_route);
@@ -350,7 +350,7 @@ enum {
 	IOV_RA_TOTAL,
 };
 
-// Router Advert server mode
+/* Router Advert server mode */
 static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
 	time_t now = odhcpd_time();
@@ -396,14 +396,14 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
-	// If not currently shutting down
+	/* If not currently shutting down */
 	struct odhcpd_ipaddr *addrs = NULL;
 	ssize_t ipcnt = 0;
 	uint32_t minvalid = UINT32_MAX;
 	bool default_route = false;
 	bool valid_prefix = false;
 
-	// If not shutdown
+	/* If not shutdown */
 	if (iface->timer_rs.cb) {
 		size_t size = sizeof(*addrs) * iface->addr6_len;
 		addrs = alloca(size);
@@ -411,7 +411,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 		ipcnt = iface->addr6_len;
 
-		// Check default route
+		/* Check default route */
 		if (iface->default_router) {
 			default_route = true;
 
@@ -427,7 +427,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	odhcpd_get_interface_dns_addr(iface, &dns_pref);
 
-	// Construct Prefix Information options
+	/* Construct Prefix Information options */
 	size_t pfxs_cnt = 0;
 	struct nd_opt_prefix_info *pfxs = NULL;
 
@@ -506,7 +506,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		p->nd_opt_pi_valid_time = htonl(valid);
 	}
 
-	// Calculate periodic transmit
+	/* Calculate periodic transmit */
 	uint32_t maxival;
 	int msecs = calc_adv_interval(iface, minvalid, &maxival);
 
@@ -523,7 +523,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->ifname);
 
-	// DNS Recursive DNS
+	/* DNS Recursive DNS */
 	if (iface->dns_cnt > 0) {
 		dns_addr = iface->dns;
 		dns_cnt = iface->dns_cnt;
@@ -540,7 +540,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		uint32_t lifetime;
 	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, 0};
 
-	// DNS Search options
+	/* DNS Search options */
 	uint8_t search_buf[256], *search_domain = iface->search;
 	size_t search_len = iface->search_len, search_padded = 0;
 
@@ -663,13 +663,13 @@ static void trigger_router_advert(struct uloop_timeout *event)
 	struct interface *iface = container_of(event, struct interface, timer_rs);
 	int msecs = send_router_advert(iface, NULL);
 
-	// Rearm timer if not shut down
+	/* Rearm timer if not shut down */
 	if (event->cb)
 		uloop_timeout_set(event, msecs);
 }
 
 
-// Event handler for incoming ICMPv6 packets
+/* Event handler for incoming ICMPv6 packets */
 static void handle_icmpv6(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest)
 {
@@ -679,10 +679,10 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 	if (!router_icmpv6_valid(addr, data, len))
 		return;
 
-	if ((iface->ra == MODE_SERVER && !iface->master)) { // Server mode
+	if ((iface->ra == MODE_SERVER && !iface->master)) { /* Server mode */
 		if (hdr->icmp6_type == ND_ROUTER_SOLICIT)
 			send_router_advert(iface, &from->sin6_addr);
-	} else if (iface->ra == MODE_RELAY) { // Relay mode
+	} else if (iface->ra == MODE_RELAY) { /* Relay mode */
 		if (hdr->icmp6_type == ND_ROUTER_ADVERT && iface->master)
 			forward_router_advertisement(data, len);
 		else if (hdr->icmp6_type == ND_ROUTER_SOLICIT && !iface->master)
@@ -691,7 +691,7 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 }
 
 
-// Forward router solicitation
+/* Forward router solicitation */
 static void forward_router_solicitation(const struct interface *iface)
 {
 	struct icmp6_hdr rs = {ND_ROUTER_SOLICIT, 0, 0, {{0}}};
@@ -711,13 +711,13 @@ static void forward_router_solicitation(const struct interface *iface)
 }
 
 
-// Handler for incoming router solicitations on slave interfaces
+/* Handler for incoming router solicitations on slave interfaces */
 static void forward_router_advertisement(uint8_t *data, size_t len)
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;
 	struct sockaddr_in6 all_nodes;
 
-	// Rewrite options
+	/* Rewrite options */
 	uint8_t *end = data + len;
 	uint8_t *mac_ptr = NULL;
 	struct in6_addr *dns_ptr = NULL;
@@ -726,10 +726,10 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 	struct icmpv6_opt *opt;
 	icmpv6_for_each_option(opt, &adv[1], end) {
 		if (opt->type == ND_OPT_SOURCE_LINKADDR) {
-			// Store address of source MAC-address
+			/* Store address of source MAC-address */
 			mac_ptr = opt->data;
 		} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 1) {
-			// Check if we have to rewrite DNS
+			/* Check if we have to rewrite DNS */
 			dns_ptr = (struct in6_addr*)&opt->data[6];
 			dns_count = (opt->len - 1) / 2;
 		}
@@ -737,10 +737,10 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 
 	syslog(LOG_NOTICE, "Got a RA");
 
-	// Indicate a proxy, however we don't follow the rest of RFC 4389 yet
+	/* Indicate a proxy, however we don't follow the rest of RFC 4389 yet */
 	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
 
-	// Forward advertisement to all slave interfaces
+	/* Forward advertisement to all slave interfaces */
 	memset(&all_nodes, 0, sizeof(all_nodes));
 	all_nodes.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ALL_IPV6_NODES, &all_nodes.sin6_addr);
@@ -752,11 +752,11 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 		if (iface->ra != MODE_RELAY || iface->master)
 			continue;
 
-		// Fixup source hardware address option
+		/* Fixup source hardware address option */
 		if (mac_ptr)
 			odhcpd_get_mac(iface, mac_ptr);
 
-		// If we have to rewrite DNS entries
+		/* If we have to rewrite DNS entries */
 		if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
 			const struct in6_addr *rewrite = iface->dns;
 			struct in6_addr addr;
@@ -764,13 +764,13 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 
 			if (rewrite_cnt == 0) {
 				if (odhcpd_get_interface_dns_addr(iface, &addr))
-					continue; // Unable to comply
+					continue; /* Unable to comply */
 
 				rewrite = &addr;
 				rewrite_cnt = 1;
 			}
 
-			// Copy over any other addresses
+			/* Copy over any other addresses */
 			for (size_t i = 0; i < dns_count; ++i) {
 				size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
 				dns_ptr[i] = rewrite[j];

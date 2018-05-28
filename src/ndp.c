@@ -41,7 +41,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 static int ping_socket = -1;
 
-// Filter ICMPv6 messages of type neighbor soliciation
+/* Filter ICMPv6 messages of type neighbor soliciation */
 static struct sock_filter bpf[] = {
 	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, offsetof(struct ip6_hdr, ip6_nxt)),
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_ICMPV6, 0, 3),
@@ -54,13 +54,13 @@ static struct sock_filter bpf[] = {
 static const struct sock_fprog bpf_prog = {sizeof(bpf) / sizeof(*bpf), bpf};
 static struct netevent_handler ndp_netevent_handler = { .cb = ndp_netevent_cb, };
 
-// Initialize NDP-proxy
+/* Initialize NDP-proxy */
 int ndp_init(void)
 {
 	struct icmp6_filter filt;
 	int val = 2, ret = 0;
 
-	// Open ICMPv6 socket
+	/* Open ICMPv6 socket */
 	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
 	if (ping_socket < 0) {
 		syslog(LOG_ERR, "socket(AF_INET6): %m");
@@ -75,7 +75,7 @@ int ndp_init(void)
 		goto out;
 	}
 
-	// This is required by RFC 4861
+	/* This is required by RFC 4861 */
 	val = 255;
 	if (setsockopt(ping_socket, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
 				&val, sizeof(val)) < 0) {
@@ -91,7 +91,7 @@ int ndp_init(void)
 		goto out;
 	}
 
-	// Filter all packages, we only want to send
+	/* Filter all packages, we only want to send */
 	ICMP6_FILTER_SETBLOCKALL(&filt);
 	if (setsockopt(ping_socket, IPPROTO_ICMPV6, ICMP6_FILTER,
 				&filt, sizeof(filt)) < 0) {
@@ -192,7 +192,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		iface->ndp_event.handle_dgram = handle_solicit;
 		odhcpd_register(&iface->ndp_event);
 
-		// If we already were enabled dump is unnecessary, if not do dump
+		/* If we already were enabled dump is unnecessary, if not do dump */
 		if (!dump_neigh)
 			netlink_dump_neigh_table(false);
 		else
@@ -259,8 +259,8 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 	}
 }
 
-// Send an ICMP-ECHO. This is less for actually pinging but for the
-// neighbor cache to be kept up-to-date.
+/* Send an ICMP-ECHO. This is less for actually pinging but for the
+ * neighbor cache to be kept up-to-date. */
 static void ping6(struct in6_addr *addr,
 		const struct interface *iface)
 {
@@ -277,7 +277,7 @@ static void ping6(struct in6_addr *addr,
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, false);
 }
 
-// Handle solicitations
+/* Handle solicitations */
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest)
 {
@@ -287,12 +287,12 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	char ipbuf[INET6_ADDRSTRLEN];
 	uint8_t mac[6];
 
-	// Solicitation is for duplicate address detection
+	/* Solicitation is for duplicate address detection */
 	bool ns_is_dad = IN6_IS_ADDR_UNSPECIFIED(&ip6->ip6_src);
 
-	// Don't process solicit messages on non relay interfaces
-	// Don't forward any non-DAD solicitation for external ifaces
-	// TODO: check if we should even forward DADs for them
+	/* Don't process solicit messages on non relay interfaces
+	 * Don't forward any non-DAD solicitation for external ifaces
+	 * TODO: check if we should even forward DADs for them */
 	if (iface->ndp != MODE_RELAY || (iface->external && !ns_is_dad))
 		return;
 
@@ -302,14 +302,14 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	if (IN6_IS_ADDR_LINKLOCAL(&req->nd_ns_target) ||
 			IN6_IS_ADDR_LOOPBACK(&req->nd_ns_target) ||
 			IN6_IS_ADDR_MULTICAST(&req->nd_ns_target))
-		return; // Invalid target
+		return; /* Invalid target */
 
 	inet_ntop(AF_INET6, &req->nd_ns_target, ipbuf, sizeof(ipbuf));
 	syslog(LOG_DEBUG, "Got a NS for %s%%%s", ipbuf, iface->ifname);
 
 	odhcpd_get_mac(iface, mac);
 	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
-		return; // Looped back
+		return; /* Looped back */
 
 	struct interface *c;
 	list_for_each_entry(c, &interfaces, head)
@@ -318,7 +318,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 			ping6(&req->nd_ns_target, c);
 }
 
-// Use rtnetlink to modify kernel routes
+/* Use rtnetlink to modify kernel routes */
 static void setup_route(struct in6_addr *addr, struct interface *iface, bool add)
 {
 	char ipbuf[INET6_ADDRSTRLEN];

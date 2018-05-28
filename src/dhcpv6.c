@@ -34,7 +34,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
 
 
-// Create socket and register events
+/* Create socket and register events */
 int dhcpv6_init(void)
 {
 	dhcpv6_ia_init();
@@ -51,7 +51,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 		iface->dhcpv6_event.uloop.fd = -1;
 	}
 
-	// Configure multicast settings
+	/* Configure multicast settings */
 	if (enable && iface->dhcpv6) {
 		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 					0, IN6ADDR_ANY_INIT, 0};
@@ -65,7 +65,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 			goto out;
 		}
 
-		// Basic IPv6 configuration
+		/* Basic IPv6 configuration */
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
 					iface->ifname, strlen(iface->ifname)) < 0) {
 			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
@@ -228,7 +228,7 @@ static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
 	}
 }
 
-// Simple DHCPv6-server for information requests
+/* Simple DHCPv6-server for information requests */
 static void handle_client_request(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr)
 {
@@ -239,7 +239,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	syslog(LOG_NOTICE, "Got DHCPv6 request");
 
-	// Construct reply message
+	/* Construct reply message */
 	struct __attribute__((packed)) {
 		uint8_t msg_type;
 		uint8_t tr_id[3];
@@ -299,7 +299,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 
 
-	// DNS Search options
+	/* DNS Search options */
 	uint8_t search_buf[256], *search_domain = iface->search;
 	size_t search_len = iface->search_len;
 
@@ -362,11 +362,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		iov[IOV_REFRESH].iov_base = &refresh;
 		iov[IOV_REFRESH].iov_len = sizeof(refresh);
 
-		// Return inf max rt option in reply to information request
+		/* Return inf max rt option in reply to information request */
 		maxrt.type = htons(DHCPV6_OPT_INF_MAX_RT);
 	}
 
-	// Go through options and find what we need
+	/* Go through options and find what we need */
 	uint16_t otype, olen;
 	uint8_t *odata;
 	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
@@ -377,13 +377,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		} else if (otype == DHCPV6_OPT_SERVERID) {
 			if (olen != ntohs(dest.serverid_length) ||
 					memcmp(odata, &dest.duid_type, olen))
-				return; // Not for us
+				return; /* Not for us */
 		} else if (iface->filter_class && otype == DHCPV6_OPT_USER_CLASS) {
 			uint8_t *c = odata, *cend = &odata[olen];
 			for (; &c[2] <= cend && &c[2 + (c[0] << 8) + c[1]] <= cend; c = &c[2 + (c[0] << 8) + c[1]]) {
 				size_t elen = strlen(iface->filter_class);
 				if (((((size_t)c[0]) << 8) | c[1]) == elen && !memcmp(&c[2], iface->filter_class, elen))
-					return; // Ignore from homenet
+					return; /* Ignore from homenet */
 			}
 		} else if (otype == DHCPV6_OPT_IA_PD) {
 #ifdef EXT_CER_ID
@@ -424,7 +424,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			return;
 	}
 
-	if (iov[IOV_NESTED].iov_len > 0) // Update length
+	if (iov[IOV_NESTED].iov_len > 0) /* Update length */
 		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
 				iov[IOV_DNS].iov_len + iov[IOV_DNS_ADDR].iov_len +
 				iov[IOV_SEARCH].iov_len + iov[IOV_SEARCH_DOMAIN].iov_len +
@@ -435,7 +435,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 }
 
 
-// Central DHCPv6-relay handler
+/* Central DHCPv6-relay handler */
 static void handle_dhcpv6(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr)
 {
@@ -450,10 +450,10 @@ static void handle_dhcpv6(void *addr, void *data, size_t len,
 }
 
 
-// Relay server response (regular relay server handling)
+/* Relay server response (regular relay server handling) */
 static void relay_server_response(uint8_t *data, size_t len)
 {
-	// Information we need to gather
+	/* Information we need to gather */
 	uint8_t *payload_data = NULL;
 	size_t payload_len = 0;
 	int32_t ifaceidx = 0;
@@ -465,7 +465,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	int otype, olen;
 	uint8_t *odata, *end = data + len;
 
-	// Relay DHCPv6 reply from server to client
+	/* Relay DHCPv6 reply from server to client */
 	struct dhcpv6_relay_header *h = (void*)data;
 	if (len < sizeof(*h) || h->msg_type != DHCPV6_MSG_RELAY_REPL)
 		return;
@@ -473,7 +473,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	memcpy(&target.sin6_addr, &h->peer_address,
 			sizeof(struct in6_addr));
 
-	// Go through options and find what we need
+	/* Go through options and find what we need */
 	dhcpv6_for_each_option(h->options, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_INTERFACE_ID
 				&& olen == sizeof(ifaceidx)) {
@@ -484,7 +484,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 		}
 	}
 
-	// Invalid interface-id or basic payload
+	/* Invalid interface-id or basic payload */
 	struct interface *iface = odhcpd_get_interface_by_index(ifaceidx);
 	if (!iface || iface->master || !payload_data || payload_len < 4)
 		return;
@@ -493,10 +493,10 @@ static void relay_server_response(uint8_t *data, size_t len)
 	struct in6_addr *dns_ptr = NULL;
 	size_t dns_count = 0;
 
-	// If the payload is relay-reply we have to send to the server port
+	/* If the payload is relay-reply we have to send to the server port */
 	if (payload_data[0] == DHCPV6_MSG_RELAY_REPL) {
 		target.sin6_port = htons(DHCPV6_SERVER_PORT);
-	} else { // Go through the payload data
+	} else { /* Go through the payload data */
 		struct dhcpv6_client_header *h = (void*)payload_data;
 		end = payload_data + payload_len;
 
@@ -510,10 +510,10 @@ static void relay_server_response(uint8_t *data, size_t len)
 		}
 	}
 
-	// Rewrite DNS servers if requested
+	/* Rewrite DNS servers if requested */
 	if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
 		if (is_authenticated)
-			return; // Impossible to rewrite
+			return; /* Impossible to rewrite */
 
 		const struct in6_addr *rewrite = iface->dns;
 		struct in6_addr addr;
@@ -527,7 +527,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 			rewrite_cnt = 1;
 		}
 
-		// Copy over any other addresses
+		/* Copy over any other addresses */
 		for (size_t i = 0; i < dns_count; ++i) {
 			size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
 			memcpy(&dns_ptr[i], &rewrite[j], sizeof(*rewrite));
@@ -559,7 +559,7 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 	return addr;
 }
 
-// Relay client request (regular DHCPv6-relay)
+/* Relay client request (regular DHCPv6-relay) */
 static void relay_client_request(struct sockaddr_in6 *source,
 		const void *data, size_t len, struct interface *iface)
 {
@@ -572,11 +572,11 @@ static void relay_client_request(struct sockaddr_in6 *source,
 			h->msg_type == DHCPV6_MSG_RECONFIGURE ||
 			h->msg_type == DHCPV6_MSG_REPLY ||
 			h->msg_type == DHCPV6_MSG_ADVERTISE)
-		return; // Invalid message types for client
+		return; /* Invalid message types for client */
 
 	syslog(LOG_NOTICE, "Got a DHCPv6-request");
 
-	// Construct our forwarding envelope
+	/* Construct our forwarding envelope */
 	struct dhcpv6_relay_forward_envelope hdr = {
 		.msg_type = DHCPV6_MSG_RELAY_FORW,
 		.hop_count = 0,
@@ -586,29 +586,29 @@ static void relay_client_request(struct sockaddr_in6 *source,
 		.relay_message_len = htons(len),
 	};
 
-	if (h->msg_type == DHCPV6_MSG_RELAY_FORW) { // handle relay-forward
+	if (h->msg_type == DHCPV6_MSG_RELAY_FORW) { /* handle relay-forward */
 		if (h->hop_count >= DHCPV6_HOP_COUNT_LIMIT)
 			return; // Invalid hop count
 		else
 			hdr.hop_count = h->hop_count + 1;
 	}
 
-	// use memcpy here as the destination fields are unaligned
+	/* use memcpy here as the destination fields are unaligned */
 	uint32_t ifindex = iface->ifindex;
 	memcpy(&hdr.peer_address, &source->sin6_addr, sizeof(struct in6_addr));
 	memcpy(&hdr.interface_id_data, &ifindex, sizeof(ifindex));
 
-	// Detect public IP of slave interface to use as link-address
+	/* Detect public IP of slave interface to use as link-address */
 	struct odhcpd_ipaddr *ip = relay_link_address(iface);
 	if (!ip) {
-		// No suitable address! Is the slave not configured yet?
-		// Detect public IP of master interface and use it instead
-		// This is WRONG and probably violates the RFC. However
-		// otherwise we have a hen and egg problem because the
-		// slave-interface cannot be auto-configured.
+		/* No suitable address! Is the slave not configured yet?
+		 * Detect public IP of master interface and use it instead
+		 * This is WRONG and probably violates the RFC. However
+		 * otherwise we have a hen and egg problem because the
+		 * slave-interface cannot be auto-configured. */
 		ip = relay_link_address(master);
 		if (!ip)
-			return; // Could not obtain a suitable address
+			return; /* Could not obtain a suitable address */
 	}
 
 	memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));

@@ -623,7 +623,7 @@ static void dhcpv4_fr_stop(struct dhcpv4_assignment *a)
 	a->fr_timer.cb = NULL;
 }
 
-// Handler for DHCPv4 messages
+/* Handler for DHCPv4 messages */
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr)
 {
@@ -938,7 +938,7 @@ static bool dhcpv4_assign(struct interface *iface,
 	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
 	uint32_t count = end - start + 1;
 
-	// try to assign the IP the client asked for
+	/* try to assign the IP the client asked for */
 	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
 			!find_assignment_by_addr(iface, raddr)) {
 		assign->addr = raddr;
@@ -950,10 +950,10 @@ static bool dhcpv4_assign(struct interface *iface,
 		return true;
 	}
 
-	// Seed RNG with checksum of hwaddress
+	/* Seed RNG with checksum of hwaddress */
 	uint32_t seed = 0;
 	for (size_t i = 0; i < sizeof(assign->hwaddr); ++i) {
-		// Knuth's multiplicative method
+		/* Knuth's multiplicative method */
 		uint8_t o = assign->hwaddr[i];
 		seed += (o*2654435761) % UINT32_MAX;
 	}

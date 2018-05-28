@@ -78,7 +78,7 @@ int netlink_init(void)
 	nl_socket_modify_cb(rtnl_event.sock, NL_CB_VALID, NL_CB_CUSTOM,
 			cb_rtnl_valid, NULL);
 
-	// Receive IPv4 address, IPv6 address, IPv6 routes and neighbor events
+	/* Receive IPv4 address, IPv6 address, IPv6 routes and neighbor events */
 	if (nl_socket_add_memberships(rtnl_event.sock, RTNLGRP_IPV4_IFADDR,
 				RTNLGRP_IPV6_IFADDR, RTNLGRP_IPV6_ROUTE,
 				RTNLGRP_NEIGH, RTNLGRP_LINK, 0))
@@ -184,8 +184,8 @@ static void refresh_iface_addr6(struct netevent_handler_info *event_info)
 	free(event_info->addrs_old.addrs);
 }
 
-// Handler for neighbor cache entries from the kernel. This is our source
-// to learn and unlearn hosts on interfaces.
+/* Handler for neighbor cache entries from the kernel. This is our source
+ * to learn and unlearn hosts on interfaces. */
 static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 {
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
@@ -500,7 +500,7 @@ static int prefix_cmp(const void *va, const void *vb)
 }
 
 
-// compare IPv6 prefixes
+/* compare IPv6 prefixes */
 static int prefix6_cmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
@@ -510,7 +510,7 @@ static int prefix6_cmp(const void *va, const void *vb)
 }
 
 
-// Detect an IPV6-address currently assigned to the given interface
+/* Detect an IPV6-address currently assigned to the given interface */
 ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr **addrs)
 {
 	struct nl_msg *msg;

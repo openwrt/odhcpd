@@ -128,6 +128,9 @@ int odhcpd_get_interface_config(const char *ifname, const char *what)
 	snprintf(buf, sizeof(buf), sysctl_pattern, ifname, what);
 
 	int fd = open(buf, O_RDONLY);
+	if (fd < 0)
+		return -1;
+
 	ssize_t len = read(fd, buf, sizeof(buf) - 1);
 	close(fd);
 

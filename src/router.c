@@ -569,9 +569,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
 	search->pad = 0;
 	search->pad2 = 0;
-	memcpy(search->name, search_domain, search_len);
-	memset(&search->name[search_len], 0, search_padded - search_len);
 
+	if (search_len > 0) {
+		memcpy(search->name, search_domain, search_len);
+		memset(&search->name[search_len], 0, search_padded - search_len);
+	}
 
 	size_t routes_cnt = 0;
 	struct {

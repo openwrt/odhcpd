@@ -1011,9 +1011,6 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	const char *type = "UNKNOWN";
 	const char *status = "UNKNOWN";
 
-	if (msgtype == DHCPV6_MSG_RENEW)
-		return;
-
 	switch (msgtype) {
 	case DHCPV6_MSG_SOLICIT:
 		type = "SOLICIT";

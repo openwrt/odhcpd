@@ -174,7 +174,7 @@ enum {
 };
 
 static void handle_nested_message(uint8_t *data, size_t len,
-		uint8_t **opts, uint8_t **end, struct iovec iov[IOV_TOTAL - 1])
+		uint8_t **opts, uint8_t **end, struct iovec iov[IOV_TOTAL])
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
 	if (iov[IOV_NESTED].iov_base == NULL) {

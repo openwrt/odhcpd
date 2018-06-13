@@ -320,9 +320,9 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 	if (u->error) {
 		int ret = -1;
 		socklen_t ret_len = sizeof(ret);
-		getsockopt(u->fd, SOL_SOCKET, SO_ERROR, &ret, &ret_len);
+
 		u->error = false;
-		if (e->handle_error)
+		if (e->handle_error && getsockopt(u->fd, SOL_SOCKET, SO_ERROR, &ret, &ret_len) == 0)
 			e->handle_error(e, ret);
 	}
 

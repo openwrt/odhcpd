@@ -584,14 +584,13 @@ static void dhcpv4_fr_send(struct dhcpv4_assignment *a)
 	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	dest.sin_addr.s_addr = a->addr;
 
-	syslog(LOG_WARNING, "sending %s to %02x:%02x:%02x:%02x:%02x:%02x - %s",
-			dhcpv4_msg_to_string(msg),
-			a->hwaddr[0], a->hwaddr[1], a->hwaddr[2],
-			a->hwaddr[3], a->hwaddr[4], a->hwaddr[5],
-			inet_ntoa(dest.sin_addr));
-
-	sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, sizeof(fr_msg),
-			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest));
+	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, sizeof(fr_msg),
+			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
+		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
+			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
+	else
+		syslog(LOG_WARNING, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
+			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
 static void dhcpv4_fr_timer(struct uloop_timeout *event)
@@ -762,10 +761,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	syslog(LOG_WARNING, "received %s from %02x:%02x:%02x:%02x:%02x:%02x",
-			dhcpv4_msg_to_string(reqmsg),
-			req->chaddr[0],req->chaddr[1],req->chaddr[2],
-			req->chaddr[3],req->chaddr[4],req->chaddr[5]);
+	syslog(LOG_WARNING, "received %s from %s", dhcpv4_msg_to_string(reqmsg),
+			odhcpd_print_mac(req->chaddr, req->hlen));
 
 #ifdef WITH_UBUS
 	if (reqmsg == DHCPV4_MSG_RELEASE)
@@ -905,24 +902,21 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		ioctl(sock, SIOCSARP, &arp);
 	}
 
-	if (dest.sin_addr.s_addr == INADDR_BROADCAST)
-		/* reply goes to IP broadcast -> MAC broadcast */
-		syslog(LOG_WARNING, "sending %s to ff:ff:ff:ff:ff:ff - %s",
-				dhcpv4_msg_to_string(msg),
-				inet_ntoa(dest.sin_addr));
-	else
-		/*
-		 * reply is send directly to IP,
-		 * MAC is assumed to be the same as the request
-		 */
-		syslog(LOG_WARNING, "sending %s to %02x:%02x:%02x:%02x:%02x:%02x - %s",
-				dhcpv4_msg_to_string(msg),
-				req->chaddr[0],req->chaddr[1],req->chaddr[2],
-				req->chaddr[3],req->chaddr[4],req->chaddr[5],
-				inet_ntoa(dest.sin_addr));
 
-	sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
-			(struct sockaddr*)&dest, sizeof(dest));
+	if (sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
+			(struct sockaddr*)&dest, sizeof(dest)) < 0)
+		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
+			dhcpv4_msg_to_string(msg),
+			dest.sin_addr.s_addr == INADDR_BROADCAST ?
+			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+			inet_ntoa(dest.sin_addr));
+	else
+		syslog(LOG_ERR, "Sent %s to %s - %s",
+			dhcpv4_msg_to_string(msg),
+			dest.sin_addr.s_addr == INADDR_BROADCAST ?
+			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+			inet_ntoa(dest.sin_addr));
+
 
 #ifdef WITH_UBUS
 	if (msg == DHCPV4_MSG_ACK)

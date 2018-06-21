@@ -43,6 +43,7 @@ static void valid_until_cb(struct uloop_timeout *event);
 static void handle_addrlist_change(struct interface *iface);
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_start(struct dhcpv4_assignment *a);
+static void dhcpv4_fr_rand_delay(struct dhcpv4_assignment *a);
 static void dhcpv4_fr_stop(struct dhcpv4_assignment *a);
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
@@ -461,7 +462,7 @@ static void handle_addrlist_change(struct interface *iface)
 	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 		if ((c->flags & OAF_BOUND) && c->fr_ip && !c->fr_cnt) {
 			if (c->accept_fr_nonce || iface->dhcpv4_forcereconf)
-				dhcpv4_fr_start(c);
+				dhcpv4_fr_rand_delay(c);
 			else
 				dhcpv4_fr_stop(c);
 		}
@@ -628,6 +629,28 @@ static void dhcpv4_fr_start(struct dhcpv4_assignment *a)
 	a->fr_cnt++;
 
 	dhcpv4_fr_send(a);
+}
+
+static void dhcpv4_fr_delay_timer(struct uloop_timeout *event)
+{
+	struct dhcpv4_assignment *a = container_of(event, struct dhcpv4_assignment, fr_timer);
+	struct interface *iface = a->iface;
+
+	(iface->dhcpv4_event.uloop.fd == -1 ? dhcpv4_fr_rand_delay(a) : dhcpv4_fr_start(a));
+}
+
+static void dhcpv4_fr_rand_delay(struct dhcpv4_assignment *a)
+{
+#define MIN_DELAY   500
+#define MAX_FUZZ    500
+	int msecs;
+
+	odhcpd_urandom(&msecs, sizeof(msecs));
+
+	msecs = labs(msecs)%MAX_FUZZ + MIN_DELAY;
+
+	uloop_timeout_set(&a->fr_timer, msecs);
+	a->fr_timer.cb = dhcpv4_fr_delay_timer;
 }
 
 static void dhcpv4_fr_stop(struct dhcpv4_assignment *a)

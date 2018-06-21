@@ -38,6 +38,7 @@
 static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static int setup_dhcpv4_addresses(struct interface *iface);
 static void update_static_assignments(struct interface *iface);
+static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
 static void valid_until_cb(struct uloop_timeout *event);
 static void handle_addrlist_change(struct interface *iface);
 static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
@@ -243,6 +244,9 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 		struct in_addr *addr = &iface->addr4[i].addr.in;
 		struct in_addr mask;
 
+		if (addr_is_fr_ip(iface, addr))
+			continue;
+
 		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
 		if ((start & ntohl(~mask.s_addr)) == start &&
 			    (end & ntohl(~mask.s_addr)) == end) {
@@ -367,6 +371,18 @@ static void decr_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct interface *iface)
 	}
 
 	*ptr = NULL;
+}
+
+static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr)
+{
+	struct odhcpd_ref_ip *p;
+
+	list_for_each_entry(p, &iface->dhcpv4_fr_ips, head) {
+		if (addr->s_addr == p->addr.addr.in.s_addr)
+			return true;
+	}
+
+	return false;
 }
 
 static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *addr,

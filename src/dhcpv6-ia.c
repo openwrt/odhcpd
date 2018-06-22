@@ -581,7 +581,9 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 	if (iface->dhcpv6_pd_manager[0]) {
 		int fd = usock(USOCK_UNIX | USOCK_TCP, iface->dhcpv6_pd_manager, NULL);
 		if (fd >= 0) {
+			struct pollfd pfd = { .fd = fd, .events = POLLIN };
 			char iaidbuf[298];
+
 			odhcpd_hexlify(iaidbuf, assign->clid_data, assign->clid_len);
 
 			assign->managed_sock.stream.notify_read = managed_handle_pd_data;
@@ -598,8 +600,11 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_assignment *assign)
 			list_add(&assign->head, &iface->ia_assignments);
 
 			/* Wait initial period of up to 250ms for immediate assignment */
-			struct pollfd pfd = { .fd = fd, .events = POLLIN };
-			poll(&pfd, 1, 250);
+			if (poll(&pfd, 1, 250) < 0) {
+				syslog(LOG_ERR, "poll(): %m");
+				return false;
+			}
+
 			managed_handle_pd_data(&assign->managed_sock.stream, 0);
 
 			if (fcntl(fd, F_GETFL) >= 0 && assign->managed_size > 0)

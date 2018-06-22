@@ -728,7 +728,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		char *delim;
 		int l;
 		if (!astr || !strcpy(astr, str) ||
-				(delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
+				(delim = strchr(astr, '/')) == NULL || (*(delim++) == 0) ||
 				sscanf(delim, "%i", &l) == 0 || l > 128 ||
 				inet_pton(AF_INET6, astr, &iface->pio_filter_addr) == 0) {
 			iface->pio_filter_length = 0;

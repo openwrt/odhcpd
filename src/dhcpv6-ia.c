@@ -41,6 +41,7 @@
 
 static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static void free_dhcpv6_assignment(struct dhcpv6_assignment *c);
+static void set_border_assignment_size(struct interface *iface, struct dhcpv6_assignment *b);
 static void handle_addrlist_change(struct netevent_handler_info *info);
 static void start_reconf(struct dhcpv6_assignment *a);
 static void stop_reconf(struct dhcpv6_assignment *a);
@@ -72,11 +73,15 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 	}
 
 	if (enable && iface->dhcpv6 == MODE_SERVER) {
+		struct dhcpv6_assignment *border;
+		struct lease *lease;
+
 		if (!iface->ia_assignments.next)
 			INIT_LIST_HEAD(&iface->ia_assignments);
 
 		if (list_empty(&iface->ia_assignments)) {
-			struct dhcpv6_assignment *border = calloc(1, sizeof(*border));
+			border = calloc(1, sizeof(*border));
+
 			if (!border) {
 				syslog(LOG_ERR, "Calloc failed for border on interface %s", iface->ifname);
 				return -1;
@@ -84,10 +89,12 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 
 			border->length = 64;
 			list_add(&border->head, &iface->ia_assignments);
-		}
+		} else
+			border = list_last_entry(&iface->ia_assignments, struct dhcpv6_assignment, head);
+
+		set_border_assignment_size(iface, border);
 
 		/* Parse static entries */
-		struct lease *lease;
 		list_for_each_entry(lease, &leases, head) {
 			/* Construct entry */
 			size_t duid_len = lease->duid_len ? lease->duid_len : 14;
@@ -489,6 +496,25 @@ static void apply_lease(struct interface *iface, struct dhcpv6_assignment *a, bo
 	__apply_lease(iface, a, addrs, addrlen, add);
 }
 
+/* Set border assignment size based on the IPv6 address prefixes */
+static void set_border_assignment_size(struct interface *iface, struct dhcpv6_assignment *b)
+{
+	time_t now = odhcpd_time();
+	int minprefix = -1;
+
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		if (iface->addr6[i].preferred > (uint32_t)now &&
+				iface->addr6[i].prefix < 64 &&
+				iface->addr6[i].prefix > minprefix)
+			minprefix = iface->addr6[i].prefix;
+	}
+
+	if (minprefix > 32 && minprefix <= 64)
+		b->assigned = 1U << (64 - minprefix);
+	else
+		b->assigned = 0;
+}
+
 /* More data was received from TCP connection */
 static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 {
@@ -695,28 +721,18 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	struct interface *iface = info->iface;
 	struct dhcpv6_assignment *c, *d, *border = list_last_entry(
 			&iface->ia_assignments, struct dhcpv6_assignment, head);
+	struct list_head reassign = LIST_HEAD_INIT(reassign);
 	time_t now = odhcpd_time();
-	int minprefix = -1;
 
-	list_for_each_entry(c, &iface->ia_assignments, head)
+	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if (c != border && iface->ra_managed == RA_MANAGED_NO_MFLAG
 				&& (c->flags & OAF_BOUND))
 			__apply_lease(iface, c, info->addrs_old.addrs,
 					info->addrs_old.len, false);
-
-	for (size_t i = 0; i < iface->addr6_len; ++i) {
-		if (iface->addr6[i].preferred > (uint32_t)now &&
-				iface->addr6[i].prefix < 64 &&
-				iface->addr6[i].prefix > minprefix)
-			minprefix = iface->addr6[i].prefix;
 	}
 
-	if (minprefix > 32 && minprefix <= 64)
-		border->assigned = 1U << (64 - minprefix);
-	else
-		border->assigned = 0;
+	set_border_assignment_size(iface, border);
 
-	struct list_head reassign = LIST_HEAD_INIT(reassign);
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
 		if (c->clid_len == 0 || (!INFINITE_VALID(c->valid_until) && c->valid_until < now) ||
 				c->managed_size)
@@ -728,10 +744,11 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			apply_lease(iface, c, true);
 
 		if (c->accept_reconf && c->reconf_cnt == 0) {
+			struct dhcpv6_assignment *a;
+
 			start_reconf(c);
 
 			/* Leave all other assignments of that client alone */
-			struct dhcpv6_assignment *a;
 			list_for_each_entry(a, &iface->ia_assignments, head)
 				if (a != c && a->clid_len == c->clid_len &&
 						!memcmp(a->clid_data, c->clid_data, a->clid_len))

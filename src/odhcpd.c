@@ -91,6 +91,9 @@ int main(int argc, char **argv)
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 
+	if (ioctl_sock < 0)
+		return 4;
+
 	if ((urandom_fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC)) < 0)
 		return 4;
 

@@ -928,19 +928,21 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		dest.sin_addr.s_addr = INADDR_BROADCAST;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	} else {
+		struct arpreq arp = {.arp_flags = ATF_COM};
+
 		/*
 		 * send reply to the newly (in this proccess) allocated IP
 		 */
 		dest.sin_addr = reply.yiaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 
-		struct arpreq arp = {.arp_flags = ATF_COM};
 		memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
 		memcpy(&arp.arp_pa, &dest, sizeof(arp.arp_pa));
 		memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
-		ioctl(sock, SIOCSARP, &arp);
-	}
 
+		if (ioctl(sock, SIOCSARP, &arp) < 0)
+			syslog(LOG_ERR, "ioctl(SIOCSARP): %m");
+	}
 
 	if (sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest)) < 0)

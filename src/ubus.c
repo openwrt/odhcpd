@@ -225,7 +225,9 @@ static void update_netifd(bool subscribe)
 		ubus_subscribe(ubus, &netifd, objid);
 
 	ubus_abort_request(ubus, &req_dump);
-	if (!ubus_invoke_async(ubus, objid, "dump", NULL, &req_dump)) {
+	blob_buf_init(&b, 0);
+
+	if (!ubus_invoke_async(ubus, objid, "dump", b.head, &req_dump)) {
 		req_dump.data_cb = handle_dump;
 		ubus_complete_request_async(ubus, &req_dump);
 	}

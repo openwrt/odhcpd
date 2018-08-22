@@ -581,3 +581,38 @@ bool odhcpd_bitlen2netmask(bool inet6, unsigned int bits, void *mask)
 
 	return true;
 }
+
+bool odhcpd_valid_hostname(const char *name)
+{
+#define MAX_LABEL	63
+	const char *c, *label, *label_end;
+	int label_sz = 0;
+
+	for (c = name, label_sz = 0, label = name, label_end = name + strcspn(name, ".") - 1;
+			*c && label_sz <= MAX_LABEL; c++) {
+		if ((*c >= '0' && *c <= '9') ||
+		    (*c >= 'A' && *c <= 'Z') ||
+		    (*c >= 'a' && *c <= 'z')) {
+			label_sz++;
+			continue;
+		}
+
+		if ((*c == '_' || *c == '-') && c != label && c != label_end) {
+			label_sz++;
+			continue;
+		}
+
+		if (*c == '.') {
+			if (*(c + 1)) {
+				label = c + 1;
+				label_end = label + strcspn(label, ".") - 1;
+				label_sz = 0;
+			}
+			continue;
+		}
+
+		return false;
+	}
+
+	return (label_sz && label_sz <= MAX_LABEL ? true : false);
+}

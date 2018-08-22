@@ -129,9 +129,10 @@ enum odhcpd_mode {
 
 
 enum odhcpd_assignment_flags {
-	OAF_TENTATIVE	= (1 << 0),
-	OAF_BOUND	= (1 << 1),
-	OAF_STATIC	= (1 << 2),
+	OAF_TENTATIVE		= (1 << 0),
+	OAF_BOUND		= (1 << 1),
+	OAF_STATIC		= (1 << 2),
+	OAF_BROKEN_HOSTNAME	= (1 << 3),
 };
 
 struct config {
@@ -288,6 +289,7 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
 int odhcpd_netmask2bitlen(bool v6, void *mask);
 bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
+bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 

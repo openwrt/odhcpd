@@ -331,7 +331,8 @@ void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pr
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf) - 1);
 
-	if (ctxt->c->length == 128 && ctxt->c->hostname) {
+	if (ctxt->c->length == 128 && ctxt->c->hostname &&
+	    !(ctxt->c->flags & OAF_BROKEN_HOSTNAME)) {
 		fputs(ipbuf, ctxt->fp);
 
 		char b[256];
@@ -394,8 +395,9 @@ void dhcpv6_write_statefile(void)
 					odhcpd_hexlify(duidbuf, ctxt.c->clid_data, ctxt.c->clid_len);
 
 					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s %ld %x %u ",
+					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %ld %x %u ",
 								ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
+								(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
 								(ctxt.c->hostname ? ctxt.c->hostname : "-"),
 								(ctxt.c->valid_until > now ?
 									(ctxt.c->valid_until - now + wall_time) :
@@ -423,8 +425,9 @@ void dhcpv6_write_statefile(void)
 					odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
 
 					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s ipv4 %s %ld %x 32 ",
+					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s ipv4 %s%s %ld %x 32 ",
 								ctxt.iface->ifname, duidbuf,
+								(c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
 								(c->hostname ? c->hostname : "-"),
 								(c->valid_until > now ?
 									(c->valid_until - now + wall_time) :
@@ -434,7 +437,7 @@ void dhcpv6_write_statefile(void)
 					struct in_addr addr = {.s_addr = c->addr};
 					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-					if (c->hostname) {
+					if (c->hostname && !(c->flags & OAF_BROKEN_HOSTNAME)) {
 						fputs(ipbuf, ctxt.fp);
 
 						char b[256];
@@ -1343,6 +1346,11 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					if (a->hostname) {
 						memcpy(a->hostname, hostname, hostname_len);
 						a->hostname[hostname_len] = 0;
+
+						if (odhcpd_valid_hostname(a->hostname))
+							a->flags &= ~OAF_BROKEN_HOSTNAME;
+						else
+							a->flags |= OAF_BROKEN_HOSTNAME;
 					}
 				}
 				a->accept_reconf = accept_reconf;

@@ -1095,6 +1095,11 @@ static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
 					if (a->hostname) {
 						memcpy(a->hostname, hostname, hostname_len);
 						a->hostname[hostname_len] = 0;
+
+						if (odhcpd_valid_hostname(a->hostname))
+							a->flags &= ~OAF_BROKEN_HOSTNAME;
+						else
+							a->flags |= OAF_BROKEN_HOSTNAME;
 					}
 				}
 

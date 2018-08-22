@@ -53,6 +53,9 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 
 			if (c->flags & OAF_STATIC)
 				blobmsg_add_string(&b, NULL, "static");
+
+			if (c->flags & OAF_BROKEN_HOSTNAME)
+				blobmsg_add_string(&b, NULL, "broken-hostname");
 			blobmsg_close_array(&b, m);
 
 			buf = blobmsg_alloc_string_buffer(&b, "address", INET_ADDRSTRLEN);

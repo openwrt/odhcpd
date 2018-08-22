@@ -344,8 +344,11 @@ static int set_lease(struct uci_section *s)
 	if (!lease)
 		goto err;
 
-	if (hostlen > 1)
+	if (hostlen > 1) {
 		memcpy(lease->hostname, blobmsg_get_string(c), hostlen);
+		if (!odhcpd_valid_hostname(lease->hostname))
+			goto err;
+	}
 
 	if ((c = tb[LEASE_ATTR_IP]))
 		if (inet_pton(AF_INET, blobmsg_get_string(c), &lease->ipaddr) < 0)

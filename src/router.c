@@ -172,7 +172,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 			&mreq, sizeof(mreq));
 
 	if (!enable) {
-		if (iface->ra)
+		if (iface->ra == MODE_SERVER || (iface->ra == MODE_RELAY && !iface->master))
 			trigger_router_advert(&iface->timer_rs);
 	} else {
 		if (iface->ra == MODE_RELAY && iface->master) {

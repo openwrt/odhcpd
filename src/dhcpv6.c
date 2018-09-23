@@ -37,8 +37,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 /* Create socket and register events */
 int dhcpv6_init(void)
 {
-	dhcpv6_ia_init();
-	return 0;
+	return dhcpv6_ia_init();
 }
 
 int dhcpv6_setup_interface(struct interface *iface, bool enable)

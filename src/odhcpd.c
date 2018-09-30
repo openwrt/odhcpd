@@ -53,7 +53,6 @@ static void sighandler(_unused int signal)
 	uloop_end();
 }
 
-
 static void print_usage(const char *app)
 {
 	printf(
@@ -64,6 +63,17 @@ static void print_usage(const char *app)
 	);
 }
 
+static bool ipv6_enabled(void)
+{
+	int fd = socket(AF_INET6, SOCK_DGRAM, 0);
+
+	if (fd < 0)
+		return false;
+
+	close(fd);
+
+	return true;
+}
 
 int main(int argc, char **argv)
 {
@@ -104,16 +114,20 @@ int main(int argc, char **argv)
 	if (netlink_init())
 		return 4;
 
-	if (router_init())
-		return 4;
+	if (ipv6_enabled()) {
+		if (router_init())
+			return 4;
 
-	if (dhcpv6_init())
-		return 4;
+		if (dhcpv6_init())
+			return 4;
 
-	if (ndp_init())
+		if (ndp_init())
+			return 4;
+	}
+#ifndef DHCPV4_SUPPORT
+	else
 		return 4;
-
-#ifdef DHCPV4_SUPPORT
+#else
 	if (dhcpv4_init())
 		return 4;
 #endif

@@ -160,6 +160,7 @@ static void refresh_iface_addr6(struct netevent_handler_info *event_info)
 	struct odhcpd_ipaddr *addr = NULL;
 	struct interface *iface = event_info->iface;
 	ssize_t len = netlink_get_interface_addrs(iface->ifindex, true, &addr);
+	time_t now = odhcpd_time();
 
 	if (len < 0)
 		return;
@@ -168,6 +169,7 @@ static void refresh_iface_addr6(struct netevent_handler_info *event_info)
 	for (ssize_t i = 0; !change && i < len; ++i)
 		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
 				(addr[i].preferred > 0) != (iface->addr6[i].preferred > 0) ||
+				(addr[i].preferred > (uint32_t) now) != (iface->addr6[i].preferred > (uint32_t) now) ||
 				addr[i].valid < iface->addr6[i].valid ||
 				addr[i].preferred < iface->addr6[i].preferred)
 			change = true;

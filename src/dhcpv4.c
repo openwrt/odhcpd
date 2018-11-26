@@ -263,18 +263,21 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
 
 	/* Auto allocate ranges */
-	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {
+	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {		/* /24, 150 of 256, [100..249] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(250);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {
+		iface->dhcpv4_end_ip.s_addr = end | htonl(100 + 150 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {    /* /25, 100 of 128, [20..119] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(20);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(20 + 100 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {    /* /26, 50 of 64, [10..59] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(60);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {
+		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 50 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {    /* /27, 20 of 32, [10..29] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(30);
-	} else {
+		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 20 - 1);
+	} else {							/* /28, 10 of 16, [3..12] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(3);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(12);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(3 + 10 - 1);
 	}
 
 	return 0;

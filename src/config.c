@@ -32,6 +32,9 @@ struct config config = {.legacy = false, .main_dhcpv4 = false,
 			.dhcp_cb = NULL, .dhcp_statefile = NULL,
 			.log_level = LOG_WARNING};
 
+#define START_DEFAULT	100
+#define LIMIT_DEFAULT	150
+
 enum {
 	IFACE_ATTR_INTERFACE,
 	IFACE_ATTR_IFNAME,
@@ -210,6 +213,8 @@ static void set_interface_defaults(struct interface *iface)
 {
 	iface->learn_routes = 1;
 	iface->dhcpv4_leasetime = 43200;
+	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
+	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_na = true;
@@ -500,14 +505,16 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_START])) {
 		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
+		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
+							LIMIT_DEFAULT - 1);
 
 		if (config.main_dhcpv4 && config.legacy)
 			iface->dhcpv4 = MODE_SERVER;
 	}
 
 	if ((c = tb[IFACE_ATTR_LIMIT]))
-		iface->dhcpv4_end.s_addr = htonl(
-				ntohl(iface->dhcpv4_start.s_addr) + blobmsg_get_u32(c));
+		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
+							blobmsg_get_u32(c) - 1);
 
 	if ((c = tb[IFACE_ATTR_MASTER]))
 		iface->master = blobmsg_get_bool(c);

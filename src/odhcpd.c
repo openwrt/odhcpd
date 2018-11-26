@@ -45,7 +45,7 @@
 
 
 
-static int ioctl_sock;
+static int ioctl_sock = -1;
 static int urandom_fd = -1;
 
 static void sighandler(_unused int signal)

@@ -20,7 +20,7 @@
 #include "odhcpd.h"
 
 static struct blob_buf b;
-static int reload_pipe[2];
+static int reload_pipe[2] = { -1, -1 };
 
 static int lease_cmp(const void *k1, const void *k2, void *ptr);
 static void lease_update(struct vlist_tree *tree, struct vlist_node *node_new,
@@ -1087,7 +1087,7 @@ static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
 	odhcpd_reload();
 }
 
-static struct uloop_fd reload_fd = { .cb = reload_cb };
+static struct uloop_fd reload_fd = { .fd = -1, .cb = reload_cb };
 
 void odhcpd_run(void)
 {

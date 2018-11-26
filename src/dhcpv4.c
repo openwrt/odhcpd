@@ -239,7 +239,8 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 
 		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
 		if ((start & ntohl(~mask.s_addr)) == start &&
-			    (end & ntohl(~mask.s_addr)) == end) {
+				(end & ntohl(~mask.s_addr)) == end &&
+				end < ntohl(~mask.s_addr)) {	/* Exclude broadcast address */
 			iface->dhcpv4_start_ip.s_addr = htonl(start) |
 							(addr->s_addr & mask.s_addr);
 			iface->dhcpv4_end_ip.s_addr = htonl(end) |

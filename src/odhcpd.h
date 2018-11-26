@@ -189,6 +189,7 @@ struct dhcp_assignment {
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
+	char *reqopts;
 #define hwaddr		mac
 	uint8_t mac[6];
 
@@ -318,6 +319,7 @@ inline static void free_assignment(struct dhcp_assignment *a)
 		a->dhcp_free_cb(a);
 
 	free(a->hostname);
+	free(a->reqopts);
 	free(a);
 }
 

@@ -51,7 +51,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
-		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid);
+		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid,
+		const char *reqopts, const size_t reqopts_len);
 
 static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
@@ -634,7 +635,9 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	uint32_t reqaddr = INADDR_ANY;
 	uint32_t leasetime = 0;
 	size_t hostname_len = 0;
+	size_t reqopts_len = 0;
 	char hostname[256];
+	char reqopts[256];
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
@@ -644,7 +647,11 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	dhcpv4_for_each_option(start, end, opt) {
 		if (opt->type == DHCPV4_OPT_MESSAGE && opt->len == 1)
 			reqmsg = opt->data[0];
-		else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
+		else if (opt->type == DHCPV4_OPT_REQOPTS && opt->len > 0) {
+			reqopts_len = opt->len;
+			memcpy(reqopts, opt->data, reqopts_len);
+			reqopts[reqopts_len] = 0;
+		} else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
 			hostname_len = opt->len;
 			memcpy(hostname, opt->data, hostname_len);
 			hostname[hostname_len] = 0;
@@ -685,7 +692,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	if (reqmsg != DHCPV4_MSG_INFORM)
 		a = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
 				 &leasetime, hostname, hostname_len,
-				 accept_fr_nonce, &incl_fr_opt, &fr_serverid);
+				 accept_fr_nonce, &incl_fr_opt, &fr_serverid,
+				 reqopts, reqopts_len);
 
 	if (!a) {
 		if (reqmsg == DHCPV4_MSG_REQUEST)
@@ -997,7 +1005,7 @@ static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
 	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid)
+	     uint32_t *fr_serverid, const char* reqopts, const size_t reqopts_len)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
@@ -1086,6 +1094,14 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 							a->flags &= ~OAF_BROKEN_HOSTNAME;
 						else
 							a->flags |= OAF_BROKEN_HOSTNAME;
+					}
+				}
+
+				if (reqopts_len > 0) {
+					a->reqopts = realloc(a->reqopts, reqopts_len + 1);
+					if (a->reqopts) {
+						memcpy(a->reqopts, reqopts, reqopts_len);
+						a->reqopts[reqopts_len] = 0;
 					}
 				}
 

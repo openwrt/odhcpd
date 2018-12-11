@@ -13,7 +13,6 @@
  */
 #pragma once
 
-#include <libubox/ustream.h>
 #include "odhcpd.h"
 
 #define ALL_DHCPV6_RELAYS "ff02::1:2"
@@ -138,35 +137,6 @@ struct dhcpv6_ia_addr {
 	uint32_t valid;
 } _packed;
 
-struct dhcpv6_assignment {
-	struct list_head head;
-	struct interface *iface;
-
-	struct sockaddr_in6 peer;
-	time_t valid_until;
-
-	struct uloop_timeout reconf_timer;
-	bool accept_reconf;
-	int reconf_cnt;
-	uint8_t key[16];
-
-	char *hostname;
-	uint32_t assigned;
-	uint32_t iaid;
-	uint8_t mac[6];
-	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
-
-	struct odhcpd_ipaddr *managed;
-	ssize_t managed_size;
-	struct ustream_fd managed_sock;
-
-	uint32_t leasetime;
-	unsigned int flags;
-
-	uint8_t clid_len;
-	uint8_t clid_data[];
-};
-
 struct dhcpv6_cer_id {
 	uint16_t type;
 	uint16_t len;
@@ -191,6 +161,6 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
 int dhcpv6_ia_init(void);
 int dhcpv6_setup_ia_interface(struct interface *iface, bool enable);
-void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcpv6_assignment *c, time_t now,
+void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcp_assignment *c, time_t now,
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_write_statefile(void);

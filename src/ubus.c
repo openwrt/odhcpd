@@ -35,7 +35,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcpv4_assignment *c;
+		struct dhcp_assignment *c;
 		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 			if (!INFINITE_VALID(c->valid_until) && c->valid_until < now)
 				continue;
@@ -118,8 +118,8 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcpv6_assignment *a, *border = list_last_entry(
-				&iface->ia_assignments, struct dhcpv6_assignment, head);
+		struct dhcp_assignment *a, *border = list_last_entry(
+				&iface->ia_assignments, struct dhcp_assignment, head);
 
 		list_for_each_entry(a, &iface->ia_assignments, head) {
 			if (a == border || (!INFINITE_VALID(a->valid_until) &&

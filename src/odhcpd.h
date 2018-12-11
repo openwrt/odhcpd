@@ -23,6 +23,7 @@
 #include <libubox/list.h>
 #include <libubox/uloop.h>
 #include <libubox/avl.h>
+#include <libubox/ustream.h>
 
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
@@ -142,6 +143,44 @@ struct lease {
 	uint8_t *duid;
 	uint32_t dhcpv4_leasetime;
 	char hostname[];
+};
+
+
+struct odhcpd_ref_ip;
+
+struct dhcp_assignment {
+	struct list_head head;
+	struct interface *iface;
+
+	struct sockaddr_in6 peer;
+	time_t valid_until;
+
+#define fr_timer	reconf_timer
+	struct uloop_timeout reconf_timer;
+#define accept_fr_nonce accept_reconf
+	bool accept_reconf;
+#define fr_cnt		reconf_cnt
+	int reconf_cnt;
+	uint8_t key[16];
+	struct odhcpd_ref_ip *fr_ip;
+
+	uint32_t addr;
+	uint32_t assigned;
+	uint32_t iaid;
+	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
+
+	struct odhcpd_ipaddr *managed;
+	ssize_t managed_size;
+	struct ustream_fd managed_sock;
+
+	unsigned int flags;
+	uint32_t leasetime;
+	char *hostname;
+#define hwaddr		mac
+	uint8_t mac[6];
+
+	uint8_t clid_len;
+	uint8_t clid_data[];
 };
 
 

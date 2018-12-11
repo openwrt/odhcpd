@@ -41,13 +41,13 @@ static void update_static_assignments(struct interface *iface);
 static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
 static void valid_until_cb(struct uloop_timeout *event);
 static void handle_addrlist_change(struct interface *iface);
-static void free_dhcpv4_assignment(struct dhcpv4_assignment *a);
-static void dhcpv4_fr_start(struct dhcpv4_assignment *a);
-static void dhcpv4_fr_rand_delay(struct dhcpv4_assignment *a);
-static void dhcpv4_fr_stop(struct dhcpv4_assignment *a);
+static void free_dhcpv4_assignment(struct dhcp_assignment *a);
+static void dhcpv4_fr_start(struct dhcp_assignment *a);
+static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
+static void dhcpv4_fr_stop(struct dhcp_assignment *a);
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr);
-static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
+static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid);
@@ -163,7 +163,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	} else if (iface->dhcpv4_assignments.next) {
 		while (!list_empty(&iface->dhcpv4_assignments))
 			free_dhcpv4_assignment(list_first_entry(&iface->dhcpv4_assignments,
-							struct dhcpv4_assignment, head));
+							struct dhcp_assignment, head));
 	}
 
 out:
@@ -195,9 +195,9 @@ static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info
 	}
 }
 
-static struct dhcpv4_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
+static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
 {
-	struct dhcpv4_assignment *a;
+	struct dhcp_assignment *a;
 
 	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
 		if (!memcmp(a->hwaddr, hwaddr, 6))
@@ -206,9 +206,9 @@ static struct dhcpv4_assignment *find_assignment_by_hwaddr(struct interface *ifa
 	return NULL;
 }
 
-static struct dhcpv4_assignment *find_assignment_by_addr(struct interface *iface, const uint32_t addr)
+static struct dhcp_assignment *find_assignment_by_addr(struct interface *iface, const uint32_t addr)
 {
-	struct dhcpv4_assignment *a;
+	struct dhcp_assignment *a;
 
 	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
 		if (a->addr == addr)
@@ -293,7 +293,7 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 
 static void update_static_assignments(struct interface *iface)
 {
-	struct dhcpv4_assignment *a, *c;
+	struct dhcp_assignment *a, *c;
 
 	/* Cleanup static entries not belonging to the network */
 	list_for_each_entry_safe(a, c, &iface->dhcpv4_assignments, head) {
@@ -388,7 +388,7 @@ static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr)
 static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *addr,
 				uint32_t mask)
 {
-	struct dhcpv4_assignment *a = NULL;
+	struct dhcp_assignment *a = NULL;
 	struct odhcpd_ref_ip *fr_ip = NULL;
 
 	list_for_each_entry(a, &iface->dhcpv4_assignments, head) {
@@ -419,7 +419,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
 			continue;
 
-		struct dhcpv4_assignment *a, *n;
+		struct dhcp_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
 				free_dhcpv4_assignment(a);
@@ -432,7 +432,7 @@ static void handle_addrlist_change(struct interface *iface)
 {
 	struct odhcpd_ipaddr ip;
 	struct odhcpd_ref_ip *a;
-	struct dhcpv4_assignment *c;
+	struct dhcp_assignment *c;
 	uint32_t mask = iface->dhcpv4_mask.s_addr;
 
 	memset(&ip, 0, sizeof(ip));
@@ -495,7 +495,7 @@ static char *dhcpv4_msg_to_string(uint8_t reqmsg)
 	}
 }
 
-static void free_dhcpv4_assignment(struct dhcpv4_assignment *a)
+static void free_dhcpv4_assignment(struct dhcp_assignment *a)
 {
 	if (a->head.next)
 		list_del(&a->head);
@@ -523,7 +523,7 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 	*cookie = c + len;
 }
 
-static void dhcpv4_fr_send(struct dhcpv4_assignment *a)
+static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
 	struct dhcpv4_message fr_msg = {
 		.op = DHCPV4_BOOTREPLY,
@@ -612,7 +612,7 @@ static void dhcpv4_fr_send(struct dhcpv4_assignment *a)
 
 static void dhcpv4_fr_timer(struct uloop_timeout *event)
 {
-	struct dhcpv4_assignment *a = container_of(event, struct dhcpv4_assignment, fr_timer);
+	struct dhcp_assignment *a = container_of(event, struct dhcp_assignment, fr_timer);
 
 	if (a->fr_cnt > 0 && a->fr_cnt < 8) {
 		dhcpv4_fr_send(a);
@@ -622,7 +622,7 @@ static void dhcpv4_fr_timer(struct uloop_timeout *event)
 		dhcpv4_fr_stop(a);
 }
 
-static void dhcpv4_fr_start(struct dhcpv4_assignment *a)
+static void dhcpv4_fr_start(struct dhcp_assignment *a)
 {
 	uloop_timeout_set(&a->fr_timer, 1000 << a->fr_cnt);
 	a->fr_timer.cb = dhcpv4_fr_timer;
@@ -633,13 +633,13 @@ static void dhcpv4_fr_start(struct dhcpv4_assignment *a)
 
 static void dhcpv4_fr_delay_timer(struct uloop_timeout *event)
 {
-	struct dhcpv4_assignment *a = container_of(event, struct dhcpv4_assignment, fr_timer);
+	struct dhcp_assignment *a = container_of(event, struct dhcp_assignment, fr_timer);
 	struct interface *iface = a->iface;
 
 	(iface->dhcpv4_event.uloop.fd == -1 ? dhcpv4_fr_rand_delay(a) : dhcpv4_fr_start(a));
 }
 
-static void dhcpv4_fr_rand_delay(struct dhcpv4_assignment *a)
+static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a)
 {
 #define MIN_DELAY   500
 #define MAX_FUZZ    500
@@ -653,7 +653,7 @@ static void dhcpv4_fr_rand_delay(struct dhcpv4_assignment *a)
 	a->fr_timer.cb = dhcpv4_fr_delay_timer;
 }
 
-static void dhcpv4_fr_stop(struct dhcpv4_assignment *a)
+static void dhcpv4_fr_stop(struct dhcp_assignment *a)
 {
 	uloop_timeout_cancel(&a->fr_timer);
 	decr_ref_cnt_ip(&a->fr_ip, a->iface);
@@ -753,7 +753,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			reqmsg != DHCPV4_MSG_RELEASE)
 		return;
 
-	struct dhcpv4_assignment *lease = NULL;
+	struct dhcp_assignment *lease = NULL;
 	uint32_t serverid = iface->dhcpv4_local.s_addr;
 	uint32_t fr_serverid = INADDR_ANY;
 
@@ -967,7 +967,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 }
 
 static bool dhcpv4_assign(struct interface *iface,
-		struct dhcpv4_assignment *assign, uint32_t raddr)
+		struct dhcp_assignment *assign, uint32_t raddr)
 {
 	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
 	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
@@ -1027,13 +1027,13 @@ static bool dhcpv4_assign(struct interface *iface,
 }
 
 
-static struct dhcpv4_assignment* dhcpv4_lease(struct interface *iface,
+static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid)
 {
-	struct dhcpv4_assignment *a = find_assignment_by_hwaddr(iface, mac);
-	struct dhcpv4_assignment *lease = NULL;
+	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
+	struct dhcp_assignment *lease = NULL;
 	time_t now = odhcpd_time();
 
 	if (a && (a->flags & OAF_BOUND) && a->fr_ip) {

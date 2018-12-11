@@ -86,27 +86,6 @@ struct dhcpv4_auth_forcerenew {
 	uint8_t key[16];
 } _packed;
 
-struct odhcpd_ref_ip;
-
-struct dhcpv4_assignment {
-	struct list_head head;
-	struct interface *iface;
-
-	struct uloop_timeout fr_timer;
-	struct odhcpd_ref_ip *fr_ip;
-	bool accept_fr_nonce;
-	int fr_cnt;
-	uint8_t key[16];
-
-	unsigned int flags;
-
-	uint32_t addr;
-	time_t valid_until;
-	uint8_t hwaddr[6];
-	uint32_t leasetime;
-	char *hostname;
-};
-
 struct dhcpv4_option {
 	uint8_t type;
 	uint8_t len;

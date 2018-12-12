@@ -20,16 +20,6 @@
 #include <syslog.h>
 
 #include <libubox/blobmsg.h>
-
-#ifndef typeof
-#define typeof __typeof
-#endif
-
-#ifndef container_of
-#define container_of(ptr, type, member) (           \
-    (type *)( (char *)ptr - offsetof(type,member) ))
-#endif
-
 #include <libubox/list.h>
 #include <libubox/uloop.h>
 

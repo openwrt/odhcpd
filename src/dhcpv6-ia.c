@@ -521,7 +521,8 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_as
 /* More data was received from TCP connection */
 static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 {
-	struct dhcpv6_assignment *c = container_of(s, struct dhcpv6_assignment, managed_sock);
+	struct ustream_fd *fd = container_of(s, struct ustream_fd, stream);
+	struct dhcpv6_assignment *c = container_of(fd, struct dhcpv6_assignment, managed_sock);
 	time_t now = odhcpd_time();
 	bool first = c->managed_size < 0;
 
@@ -592,7 +593,8 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 /* TCP transmission has ended, either because of success or timeout or other error */
 static void managed_handle_pd_done(struct ustream *s)
 {
-	struct dhcpv6_assignment *c = container_of(s, struct dhcpv6_assignment, managed_sock);
+	struct ustream_fd *fd = container_of(s, struct ustream_fd, stream);
+	struct dhcpv6_assignment *c = container_of(fd, struct dhcpv6_assignment, managed_sock);
 
 	if (!(c->flags & OAF_STATIC))
 		c->valid_until = odhcpd_time() + 15;

@@ -1,5 +1,6 @@
 /**
  * Copyright (C) 2012-2013 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2018 Hans Dedecker <dedeckeh@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v2 as published by
@@ -22,6 +23,8 @@
 #include <stdbool.h>
 #include <arpa/inet.h>
 #include <net/route.h>
+
+#include <libubox/utils.h>
 
 #include "router.h"
 #include "odhcpd.h"

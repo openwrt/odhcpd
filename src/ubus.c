@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <libubox/utils.h>
+
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"

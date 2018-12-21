@@ -236,6 +236,8 @@ struct interface {
 	void *dhcpv6_raw;
 	size_t dhcpv6_raw_len;
 	bool dhcpv6_assignall;
+	bool dhcpv6_pd;
+	bool dhcpv6_na;
 
 	char *upstream;
 	size_t upstream_len;

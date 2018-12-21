@@ -45,6 +45,8 @@ enum {
 	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
+	IFACE_ATTR_DHCPV6_PD,
+	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_RA_DEFAULT,
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_OFFLINK,
@@ -89,6 +91,8 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_DHCPV6_PD] = { .name = "dhcpv6_pd", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
@@ -216,6 +220,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->learn_routes = 1;
 	iface->dhcpv4_leasetime = 43200;
 	iface->dhcpv6_assignall = true;
+	iface->dhcpv6_pd = true;
+	iface->dhcpv6_na = true;
 	iface->ra_managed = RA_MANAGED_MFLAG;
 	iface->ra_maxinterval = 600;
 	iface->ra_mininterval = iface->ra_maxinterval/3;
@@ -650,6 +656,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_ASSIGNALL]))
 		iface->dhcpv6_assignall = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_PD]))
+		iface->dhcpv6_pd = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
+		iface->dhcpv6_na = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);

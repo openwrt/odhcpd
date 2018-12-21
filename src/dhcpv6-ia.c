@@ -1262,7 +1262,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				(hdr->msg_type == DHCPV6_MSG_REBIND && !a)) {
 			bool assigned = !!a;
 
-			if (!a && !iface->no_dynamic_dhcp) {
+			if (!a && !iface->no_dynamic_dhcp && (iface->dhcpv6_pd || iface->dhcpv6_na)) {
 				/* Create new binding */
 				a = calloc(1, sizeof(*a) + clid_len);
 				if (a) {
@@ -1282,10 +1282,10 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 						odhcpd_urandom(a->key, sizeof(a->key));
 					memcpy(a->clid_data, clid_data, clid_len);
 
-					if (is_pd)
+					if (is_pd && iface->dhcpv6_pd)
 						while (!(assigned = assign_pd(iface, a)) &&
 								!a->managed_size && ++a->length <= 64);
-					else
+					else if (is_na && iface->dhcpv6_na)
 						assigned = assign_na(iface, a);
 
 					if (a->managed_size && !assigned)

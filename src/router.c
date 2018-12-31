@@ -424,11 +424,17 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			default_route = true;
 	}
 
+	/* DNS Recursive DNS */
+	struct in6_addr dns_pref, *dns_addr = NULL;
+	size_t dns_cnt = 0;
 
-	struct in6_addr dns_pref, *dns_addr = &dns_pref;
-	size_t dns_cnt = 1;
-
-	odhcpd_get_interface_dns_addr(iface, &dns_pref);
+	if (iface->dns_cnt > 0) {
+		dns_addr = iface->dns;
+		dns_cnt = iface->dns_cnt;
+	} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
+		dns_addr = &dns_pref;
+		dns_cnt = 1;
+	}
 
 	/* Construct Prefix Information options */
 	size_t pfxs_cnt = 0;
@@ -525,15 +531,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		adv.h.nd_ra_router_lifetime = 0;
 
 	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->ifname);
-
-	/* DNS Recursive DNS */
-	if (iface->dns_cnt > 0) {
-		dns_addr = iface->dns;
-		dns_cnt = iface->dns_cnt;
-	}
-
-	if (!dns_addr || IN6_IS_ADDR_UNSPECIFIED(dns_addr))
-		dns_cnt = 0;
 
 	struct {
 		uint8_t type;

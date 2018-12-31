@@ -580,6 +580,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			struct in_addr addr4;
 			struct in6_addr addr6;
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
+				if (addr4.s_addr == INADDR_ANY)
+					goto err;
+
 				iface->dhcpv4_dns = realloc(iface->dhcpv4_dns,
 						(++iface->dhcpv4_dns_cnt) * sizeof(*iface->dhcpv4_dns));
 				if (!iface->dhcpv4_dns)
@@ -587,6 +590,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dhcpv4_dns[iface->dhcpv4_dns_cnt - 1] = addr4;
 			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
+				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
+					goto err;
+
 				iface->dns = realloc(iface->dns,
 						(++iface->dns_cnt) * sizeof(*iface->dns));
 				if (!iface->dns)

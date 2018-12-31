@@ -58,6 +58,7 @@ enum {
 	IFACE_ATTR_RA_RETRANSTIME,
 	IFACE_ATTR_RA_HOPLIMIT,
 	IFACE_ATTR_RA_MTU,
+	IFACE_ATTR_RA_DNS,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
@@ -103,6 +104,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_RETRANSTIME] = { .name = "ra_retranstime", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_HOPLIMIT] = { .name = "ra_hoplimit", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MTU] = { .name = "ra_mtu", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_RA_DNS] = { .name = "ra_dns", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
@@ -218,6 +220,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra_maxinterval = 600;
 	iface->ra_mininterval = iface->ra_maxinterval/3;
 	iface->ra_lifetime = -1;
+	iface->ra_dns = true;
 }
 
 static void clean_interface(struct interface *iface)
@@ -703,6 +706,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_USELEASETIME]))
 		iface->ra_useleasetime = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_RA_DNS]))
+		iface->ra_dns = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
 		const char *prio = blobmsg_get_string(c);

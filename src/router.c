@@ -428,12 +428,14 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	struct in6_addr dns_pref, *dns_addr = NULL;
 	size_t dns_cnt = 0;
 
-	if (iface->dns_cnt > 0) {
-		dns_addr = iface->dns;
-		dns_cnt = iface->dns_cnt;
-	} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
-		dns_addr = &dns_pref;
-		dns_cnt = 1;
+	if (iface->ra_dns) {
+		if (iface->dns_cnt > 0) {
+			dns_addr = iface->dns;
+			dns_cnt = iface->dns_cnt;
+		} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
+			dns_addr = &dns_pref;
+			dns_cnt = 1;
+		}
 	}
 
 	/* Construct Prefix Information options */
@@ -541,15 +543,22 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, 0};
 
 	/* DNS Search options */
-	uint8_t search_buf[256], *search_domain = iface->search;
-	size_t search_len = iface->search_len, search_padded = 0;
+	uint8_t *search_domain = NULL;
+	size_t search_len = 0, search_padded = 0;
 
-	if (!search_domain && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-		int len = dn_comp(_res.dnsrch[0], search_buf,
-				sizeof(search_buf), NULL, NULL);
-		if (len > 0) {
-			search_domain = search_buf;
-			search_len = len;
+	if (iface->ra_dns) {
+		search_len = iface->search_len;
+		search_domain = iface->search;
+
+		if (!search_domain && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
+			uint8_t search_buf[256];
+
+			int len = dn_comp(_res.dnsrch[0], search_buf,
+					sizeof(search_buf), NULL, NULL);
+			if (len > 0) {
+				search_domain = search_buf;
+				search_len = len;
+			}
 		}
 	}
 

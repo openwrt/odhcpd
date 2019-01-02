@@ -597,7 +597,12 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now)
-			continue; // Address not suitable
+			continue; /* Address not suitable */
+
+		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
+				iface->pio_filter_length) != 0 ||
+				addr->prefix < iface->pio_filter_length)
+			continue; /* RIO filtered out of this RA */
 
 		if (addr->dprefix > 32) {
 			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));

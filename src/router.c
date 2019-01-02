@@ -359,6 +359,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	time_t now = odhcpd_time();
 	int mtu = iface->ra_mtu;
 	int hlim = iface->ra_hoplimit;
+	char buf[INET6_ADDRSTRLEN];
 
 	if (mtu == 0)
 		mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
@@ -448,11 +449,9 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		uint32_t valid = 0;
 
 		if (addr->prefix > 96 || addr->valid <= (uint32_t)now) {
-			char namebuf[INET6_ADDRSTRLEN];
-
-			inet_ntop(AF_INET6, &addr->addr.in6, namebuf, sizeof(namebuf));
 			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable as RA prefix on %s",
-					namebuf, addr->prefix, addr->valid, iface->ifname);
+				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
+				addr->valid, iface->ifname);
 			continue;
 		}
 
@@ -596,8 +595,13 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	for (ssize_t i = 0; i < ipcnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now)
+		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
+			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
+				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+				addr->dprefix, addr->valid, iface->ifname);
+
 			continue; /* Address not suitable */
+		}
 
 		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
 				iface->pio_filter_length) != 0 ||

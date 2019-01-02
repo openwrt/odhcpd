@@ -233,6 +233,10 @@ struct interface {
 	uint8_t *search;
 	size_t search_len;
 
+	// NTP
+	struct in6_addr *ntp;
+	size_t ntp_cnt;
+
 	// DHCPV6
 	void *dhcpv6_raw;
 	size_t dhcpv6_raw_len;

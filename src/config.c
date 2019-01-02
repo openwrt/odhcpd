@@ -68,6 +68,7 @@ enum {
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
 	IFACE_ATTR_PREFIX_FILTER,
+	IFACE_ATTR_NTP,
 	IFACE_ATTR_MAX
 };
 
@@ -114,12 +115,14 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_UPSTREAM] = { .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DNS] = { .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DOMAIN] = { .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_NTP] = { .type = BLOBMSG_TYPE_STRING },
 };
 
 const struct uci_blob_param_list interface_attr_list = {
@@ -231,6 +234,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
 	free(iface->filter_class);
+	free(iface->ntp);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -758,6 +762,30 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		if (astr)
 			free(astr);
+	}
+
+	if ((c = tb[IFACE_ATTR_NTP])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
+				continue;
+
+			struct in6_addr addr6;
+			if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
+				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
+					goto err;
+
+				iface->ntp = realloc(iface->ntp,
+						(++iface->ntp_cnt) * sizeof(*iface->ntp));
+				if (!iface->ntp)
+					goto err;
+
+				iface->ntp[iface->ntp_cnt - 1] = addr6;
+			} else
+				goto err;
+		}
 	}
 
 	return 0;

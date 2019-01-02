@@ -172,6 +172,8 @@ enum {
 	IOV_CERID,
 	IOV_DHCPV6_RAW,
 	IOV_RELAY_MSG,
+	IOV_SNTP,
+	IOV_SNTP_ADDR,
 	IOV_TOTAL
 };
 
@@ -328,6 +330,14 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.addr = iface->dhcpv6_pd_cer,
 	};
 
+	struct in6_addr *ntp_addr_ptr = iface->ntp;
+	size_t ntp_cnt = iface->ntp_cnt;
+
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} ntp = {htons(DHCPV6_OPT_SNTP_SERVERS), htons(ntp_cnt * sizeof(*ntp_addr_ptr))};
+
 
 	uint8_t pdbuf[512];
 	struct iovec iov[IOV_TOTAL] = {
@@ -341,7 +351,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_PDBUF] = {pdbuf, 0},
 		[IOV_CERID] = {&cerid, 0},
 		[IOV_DHCPV6_RAW] = {iface->dhcpv6_raw, iface->dhcpv6_raw_len},
-		[IOV_RELAY_MSG] = {NULL, 0}
+		[IOV_RELAY_MSG] = {NULL, 0},
+		[IOV_SNTP] = {&ntp, (ntp_cnt) ? sizeof(ntp) : 0},
+		[IOV_SNTP_ADDR] = {ntp_addr_ptr, ntp_cnt * sizeof(*ntp_addr_ptr)},
 	};
 
 	uint8_t *opts = (uint8_t*)&hdr[1], *opts_end = (uint8_t*)data + len;
@@ -431,7 +443,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				iov[IOV_DNS].iov_len + iov[IOV_DNS_ADDR].iov_len +
 				iov[IOV_SEARCH].iov_len + iov[IOV_SEARCH_DOMAIN].iov_len +
 				iov[IOV_PDBUF].iov_len + iov[IOV_CERID].iov_len +
-				iov[IOV_DHCPV6_RAW].iov_len - (4 + opts_end - opts));
+				iov[IOV_DHCPV6_RAW].iov_len - (4 + opts_end - opts) +
+				iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }

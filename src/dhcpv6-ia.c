@@ -1104,7 +1104,7 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assi
 	time_t now = odhcpd_time();
 	uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
 	uint16_t otype, olen;
-	bool onlink = false;
+	bool onlink = true;
 
 	dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
 		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&odata[-4];
@@ -1114,7 +1114,7 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assi
 				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - 4))
 			continue;
 
-		for (size_t i = 0; i < addrlen; ++i) {
+		for (size_t i = 0, onlink = false; i < addrlen; ++i) {
 			struct in6_addr addr = addrs[i].addr.in6;
 
 			if (!valid_addr(&addrs[i], now))

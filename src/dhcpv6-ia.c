@@ -1112,7 +1112,8 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assi
 				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - 4))
 			continue;
 
-		for (size_t i = 0, onlink = false; i < addrlen; ++i) {
+		onlink = false;
+		for (size_t i = 0; i < addrlen; ++i) {
 			struct in6_addr addr = addrs[i].addr.in6;
 
 			if (!valid_addr(&addrs[i], now))

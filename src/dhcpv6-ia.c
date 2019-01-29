@@ -824,197 +824,215 @@ static void valid_until_cb(struct uloop_timeout *event)
 	uloop_timeout_set(event, 1000);
 }
 
-static size_t append_reply(uint8_t *buf, size_t buflen, uint16_t status,
+static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assignment *a,
 		struct interface *iface, bool request)
 {
-	if (buflen < sizeof(*ia) + sizeof(struct dhcpv6_ia_prefix))
-		return 0;
-
-	struct dhcpv6_ia_hdr out = {ia->type, 0, ia->iaid, 0, 0};
-	size_t datalen = sizeof(out);
+	struct dhcpv6_ia_hdr o_ia = {
+		.type = ia->type,
+		.len = 0,
+		.iaid = ia->iaid,
+		.t1 = 0,
+		.t2 = 0,
+	};
+	size_t ia_len = sizeof(o_ia);
 	time_t now = odhcpd_time();
+
+	if (buflen < ia_len)
+		return 0;
 
 	if (status) {
 		struct __attribute__((packed)) {
 			uint16_t type;
 			uint16_t len;
-			uint16_t value;
-		} stat = {htons(DHCPV6_OPT_STATUS), htons(sizeof(stat) - 4),
-				htons(status)};
+			uint16_t val;
+		} o_status = {
+			.type = htons(DHCPV6_OPT_STATUS),
+			.len = htons(sizeof(o_status) - 4),
+			.val = htons(status),
+		};
 
-		memcpy(buf + datalen, &stat, sizeof(stat));
-		datalen += sizeof(stat);
-	} else {
-		if (a) {
-			uint32_t leasetime;
-			if (a->leasetime)
-				leasetime = a->leasetime;
-			else
-				leasetime = iface->dhcpv4_leasetime;
+		memcpy(buf + ia_len, &o_status, sizeof(o_status));
+		ia_len += sizeof(o_status);
 
-			uint32_t pref = leasetime;
-			uint32_t valid = leasetime;
+		o_ia.len = htons(ia_len - 4);
+		memcpy(buf, &o_ia, sizeof(o_ia));
 
-			struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-			size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
-			size_t m = get_preferred_addr(addrs, addrlen);
+		return ia_len;
+	}
 
-			for (size_t i = 0; i < addrlen; ++i) {
-				uint32_t prefix_pref = addrs[i].preferred;
-				uint32_t prefix_valid = addrs[i].valid;
+	if (a) {
+		uint32_t leasetime;
 
-				if (!valid_addr(&addrs[i], now))
+		if (a->leasetime)
+			leasetime = a->leasetime;
+		else
+			leasetime = iface->dhcpv4_leasetime;
+
+		uint32_t pref = leasetime;
+		uint32_t valid = leasetime;
+
+		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
+		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+		size_t m = get_preferred_addr(addrs, addrlen);
+
+		for (size_t i = 0; i < addrlen; ++i) {
+			uint32_t prefix_pref = addrs[i].preferred;
+			uint32_t prefix_valid = addrs[i].valid;
+
+			if (!valid_addr(&addrs[i], now))
+				continue;
+
+			if (prefix_pref != UINT32_MAX)
+				prefix_pref -= now;
+
+			if (prefix_valid != UINT32_MAX)
+				prefix_valid -= now;
+
+			if (a->length < 128) {
+				struct dhcpv6_ia_prefix o_ia_p = {
+					.type = htons(DHCPV6_OPT_IA_PREFIX),
+					.len = htons(sizeof(o_ia_p) - 4),
+					.preferred = htonl(prefix_pref),
+					.valid = htonl(prefix_valid),
+					.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
+					.addr = addrs[i].addr.in6,
+				};
+
+				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned);
+				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
+
+				if ((a->assigned == 0 && a->managed_size == 0) ||
+						!valid_prefix_length(a, addrs[i].prefix))
 					continue;
 
-				if (prefix_pref != UINT32_MAX)
-					prefix_pref -= now;
+				if (buflen < ia_len + sizeof(o_ia_p))
+					return 0;
 
-				if (prefix_valid != UINT32_MAX)
-					prefix_valid -= now;
+				memcpy(buf + ia_len, &o_ia_p, sizeof(o_ia_p));
+				ia_len += sizeof(o_ia_p);
+			} else {
+				struct dhcpv6_ia_addr o_ia_a = {
+					.type = htons(DHCPV6_OPT_IA_ADDR),
+					.len = htons(sizeof(o_ia_a) - 4),
+					.addr = addrs[i].addr.in6,
+					.preferred = htonl(prefix_pref),
+					.valid = htonl(prefix_valid)
+				};
 
-				if (a->length < 128) {
-					struct dhcpv6_ia_prefix p = {
-						.type = htons(DHCPV6_OPT_IA_PREFIX),
-						.len = htons(sizeof(p) - 4),
-						.preferred = htonl(prefix_pref),
-						.valid = htonl(prefix_valid),
-						.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
-						.addr = addrs[i].addr.in6,
-					};
-					p.addr.s6_addr32[1] |= htonl(a->assigned);
-					p.addr.s6_addr32[2] = p.addr.s6_addr32[3] = 0;
+				o_ia_a.addr.s6_addr32[3] = htonl(a->assigned);
 
-					size_t entrlen = sizeof(p) - 4;
+				if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) ||
+						a->assigned == 0)
+					continue;
 
-					if (datalen + entrlen + 4 > buflen ||
-							(a->assigned == 0 && a->managed_size == 0) ||
-							!valid_prefix_length(a, addrs[i].prefix))
+				if (buflen < ia_len + sizeof(o_ia_a))
+					return 0;
+
+				memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
+				ia_len += sizeof(o_ia_a);
+			}
+
+			/* Calculate T1 / T2 based on non-deprecated addresses */
+			if (prefix_pref > 0) {
+				if (prefix_pref < pref)
+					pref = prefix_pref;
+
+				if (prefix_valid < valid)
+					valid = prefix_valid;
+			}
+		}
+
+		if (!INFINITE_VALID(a->valid_until))
+			/* UINT32_MAX is considered as infinite leasetime */
+			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+
+		o_ia.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
+		o_ia.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
+
+		if (!o_ia.t1)
+			o_ia.t1 = htonl(1);
+
+		if (!o_ia.t2)
+			o_ia.t2 = htonl(1);
+	}
+
+	if (!request) {
+		uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
+		uint16_t otype, olen;
+
+		dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
+			struct dhcpv6_ia_prefix *ia_p = (struct dhcpv6_ia_prefix *)&odata[-4];
+			struct dhcpv6_ia_addr *ia_a = (struct dhcpv6_ia_addr *)&odata[-4];
+			bool found = false;
+
+			if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*ia_p) - 4) &&
+					(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*ia_a) - 4))
+				continue;
+
+			if (a) {
+				struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
+				size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+
+				for (size_t i = 0; i < addrlen; ++i) {
+					if (!valid_addr(&addrs[i], now))
 						continue;
 
-					memcpy(buf + datalen, &p, sizeof(p));
-					datalen += entrlen + 4;
-				} else {
-					struct dhcpv6_ia_addr n = {
-						.type = htons(DHCPV6_OPT_IA_ADDR),
-						.len = htons(sizeof(n) - 4),
-						.addr = addrs[i].addr.in6,
-						.preferred = htonl(prefix_pref),
-						.valid = htonl(prefix_valid)
-					};
-					n.addr.s6_addr32[3] = htonl(a->assigned);
-					size_t entrlen = sizeof(n) - 4;
+					struct in6_addr addr = addrs[i].addr.in6;
+					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
+						addr.s6_addr32[1] |= htonl(a->assigned);
+						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
-					if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) ||
-							a->assigned == 0 ||
-							datalen + entrlen + 4 > buflen)
-						continue;
+						if (!memcmp(&ia_p->addr, &addr, sizeof(addr)) &&
+								ia_p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
+							found = true;
+					} else {
+						addr.s6_addr32[3] = htonl(a->assigned);
 
-					memcpy(buf + datalen, &n, sizeof(n));
-					datalen += entrlen + 4;
-				}
-
-				/* Calculate T1 / T2 based on non-deprecated addresses */
-				if (prefix_pref > 0) {
-					if (prefix_pref < pref)
-						pref = prefix_pref;
-
-					if (prefix_valid < valid)
-						valid = prefix_valid;
+						if (!memcmp(&ia_a->addr, &addr, sizeof(addr)))
+							found = true;
+					}
 				}
 			}
 
-			if (!INFINITE_VALID(a->valid_until))
-				/* UINT32_MAX is considered as infinite leasetime */
-				a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+			if (!found) {
+				if (otype == DHCPV6_OPT_IA_PREFIX) {
+					struct dhcpv6_ia_prefix o_ia_p = {
+						.type = htons(DHCPV6_OPT_IA_PREFIX),
+						.len = htons(sizeof(o_ia_p) - 4),
+						.preferred = 0,
+						.valid = 0,
+						.prefix = ia_p->prefix,
+						.addr = ia_p->addr,
+					};
 
-			out.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
-			out.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
+					if (buflen < ia_len + sizeof(o_ia_p))
+						return 0;
 
-			if (!out.t1)
-				out.t1 = htonl(1);
+					memcpy(buf + ia_len, &o_ia_p, sizeof(o_ia_p));
+					ia_len += sizeof(o_ia_p);
+				} else {
+					struct dhcpv6_ia_addr o_ia_a = {
+						.type = htons(DHCPV6_OPT_IA_ADDR),
+						.len = htons(sizeof(o_ia_a) - 4),
+						.addr = ia_a->addr,
+						.preferred = 0,
+						.valid = 0,
+					};
 
-			if (!out.t2)
-				out.t2 = htonl(1);
-		}
+					if (buflen < ia_len + sizeof(o_ia_a))
+						continue;
 
-		if (!request) {
-			uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
-			uint16_t otype, olen;
-
-			dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
-				struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&odata[-4];
-				struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr*)&odata[-4];
-				bool found = false;
-
-				if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - 4) &&
-						(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - 4))
-					continue;
-
-				if (a) {
-					struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-					size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
-
-					for (size_t i = 0; i < addrlen; ++i) {
-						if (!valid_addr(&addrs[i], now))
-							continue;
-
-						struct in6_addr addr = addrs[i].addr.in6;
-						if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
-							addr.s6_addr32[1] |= htonl(a->assigned);
-							addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
-
-							if (!memcmp(&p->addr, &addr, sizeof(addr)) &&
-									p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
-								found = true;
-						} else {
-							addr.s6_addr32[3] = htonl(a->assigned);
-
-							if (!memcmp(&n->addr, &addr, sizeof(addr)))
-								found = true;
-						}
-					}
-				}
-
-				if (!found) {
-					if (otype == DHCPV6_OPT_IA_PREFIX) {
-						struct dhcpv6_ia_prefix inv = {
-							.type = htons(DHCPV6_OPT_IA_PREFIX),
-							.len = htons(sizeof(inv) - 4),
-							.preferred = 0,
-							.valid = 0,
-							.prefix = p->prefix,
-							.addr = p->addr
-						};
-
-						if (datalen + sizeof(inv) > buflen)
-							continue;
-
-						memcpy(buf + datalen, &inv, sizeof(inv));
-						datalen += sizeof(inv);
-					} else {
-						struct dhcpv6_ia_addr inv = {
-							.type = htons(DHCPV6_OPT_IA_ADDR),
-							.len = htons(sizeof(inv) - 4),
-							.addr = n->addr,
-							.preferred = 0,
-							.valid = 0
-						};
-
-						if (datalen + sizeof(inv) > buflen)
-							continue;
-
-						memcpy(buf + datalen, &inv, sizeof(inv));
-						datalen += sizeof(inv);
-					}
+					memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
+					ia_len += sizeof(o_ia_a);
 				}
 			}
 		}
 	}
 
-	out.len = htons(datalen - 4);
-	memcpy(buf, &out, sizeof(out));
-	return datalen;
+	o_ia.len = htons(ia_len - 4);
+	memcpy(buf, &o_ia, sizeof(o_ia));
+	return ia_len;
 }
 
 struct log_ctxt {
@@ -1330,7 +1348,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				first = a;
 			}
 
-			ia_response_len = append_reply(buf, buflen, status, ia, a, iface,
+			ia_response_len = build_ia(buf, buflen, status, ia, a, iface,
 							hdr->msg_type == DHCPV6_MSG_REBIND ? false : true);
 
 			/* Was only a solicitation: mark binding for removal */
@@ -1371,10 +1389,10 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 				hdr->msg_type == DHCPV6_MSG_DECLINE) {
 			if (!a && hdr->msg_type != DHCPV6_MSG_REBIND) {
 				status = DHCPV6_STATUS_NOBINDING;
-				ia_response_len = append_reply(buf, buflen, status, ia, a, iface, false);
+				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
 			} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
 					hdr->msg_type == DHCPV6_MSG_REBIND) {
-				ia_response_len = append_reply(buf, buflen, status, ia, a, iface, false);
+				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
 				if (a) {
 					a->flags |= OAF_BOUND;
 					apply_lease(iface, a, true);
@@ -1398,7 +1416,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
 			/* Send NOTONLINK for CONFIRM with addr present so that clients restart connection */
 			status = DHCPV6_STATUS_NOTONLINK;
-			ia_response_len = append_reply(buf, buflen, status, ia, a, iface, true);
+			ia_response_len = build_ia(buf, buflen, status, ia, a, iface, true);
 			notonlink = true;
 		}
 

@@ -1117,16 +1117,16 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assignment *a,
 		struct interface *iface)
 {
-	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-	size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+	struct odhcpd_ipaddr *addrs = (a && a->managed) ? a->managed : iface->addr6;
+	size_t addrlen = (a && a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 	time_t now = odhcpd_time();
 	uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
 	uint16_t otype, olen;
 	bool onlink = true;
 
 	dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
-		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&odata[-4];
-		struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr*)&odata[-4];
+		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix *)&odata[-4];
+		struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr *)&odata[-4];
 
 		if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - 4) &&
 				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - 4))
@@ -1134,24 +1134,17 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assi
 
 		onlink = false;
 		for (size_t i = 0; i < addrlen; ++i) {
-			struct in6_addr addr = addrs[i].addr.in6;
-
 			if (!valid_addr(&addrs[i], now))
 				continue;
 
 			if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
-				addr.s6_addr32[1] |= htonl(a->assigned);
-				addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
-
-				if (memcmp(&p->addr, &addr, sizeof(addr)) ||
-						p->prefix != ((a->managed) ? addrs[i].prefix : a->length))
+				if (p->prefix < addrs[i].prefix ||
+				    odhcpd_bmemcmp(&p->addr, &addrs[i].addr.in6, addrs[i].prefix))
 					continue;
-			} else {
-				addr.s6_addr32[3] = htonl(a->assigned);
 
-				if (memcmp(&n->addr, &addr, sizeof(addr)))
-					continue;
-			}
+			} else if (odhcpd_bmemcmp(&n->addr, &addrs[i].addr.in6, addrs[i].prefix))
+				continue;
+
 			onlink = true;
 		}
 
@@ -1341,6 +1334,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					handshake_len += sizeof(auth);
 				}
 
+
 				buf += handshake_len;
 				buflen -= handshake_len;
 				response_len += handshake_len;
@@ -1413,11 +1407,16 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 					a->valid_until = now + 3600; /* Block address for 1h */
 				}
 			}
-		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM && ia_addr_present) {
-			/* Send NOTONLINK for CONFIRM with addr present so that clients restart connection */
-			status = DHCPV6_STATUS_NOTONLINK;
-			ia_response_len = build_ia(buf, buflen, status, ia, a, iface, true);
-			notonlink = true;
+		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM) {
+			if (ia_addr_present && !dhcpv6_ia_on_link(ia, a, iface)) {
+				notonlink = true;
+				break;
+			}
+
+			if (!ia_addr_present || !a || !(a->flags & OAF_BOUND)) {
+				response_len = 0;
+				goto out;
+			}
 		}
 
 		buf += ia_response_len;
@@ -1426,15 +1425,23 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		dhcpv6_log(hdr->msg_type, iface, now, duidbuf, is_pd, a, status);
 	}
 
-	if ((hdr->msg_type == DHCPV6_MSG_RELEASE || hdr->msg_type == DHCPV6_MSG_DECLINE || notonlink) &&
-			response_len + 6 < buflen) {
-		buf[0] = 0;
-		buf[1] = DHCPV6_OPT_STATUS;
-		buf[2] = 0;
-		buf[3] = 2;
-		buf[4] = 0;
-		buf[5] = (notonlink) ? DHCPV6_STATUS_NOTONLINK : DHCPV6_STATUS_OK;
-		response_len += 6;
+	switch (hdr->msg_type) {
+	case DHCPV6_MSG_RELEASE:
+	case DHCPV6_MSG_DECLINE:
+	case DHCPV6_MSG_CONFIRM:
+		if (response_len + 6 < buflen) {
+			buf[0] = 0;
+			buf[1] = DHCPV6_OPT_STATUS;
+			buf[2] = 0;
+			buf[3] = 2;
+			buf[4] = 0;
+			buf[5] = (notonlink) ? DHCPV6_STATUS_NOTONLINK : DHCPV6_STATUS_OK;
+			response_len += 6;
+		}
+		break;
+
+	default:
+		break;
 	}
 
 	dhcpv6_write_statefile();

@@ -235,6 +235,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv6_raw);
 	free(iface->filter_class);
 	free(iface->ntp);
+	free(iface->dhcpv4_ntp);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -772,8 +773,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
 
+			struct in_addr addr4;
 			struct in6_addr addr6;
-			if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
+			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
+				if (addr4.s_addr == INADDR_ANY)
+					goto err;
+
+				iface->dhcpv4_ntp = realloc(iface->dhcpv4_ntp,
+						(++iface->dhcpv4_ntp_cnt) * sizeof(*iface->dhcpv4_ntp));
+				if (!iface->dhcpv4_ntp)
+					goto err;
+
+				iface->dhcpv4_ntp[iface->dhcpv4_ntp_cnt - 1] = addr4;
+			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
 				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
 					goto err;
 

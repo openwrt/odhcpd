@@ -226,6 +226,8 @@ struct interface {
 	size_t dhcpv4_dns_cnt;
 	uint32_t dhcpv4_leasetime;
 	bool dhcpv4_forcereconf;
+	struct in_addr *dhcpv4_ntp;
+	size_t dhcpv4_ntp_cnt;
 
 	// DNS
 	struct in6_addr *dns;

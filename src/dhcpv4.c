@@ -896,6 +896,12 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
+	if (iface->dhcpv4_ntp_cnt == 0)
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER, 4, &iface->dhcpv4_local);
+	else
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
+				4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+
 
 	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_END, 0, NULL);
 

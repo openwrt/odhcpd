@@ -295,6 +295,33 @@ static void ping6(struct in6_addr *addr,
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, false);
 }
 
+/* Send a Neighbor Advertisement. */
+static void send_na(struct in6_addr *to_addr,
+		const struct interface *iface, struct in6_addr *for_addr,
+		const uint8_t *mac)
+{
+	struct sockaddr_in6 dest = { .sin6_family = AF_INET6, .sin6_addr = *to_addr };
+	char pbuf[sizeof(struct nd_neighbor_advert) + sizeof(struct nd_opt_hdr) + 6];
+	struct nd_neighbor_advert *adv = (struct nd_neighbor_advert*)pbuf;
+	struct nd_opt_hdr *opt = (struct nd_opt_hdr*) &pbuf[sizeof(struct nd_neighbor_advert)];
+	struct iovec iov = { .iov_base = &pbuf, .iov_len = sizeof(pbuf) };
+	char ipbuf[INET6_ADDRSTRLEN];
+
+	memset(pbuf, 0, sizeof(pbuf));
+	adv->nd_na_hdr = (struct icmp6_hdr) {
+		.icmp6_type = ND_NEIGHBOR_ADVERT,
+		.icmp6_dataun.icmp6_un_data32 = { 0x40000000L }
+	};
+	adv->nd_na_target = *for_addr;
+	*opt = (struct nd_opt_hdr) { .nd_opt_type = ND_OPT_TARGET_LINKADDR, .nd_opt_len = 1 };
+	memcpy(&pbuf[sizeof(struct nd_neighbor_advert) + sizeof(struct nd_opt_hdr)], mac, 6);
+
+	inet_ntop(AF_INET6, to_addr, ipbuf, sizeof(ipbuf));
+	syslog(LOG_DEBUG, "Answering NS to %s on %s", ipbuf, iface->ifname);
+
+	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+}
+
 /* Handle solicitations */
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest)
@@ -334,6 +361,17 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		if (iface != c && c->ndp == MODE_RELAY &&
 				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
+	}
+
+	/* Catch global-addressed NS and answer them manually.
+	 * The kernel won't answer these and cannot route them either. */
+	if (!IN6_IS_ADDR_MULTICAST(&ip6->ip6_dst) &&
+			IN6_IS_ADDR_LINKLOCAL(&ip6->ip6_src)) {
+		bool is_proxy_neigh = netlink_get_interface_proxy_neigh(iface->ifindex,
+				&req->nd_ns_target) == 1;
+
+		if (is_proxy_neigh)
+			send_na(&ip6->ip6_src, iface, &req->nd_ns_target, mac);
 	}
 }
 

@@ -684,6 +684,113 @@ out:
 }
 
 
+struct neigh_info {
+	int ifindex;
+	int pending;
+	const struct in6_addr *addr;
+	int ret;
+};
+
+
+static int cb_valid_handler2(struct nl_msg *msg, void *arg)
+{
+	struct neigh_info *ctxt = (struct neigh_info *)arg;
+	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	struct ndmsg *ndm;
+	struct nlattr *nla_dst;
+
+	if (hdr->nlmsg_type != RTM_NEWNEIGH)
+		return NL_SKIP;
+
+	ndm = NLMSG_DATA(hdr);
+	if (ndm->ndm_family != AF_INET6 ||
+			(ctxt->ifindex && ndm->ndm_ifindex != ctxt->ifindex))
+		return NL_SKIP;
+
+	if (!(ndm->ndm_flags & NTF_PROXY))
+		return NL_SKIP;
+
+	nla_dst = nlmsg_find_attr(hdr, sizeof(*ndm), NDA_DST);
+	if (!nla_dst)
+		return NL_SKIP;
+
+	if (nla_memcmp(nla_dst,ctxt->addr, 16) == 0)
+		ctxt->ret = 1;
+
+	return NL_OK;
+}
+
+
+static int cb_finish_handler2(_unused struct nl_msg *msg, void *arg)
+{
+	struct neigh_info *ctxt = (struct neigh_info *)arg;
+
+	ctxt->pending = 0;
+
+	return NL_STOP;
+}
+
+
+static int cb_error_handler2(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+		void *arg)
+{
+	struct neigh_info *ctxt = (struct neigh_info *)arg;
+
+	ctxt->pending = 0;
+	ctxt->ret = err->error;
+
+	return NL_STOP;
+}
+
+/* Detect an IPV6-address proxy neighbor for the given interface */
+int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr)
+{
+	struct nl_msg *msg;
+	struct ndmsg ndm = {
+		.ndm_family = AF_INET6,
+		.ndm_flags = NTF_PROXY,
+		.ndm_ifindex = ifindex,
+	};
+	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
+	struct neigh_info ctxt = {
+		.ifindex = ifindex,
+		.addr = addr,
+		.ret = 0,
+		.pending = 1,
+	};
+
+	if (!cb) {
+		ctxt.ret = -1;
+		goto out;
+	}
+
+	msg = nlmsg_alloc_simple(RTM_GETNEIGH, NLM_F_REQUEST | NLM_F_MATCH);
+
+	if (!msg) {
+		ctxt.ret = -1;
+		goto out;
+	}
+
+	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
+	nla_put(msg, NDA_DST, sizeof(*addr), addr);
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_valid_handler2, &ctxt);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_finish_handler2, &ctxt);
+	nl_cb_err(cb, NL_CB_CUSTOM, cb_error_handler2, &ctxt);
+
+	nl_send_auto_complete(rtnl_socket, msg);
+	while (ctxt.pending > 0)
+		nl_recvmsgs(rtnl_socket, cb);
+
+	nlmsg_free(msg);
+
+out:
+	nl_cb_put(cb);
+
+	return ctxt.ret;
+}
+
+
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
 		const int ifindex, const struct in6_addr *gw,
 		const uint32_t metric, const bool add)

@@ -229,12 +229,12 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
 	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
 	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		syslog(LOG_ERR, "invalid DHCP range for %s", iface->name);
+		syslog(LOG_ERR, "Invalid DHCP range for %s", iface->name);
 		return -1;
 	}
 
 	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "no network(s) available on %s", iface->name);
+		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
 		return -1;
 	}
 
@@ -264,7 +264,7 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 
 	/* Don't allocate IP range for subnets bigger than 28 */
 	if (iface->addr4[0].prefix > 28) {
-		syslog(LOG_WARNING, "auto allocation of DHCP range fails on %s", iface->name);
+		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s", iface->name);
 		return -1;
 	}
 
@@ -321,8 +321,7 @@ static void update_static_assignments(struct interface *iface)
 			/* Construct entry */
 			a = calloc(1, sizeof(*a));
 			if (!a) {
-				syslog(LOG_ERR, "Calloc failed for static lease on interface %s",
-					iface->ifname);
+				syslog(LOG_ERR, "Calloc failed for static lease on %s", iface->name);
 				continue;
 			}
 			memcpy(a->hwaddr, lease->mac.ether_addr_octet, sizeof(a->hwaddr));
@@ -455,7 +454,7 @@ static void handle_addrlist_change(struct interface *iface)
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
 	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
-		syslog(LOG_ERR, "Failed to add ip address");
+		syslog(LOG_ERR, "Failed to add ip address on %s", iface->name);
 		return;
 	}
 
@@ -674,7 +673,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 		return;
 
 
-	syslog(LOG_NOTICE, "Got DHCPv4 request");
+	syslog(LOG_NOTICE, "Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
 		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
@@ -800,8 +799,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	syslog(LOG_WARNING, "received %s from %s", dhcpv4_msg_to_string(reqmsg),
-			odhcpd_print_mac(req->chaddr, req->hlen));
+	syslog(LOG_WARNING, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
+			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
 #ifdef WITH_UBUS
 	if (reqmsg == DHCPV4_MSG_RELEASE)
@@ -977,7 +976,7 @@ static bool dhcpv4_assign(struct interface *iface,
 	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
 			!find_assignment_by_addr(iface, raddr)) {
 		assign->addr = raddr;
-		syslog(LOG_INFO, "assigning the IP the client asked for: %u.%u.%u.%u",
+		syslog(LOG_INFO, "Assigning the IP the client asked for: %u.%u.%u.%u",
 				((uint8_t *)&assign->addr)[0],
 				((uint8_t *)&assign->addr)[1],
 				((uint8_t *)&assign->addr)[2],
@@ -999,7 +998,7 @@ static bool dhcpv4_assign(struct interface *iface,
 
 	if (list_empty(&iface->dhcpv4_assignments)) {
 		assign->addr = htonl(try);
-		syslog(LOG_INFO, "assigning mapped IP (empty list): %u.%u.%u.%u",
+		syslog(LOG_INFO, "Assigning mapped IP (empty list): %u.%u.%u.%u",
 				((uint8_t *)&assign->addr)[0],
 				((uint8_t *)&assign->addr)[1],
 				((uint8_t *)&assign->addr)[2],
@@ -1011,7 +1010,7 @@ static bool dhcpv4_assign(struct interface *iface,
 		if (!find_assignment_by_addr(iface, htonl(try))) {
 			/* test was successful: IP address is not assigned, assign it */
 			assign->addr = htonl(try);
-			syslog(LOG_DEBUG, "assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
+			syslog(LOG_DEBUG, "Assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
 					((uint8_t *)&assign->addr)[0],
 					((uint8_t *)&assign->addr)[1],
 					((uint8_t *)&assign->addr)[2],
@@ -1022,7 +1021,7 @@ static bool dhcpv4_assign(struct interface *iface,
 		try = (((try - start) + 1) % count) + start;
 	}
 
-	syslog(LOG_WARNING, "can't assign any IP address -> address space is full");
+	syslog(LOG_WARNING, "Can't assign any IP address -> address space is full");
 	return false;
 }
 

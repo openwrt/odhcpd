@@ -209,11 +209,11 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 
 	ssize_t sent = sendmsg(socket, &msg, MSG_DONTWAIT);
 	if (sent < 0)
-		syslog(LOG_NOTICE, "Failed to send to %s%%%s (%m)",
-				ipbuf, iface->ifname);
+		syslog(LOG_NOTICE, "Failed to send to %s%%%s@%s (%m)",
+				ipbuf, iface->name, iface->ifname);
 	else
-		syslog(LOG_DEBUG, "Sent %li bytes to %s%%%s",
-				(long)sent, ipbuf, iface->ifname);
+		syslog(LOG_DEBUG, "Sent %zd bytes to %s%%%s@%s",
+				sent, ipbuf, iface->name, iface->ifname);
 	return sent;
 }
 
@@ -411,8 +411,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 
 		/* From netlink */
 		if (addr.nl.nl_family == AF_NETLINK) {
-			syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
-					ipbuf, "netlink");
+			syslog(LOG_DEBUG, "Received %zd Bytes from %s%%netlink", len,
+					ipbuf);
 			e->handle_dgram(&addr, data_buf, len, NULL, dest);
 			return;
 		} else if (destiface != 0) {
@@ -421,8 +421,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 				if (iface->ifindex != destiface)
 					continue;
 
-				syslog(LOG_DEBUG, "Received %li Bytes from %s%%%s", (long)len,
-						ipbuf, iface->ifname);
+				syslog(LOG_DEBUG, "Received %zd Bytes from %s%%%s@%s", len,
+						ipbuf, iface->name, iface->ifname);
 
 				e->handle_dgram(&addr, data_buf, len, iface, dest);
 			}

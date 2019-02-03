@@ -278,8 +278,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 				return NL_SKIP;
 
 			inet_ntop(AF_INET6, &event_info.addr, ipbuf, sizeof(ipbuf));
-			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
-				ipbuf, event_info.iface->ifname);
+			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+				ipbuf, event_info.iface->name);
 
 			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
 							&event_info);
@@ -292,8 +292,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			nla_memcpy(&event_info.addr, nla[IFA_LOCAL], sizeof(event_info.addr));
 
 			inet_ntop(AF_INET, &event_info.addr, ipbuf, sizeof(ipbuf));
-			syslog(LOG_DEBUG, "Netlink %s %s%%%s", add ? "newaddr" : "deladdr",
-				ipbuf, event_info.iface->ifname);
+			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+				ipbuf, event_info.iface->name);
 
 			call_netevent_handler_list(add ? NETEV_ADDR_ADD : NETEV_ADDR_DEL,
 							&event_info);
@@ -329,8 +329,8 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 			return NL_SKIP;
 
 		inet_ntop(AF_INET6, &event_info.neigh.dst, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s%%%s", true ? "newneigh" : "delneigh",
-			ipbuf, event_info.iface->ifname);
+		syslog(LOG_DEBUG, "Netlink %s %s on %s", true ? "newneigh" : "delneigh",
+			ipbuf, event_info.iface->name);
 
 		event_info.neigh.state = ndm->ndm_state;
 		event_info.neigh.flags = ndm->ndm_flags;

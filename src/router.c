@@ -31,7 +31,7 @@
 
 
 static void forward_router_solicitation(const struct interface *iface);
-static void forward_router_advertisement(uint8_t *data, size_t len);
+static void forward_router_advertisement(const struct interface *iface, uint8_t *data, size_t len);
 
 static void handle_icmpv6(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
@@ -451,7 +451,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		if (addr->prefix > 96 || addr->valid <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable as RA prefix on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
-				addr->valid, iface->ifname);
+				addr->valid, iface->name);
 			continue;
 		}
 
@@ -473,7 +473,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 			tmp = realloc(pfxs, sizeof(*pfxs) * (pfxs_cnt + 1));
 			if (!tmp) {
-				syslog(LOG_ERR, "Realloc failed for RA prefix option on interface %s", iface->ifname);
+				syslog(LOG_ERR, "Realloc failed for RA prefix option on %s", iface->name);
 				continue;
 			}
 
@@ -523,7 +523,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	if (default_route) {
 		if (!valid_prefix) {
 			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-					"on %s thus we don't announce a default route!", iface->ifname);
+					"on %s thus we don't announce a default route!", iface->name);
 			adv.h.nd_ra_router_lifetime = 0;
 		} else
 			adv.h.nd_ra_router_lifetime = htons(calc_ra_lifetime(iface, maxival));
@@ -531,7 +531,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	} else
 		adv.h.nd_ra_router_lifetime = 0;
 
-	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->ifname);
+	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 
 	struct {
 		uint8_t type;
@@ -598,7 +598,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-				addr->dprefix, addr->valid, iface->ifname);
+				addr->dprefix, addr->valid, iface->name);
 
 			continue; /* Address not suitable */
 		}
@@ -617,7 +617,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 		tmp = realloc(routes, sizeof(*routes) * (routes_cnt + 1));
 		if (!tmp) {
-			syslog(LOG_ERR, "Realloc failed for RA route option on interface %s", iface->ifname);
+			syslog(LOG_ERR, "Realloc failed for RA route option on %s", iface->name);
 			continue;
 		}
 
@@ -704,7 +704,7 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 			send_router_advert(iface, &from->sin6_addr);
 	} else if (iface->ra == MODE_RELAY) { /* Relay mode */
 		if (hdr->icmp6_type == ND_ROUTER_ADVERT && iface->master)
-			forward_router_advertisement(data, len);
+			forward_router_advertisement(iface, data, len);
 		else if (hdr->icmp6_type == ND_ROUTER_SOLICIT && !iface->master)
 			forward_router_solicitation(odhcpd_get_master_interface());
 	}
@@ -726,13 +726,13 @@ static void forward_router_solicitation(const struct interface *iface)
 	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &all_routers.sin6_addr);
 	all_routers.sin6_scope_id = iface->ifindex;
 
-	syslog(LOG_NOTICE, "Sending RS to %s", iface->ifname);
+	syslog(LOG_NOTICE, "Sending RS to %s", iface->name);
 	odhcpd_send(router_event.uloop.fd, &all_routers, &iov, 1, iface);
 }
 
 
 /* Handler for incoming router solicitations on slave interfaces */
-static void forward_router_advertisement(uint8_t *data, size_t len)
+static void forward_router_advertisement(const struct interface *iface, uint8_t *data, size_t len)
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;
 	struct sockaddr_in6 all_nodes;
@@ -755,7 +755,7 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 		}
 	}
 
-	syslog(LOG_NOTICE, "Got a RA");
+	syslog(LOG_NOTICE, "Got a RA on %s", iface->name);
 
 	/* Indicate a proxy, however we don't follow the rest of RFC 4389 yet */
 	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
@@ -767,23 +767,23 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 
 	struct iovec iov = {data, len};
 
-	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head) {
-		if (iface->ra != MODE_RELAY || iface->master)
+	struct interface *c;
+	list_for_each_entry(c, &interfaces, head) {
+		if (c->ra != MODE_RELAY || c->master)
 			continue;
 
 		/* Fixup source hardware address option */
 		if (mac_ptr)
-			odhcpd_get_mac(iface, mac_ptr);
+			odhcpd_get_mac(c, mac_ptr);
 
 		/* If we have to rewrite DNS entries */
-		if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
-			const struct in6_addr *rewrite = iface->dns;
+		if (c->always_rewrite_dns && dns_ptr && dns_count > 0) {
+			const struct in6_addr *rewrite = c->dns;
 			struct in6_addr addr;
-			size_t rewrite_cnt = iface->dns_cnt;
+			size_t rewrite_cnt = c->dns_cnt;
 
 			if (rewrite_cnt == 0) {
-				if (odhcpd_get_interface_dns_addr(iface, &addr))
+				if (odhcpd_get_interface_dns_addr(c, &addr))
 					continue; /* Unable to comply */
 
 				rewrite = &addr;
@@ -797,6 +797,6 @@ static void forward_router_advertisement(uint8_t *data, size_t len)
 			}
 		}
 
-		odhcpd_send(router_event.uloop.fd, &all_nodes, &iov, 1, iface);
+		odhcpd_send(router_event.uloop.fd, &all_nodes, &iov, 1, c);
 	}
 }

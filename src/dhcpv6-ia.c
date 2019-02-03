@@ -83,7 +83,7 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 			border = calloc(1, sizeof(*border));
 
 			if (!border) {
-				syslog(LOG_ERR, "Calloc failed for border on interface %s", iface->ifname);
+				syslog(LOG_ERR, "Calloc failed for border on %s", iface->name);
 				return -1;
 			}
 
@@ -100,8 +100,8 @@ int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
 			size_t duid_len = lease->duid_len ? lease->duid_len : 14;
 			struct dhcpv6_assignment *a = calloc(1, sizeof(*a) + duid_len);
 			if (!a) {
-				syslog(LOG_ERR, "Calloc failed for static lease assignment on interface %s",
-					iface->ifname);
+				syslog(LOG_ERR, "Calloc failed for static lease assignment on %s",
+					iface->name);
 				return -1;
 			}
 
@@ -1111,7 +1111,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	}
 
 	syslog(LOG_WARNING, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
-			duidbuf, iface->ifname, status, leasebuf);
+			duidbuf, iface->name, status, leasebuf);
 }
 
 static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_assignment *a,

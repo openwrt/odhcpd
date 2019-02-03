@@ -239,7 +239,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
-	syslog(LOG_NOTICE, "Got DHCPv6 request");
+	syslog(LOG_NOTICE, "Got DHCPv6 request on %s", iface->name);
 
 	/* Construct reply message */
 	struct __attribute__((packed)) {

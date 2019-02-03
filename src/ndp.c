@@ -270,7 +270,7 @@ static void ping6(struct in6_addr *addr,
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-	syslog(LOG_NOTICE, "Pinging for %s%%%s", ipbuf, iface->ifname);
+	syslog(LOG_NOTICE, "Pinging for %s on %s", ipbuf, iface->name);
 
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, true);
 	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
@@ -305,7 +305,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		return; /* Invalid target */
 
 	inet_ntop(AF_INET6, &req->nd_ns_target, ipbuf, sizeof(ipbuf));
-	syslog(LOG_DEBUG, "Got a NS for %s%%%s", ipbuf, iface->ifname);
+	syslog(LOG_DEBUG, "Got a NS for %s on %s", ipbuf, iface->name);
 
 	odhcpd_get_mac(iface, mac);
 	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
@@ -324,10 +324,10 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-	syslog(LOG_NOTICE, "%s about %s%s%%%s",
+	syslog(LOG_NOTICE, "%s about %s%s on %s",
 			(add) ? "Learning" : "Forgetting",
 			iface->learn_routes ? "proxy routing for " : "",
-			ipbuf, iface->ifname);
+			ipbuf, iface->name);
 
 	if (iface->learn_routes)
 		netlink_setup_route(addr, 128, iface->ifindex, NULL, 1024, add);
@@ -347,10 +347,10 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 		bool neigh_add = (c->ndp == MODE_RELAY ? add : false);
 
 		if (netlink_setup_proxy_neigh(addr, c->ifindex, neigh_add))
-			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s%%%s",
-				neigh_add ? "add" : "delete", ipbuf, c->ifname);
+			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s on %s",
+				neigh_add ? "add" : "delete", ipbuf, c->name);
 		else
-			syslog(LOG_DEBUG, "%s proxy neighbour entry %s%%%s",
-				neigh_add ? "Added" : "Deleted", ipbuf, c->ifname);
+			syslog(LOG_DEBUG, "%s proxy neighbour entry %s on %s",
+				neigh_add ? "Added" : "Deleted", ipbuf, c->name);
 	}
 }

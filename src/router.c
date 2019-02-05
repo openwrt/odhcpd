@@ -209,7 +209,7 @@ static void router_netevent_cb(unsigned long event, struct netevent_handler_info
 		if (info->rt.dst_len)
 			break;
 
-		list_for_each_entry(iface, &interfaces, head) {
+		avl_for_each_element(&interfaces, iface, avl) {
 			if (iface->ra == MODE_SERVER && !iface->master)
 				uloop_timeout_set(&iface->timer_rs, 1000);
 		}
@@ -736,14 +736,15 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;
 	struct sockaddr_in6 all_nodes;
-
+	struct icmpv6_opt *opt;
+	struct interface *c;
+	struct iovec iov = { .iov_base = data, .iov_len = len };
 	/* Rewrite options */
 	uint8_t *end = data + len;
 	uint8_t *mac_ptr = NULL;
 	struct in6_addr *dns_ptr = NULL;
 	size_t dns_count = 0;
 
-	struct icmpv6_opt *opt;
 	icmpv6_for_each_option(opt, &adv[1], end) {
 		if (opt->type == ND_OPT_SOURCE_LINKADDR) {
 			/* Store address of source MAC-address */
@@ -765,10 +766,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	all_nodes.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ALL_IPV6_NODES, &all_nodes.sin6_addr);
 
-	struct iovec iov = {data, len};
-
-	struct interface *c;
-	list_for_each_entry(c, &interfaces, head) {
+	avl_for_each_element(&interfaces, c, avl) {
 		if (c->ra != MODE_RELAY || c->master)
 			continue;
 

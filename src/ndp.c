@@ -284,6 +284,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	struct ip6_hdr *ip6 = data;
 	struct nd_neighbor_solicit *req = (struct nd_neighbor_solicit*)&ip6[1];
 	struct sockaddr_ll *ll = addr;
+	struct interface *c;
 	char ipbuf[INET6_ADDRSTRLEN];
 	uint8_t mac[6];
 
@@ -311,11 +312,11 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
 		return; /* Looped back */
 
-	struct interface *c;
-	list_for_each_entry(c, &interfaces, head)
+	avl_for_each_element(&interfaces, c, avl) {
 		if (iface != c && c->ndp == MODE_RELAY &&
 				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
+	}
 }
 
 /* Use rtnetlink to modify kernel routes */
@@ -340,7 +341,7 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
-	list_for_each_entry(c, &interfaces, head) {
+	avl_for_each_element(&interfaces, c, avl) {
 		if (iface == c || (c->ndp != MODE_RELAY && !add))
 			continue;
 

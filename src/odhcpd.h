@@ -22,6 +22,7 @@
 #include <libubox/blobmsg.h>
 #include <libubox/list.h>
 #include <libubox/uloop.h>
+#include <libubox/avl.h>
 
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
@@ -145,7 +146,7 @@ struct lease {
 
 
 struct interface {
-	struct list_head head;
+	struct avl_node avl;
 
 	int ifindex;
 	char *ifname;
@@ -245,7 +246,7 @@ struct interface {
 	char *filter_class;
 };
 
-extern struct list_head interfaces;
+extern struct avl_tree interfaces;
 
 #define RA_MANAGED_NO_MFLAG	0
 #define RA_MANAGED_MFLAG	1

@@ -379,7 +379,7 @@ void dhcpv6_write_statefile(void)
 		ctxt.buf = leasebuf;
 		ctxt.buf_len = sizeof(leasebuf);
 
-		list_for_each_entry(ctxt.iface, &interfaces, head) {
+		avl_for_each_element(&interfaces, ctxt.iface, avl) {
 			if (ctxt.iface->dhcpv6 != MODE_SERVER &&
 					ctxt.iface->dhcpv4 != MODE_SERVER)
 				continue;
@@ -805,13 +805,15 @@ static void stop_reconf(struct dhcpv6_assignment *a)
 
 static void valid_until_cb(struct uloop_timeout *event)
 {
-	time_t now = odhcpd_time();
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head) {
+	time_t now = odhcpd_time();
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		struct dhcpv6_assignment *a, *n;
+
 		if (iface->dhcpv6 != MODE_SERVER || iface->ia_assignments.next == NULL)
 			continue;
 
-		struct dhcpv6_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||

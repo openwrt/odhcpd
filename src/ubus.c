@@ -28,7 +28,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 	blob_buf_init(&b, 0);
 	a = blobmsg_open_table(&b, "device");
 
-	list_for_each_entry(iface, &interfaces, head) {
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
 			continue;
 
@@ -111,7 +111,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	blob_buf_init(&b, 0);
 	a = blobmsg_open_table(&b, "device");
 
-	list_for_each_entry(iface, &interfaces, head) {
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->dhcpv6 != MODE_SERVER || iface->ia_assignments.next == NULL)
 			continue;
 
@@ -244,22 +244,23 @@ static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_o
 		struct blob_attr *msg)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX];
-	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
+	struct interface *c;
+	bool update = false;
 
+	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
 	const char *interface = (tb[IFACE_ATTR_INTERFACE]) ?
 			blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]) : "";
-	const char *ifname = (tb[IFACE_ATTR_IFNAME]) ?
-			blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
 
-	struct interface *c, *iface = NULL;
-	list_for_each_entry(c, &interfaces, head)
-		if (!strcmp(interface, c->name) || !strcmp(ifname, c->ifname))
-			iface = c;
+	avl_for_each_element(&interfaces, c, avl) {
+		if (!strcmp(interface, c->name) && !c->ignore) {
+			update = true;
+			break;
+		}
+	}
 
-	if (iface && iface->ignore)
-		return 0;
+	if (update)
+		update_netifd(false);
 
-	update_netifd(false);
 	return 0;
 }
 
@@ -281,15 +282,13 @@ void ubus_apply_network(void)
 
 		const char *interface = (tb[IFACE_ATTR_INTERFACE]) ?
 				blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]) : "";
-		const char *ifname = (tb[IFACE_ATTR_IFNAME]) ?
-				blobmsg_get_string(tb[IFACE_ATTR_IFNAME]) : "";
 
 		bool matched = false;
-		struct interface *c, *n;
-		list_for_each_entry_safe(c, n, &interfaces, head) {
+		struct interface *c, *tmp;
+		avl_for_each_element_safe(&interfaces, c, avl, tmp) {
 			char *f = memmem(c->upstream, c->upstream_len,
 					interface, strlen(interface) + 1);
-			bool cmatched = !strcmp(interface, c->name) || !strcmp(ifname, c->ifname);
+			bool cmatched = !strcmp(interface, c->name);
 			matched |= cmatched;
 
 			if (!cmatched && (!c->upstream_len || !f || (f != c->upstream && f[-1] != 0)))

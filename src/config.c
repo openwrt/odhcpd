@@ -12,13 +12,15 @@
 #include <uci.h>
 #include <uci_blob.h>
 #include <libubox/utils.h>
+#include <libubox/avl.h>
+#include <libubox/avl-cmp.h>
 
 #include "odhcpd.h"
 
 static struct blob_buf b;
 static int reload_pipe[2];
 struct list_head leases = LIST_HEAD_INIT(leases);
-struct list_head interfaces = LIST_HEAD_INIT(interfaces);
+AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {.legacy = false, .main_dhcpv4 = false,
 			.dhcp_cb = NULL, .dhcp_statefile = NULL,
 			.log_level = LOG_INFO};
@@ -206,15 +208,6 @@ static void free_lease(struct lease *l)
 	free(l);
 }
 
-static struct interface* get_interface(const char *name)
-{
-	struct interface *c;
-	list_for_each_entry(c, &interfaces, head)
-		if (!strcmp(c->name, name))
-			return c;
-	return NULL;
-}
-
 static void set_interface_defaults(struct interface *iface)
 {
 	iface->learn_routes = 1;
@@ -244,8 +237,7 @@ static void clean_interface(struct interface *iface)
 
 static void close_interface(struct interface *iface)
 {
-	if (iface->head.next)
-		list_del(&iface->head);
+	avl_delete(&interfaces, &iface->avl);
 
 	router_setup_interface(iface, false);
 	dhcpv6_setup_interface(iface, false);
@@ -409,6 +401,7 @@ err:
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
+	struct interface *iface;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
 	bool get_addrs = false;
 
@@ -420,19 +413,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if (!name)
 		return -1;
 
-	struct interface *iface = get_interface(name);
+	iface = avl_find_element(&interfaces, name, iface, avl);
 	if (!iface) {
-		char *iface_name;
+		char *new_name;
 
-		iface = calloc_a(sizeof(*iface), &iface_name, strlen(name) + 1);
+		iface = calloc_a(sizeof(*iface), &new_name, strlen(name) + 1);
 		if (!iface)
 			return -1;
 
-		iface->name = strcpy(iface_name, name);
-
+		iface->name = strcpy(new_name, name);
+		iface->avl.key = iface->name;
 		set_interface_defaults(iface);
 
-		list_add(&iface->head, &interfaces);
+		avl_insert(&interfaces, &iface->avl);
 		get_addrs = overwrite = true;
 	}
 
@@ -785,16 +778,15 @@ static int set_interface(struct uci_section *s)
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
+	struct interface *master = NULL, *i, *tmp;
 
 	while (!list_empty(&leases))
 		free_lease(list_first_entry(&leases, struct lease, head));
 
-	struct interface *master = NULL, *i, *n;
-
 	if (!uci)
 		return;
 
-	list_for_each_entry(i, &interfaces, head)
+	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
 	struct uci_package *dhcp = NULL;
@@ -829,7 +821,7 @@ void odhcpd_reload(void)
 	bool any_dhcpv6_slave = false, any_ra_slave = false, any_ndp_slave = false;
 
 	/* Test for */
-	list_for_each_entry(i, &interfaces, head) {
+	avl_for_each_element(&interfaces, i, avl) {
 		if (i->master)
 			continue;
 
@@ -844,7 +836,7 @@ void odhcpd_reload(void)
 	}
 
 	/* Evaluate hybrid mode for master */
-	list_for_each_entry(i, &interfaces, head) {
+	avl_for_each_element(&interfaces, i, avl) {
 		if (!i->master)
 			continue;
 
@@ -877,7 +869,7 @@ void odhcpd_reload(void)
 	}
 
 
-	list_for_each_entry_safe(i, n, &interfaces, head) {
+	avl_for_each_element_safe(&interfaces, i, avl, tmp) {
 		if (i->inuse) {
 			/* Resolve hybrid mode */
 			if (i->dhcpv6 == MODE_HYBRID)
@@ -944,8 +936,5 @@ void odhcpd_run(void)
 
 	odhcpd_reload();
 	uloop_run();
-
-	while (!list_empty(&interfaces))
-		close_interface(list_first_entry(&interfaces, struct interface, head));
 }
 

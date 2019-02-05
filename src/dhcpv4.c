@@ -412,9 +412,10 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 
 static void valid_until_cb(struct uloop_timeout *event)
 {
-	time_t now = odhcpd_time();
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head) {
+	time_t now = odhcpd_time();
+
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
 			continue;
 

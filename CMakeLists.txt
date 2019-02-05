@@ -5,7 +5,7 @@ cmake_policy(SET CMP0015 NEW)
 project(odhcpd C)
 
 set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=c99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -std=gnu99")
 
 FIND_PATH(ubox_include_dir libubox/uloop.h)
 FIND_PATH(libnl-tiny_include_dir netlink-generic.h PATH_SUFFIXES libnl-tiny)

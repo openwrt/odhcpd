@@ -291,9 +291,11 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 struct interface* odhcpd_get_interface_by_index(int ifindex)
 {
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head)
+
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->ifindex == ifindex)
 			return iface;
+	}
 
 	return NULL;
 }
@@ -302,9 +304,11 @@ struct interface* odhcpd_get_interface_by_index(int ifindex)
 struct interface* odhcpd_get_interface_by_name(const char *name)
 {
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head)
+
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (!strcmp(iface->ifname, name))
 			return iface;
+	}
 
 	return NULL;
 }
@@ -313,9 +317,11 @@ struct interface* odhcpd_get_interface_by_name(const char *name)
 struct interface* odhcpd_get_master_interface(void)
 {
 	struct interface *iface;
-	list_for_each_entry(iface, &interfaces, head)
+
+	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->master)
 			return iface;
+	}
 
 	return NULL;
 }
@@ -417,7 +423,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 			return;
 		} else if (destiface != 0) {
 			struct interface *iface;
-			list_for_each_entry(iface, &interfaces, head) {
+
+			avl_for_each_element(&interfaces, iface, avl) {
 				if (iface->ifindex != destiface)
 					continue;
 

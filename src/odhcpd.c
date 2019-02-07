@@ -300,20 +300,6 @@ struct interface* odhcpd_get_interface_by_index(int ifindex)
 	return NULL;
 }
 
-
-struct interface* odhcpd_get_interface_by_name(const char *name)
-{
-	struct interface *iface;
-
-	avl_for_each_element(&interfaces, iface, avl) {
-		if (!strcmp(iface->ifname, name))
-			return iface;
-	}
-
-	return NULL;
-}
-
-
 struct interface* odhcpd_get_master_interface(void)
 {
 	struct interface *iface;

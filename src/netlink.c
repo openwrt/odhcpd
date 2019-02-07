@@ -129,60 +129,301 @@ static void handle_rtnl_event(struct odhcpd_event *e)
 	nl_recvmsgs_default(ev_sock->sock);
 }
 
-static void refresh_iface_addr4(struct netevent_handler_info *event_info)
+static void refresh_iface_addr4(int ifindex)
 {
 	struct odhcpd_ipaddr *addr = NULL;
-	struct interface *iface = event_info->iface;
-	ssize_t len = netlink_get_interface_addrs(iface->ifindex, false, &addr);
+	struct interface *iface;
+	ssize_t len = netlink_get_interface_addrs(ifindex, false, &addr);
+	bool change = false;
 
 	if (len < 0)
 		return;
 
-	bool change = len != (ssize_t)iface->addr4_len;
-	for (ssize_t i = 0; !change && i < len; ++i)
-		if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
-			change = true;
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->ifindex != ifindex)
+			continue;
 
-	event_info->addrs_old.addrs = iface->addr4;
-	event_info->addrs_old.len = iface->addr4_len;
+		change = len != (ssize_t)iface->addr4_len;
+		for (ssize_t i = 0; !change && i < len; ++i) {
+			if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
+				change = true;
+		}
+		break;
+	}
 
-	iface->addr4 = addr;
-	iface->addr4_len = len;
+	if (!change) {
+		free(addr);
+		return;
+	}
 
-	if (change)
-		call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, event_info);
+	avl_for_element_range(iface, avl_last_element(&interfaces, iface, avl), iface, avl) {
+		struct netevent_handler_info event_info;
 
-	free(event_info->addrs_old.addrs);
+		if (iface->ifindex != ifindex)
+			continue;
+
+		memset(&event_info, 0, sizeof(event_info));
+		event_info.iface = iface;
+		event_info.addrs_old.addrs = iface->addr4;
+		event_info.addrs_old.len = iface->addr4_len;
+
+		iface->addr4 = addr;
+		iface->addr4_len = len;
+
+		call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, &event_info);
+
+		free(event_info.addrs_old.addrs);
+
+		if (len) {
+			addr = malloc(len * sizeof(*addr));
+			if (!addr)
+				return;
+
+			memcpy(addr, iface->addr4, len * sizeof(*addr));
+		}
+	}
+
+	free(addr);
 }
 
-static void refresh_iface_addr6(struct netevent_handler_info *event_info)
+static void refresh_iface_addr6(int ifindex)
 {
 	struct odhcpd_ipaddr *addr = NULL;
-	struct interface *iface = event_info->iface;
-	ssize_t len = netlink_get_interface_addrs(iface->ifindex, true, &addr);
+	struct interface *iface;
+	ssize_t len = netlink_get_interface_addrs(ifindex, true, &addr);
 	time_t now = odhcpd_time();
+	bool change = false;
 
 	if (len < 0)
 		return;
 
-	bool change = len != (ssize_t)iface->addr6_len;
-	for (ssize_t i = 0; !change && i < len; ++i)
-		if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
-				(addr[i].preferred > (uint32_t)now) != (iface->addr6[i].preferred > (uint32_t)now) ||
-				addr[i].valid < iface->addr6[i].valid ||
-				addr[i].preferred < iface->addr6[i].preferred)
-			change = true;
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->ifindex != ifindex)
+			continue;
 
-	event_info->addrs_old.addrs = iface->addr6;
-	event_info->addrs_old.len = iface->addr6_len;
+		change = len != (ssize_t)iface->addr6_len;
+		for (ssize_t i = 0; !change && i < len; ++i) {
+			if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
+			    (addr[i].preferred > (uint32_t)now) != (iface->addr6[i].preferred > (uint32_t)now) ||
+			    addr[i].valid < iface->addr6[i].valid || addr[i].preferred < iface->addr6[i].preferred)
+				change = true;
+		}
+		break;
+	}
 
-	iface->addr6 = addr;
-	iface->addr6_len = len;
+	if (!change) {
+		free(addr);
+		return;
+	}
 
-	if (change)
-		call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, event_info);
+	avl_for_element_range(iface, avl_last_element(&interfaces, iface, avl), iface, avl) {
+		struct netevent_handler_info event_info;
 
-	free(event_info->addrs_old.addrs);
+		if (iface->ifindex != ifindex)
+			continue;
+
+		memset(&event_info, 0, sizeof(event_info));
+		event_info.iface = iface;
+		event_info.addrs_old.addrs = iface->addr6;
+		event_info.addrs_old.len = iface->addr6_len;
+
+		iface->addr6 = addr;
+		iface->addr6_len = len;
+
+		call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, &event_info);
+
+		free(event_info.addrs_old.addrs);
+
+		if (len) {
+			addr = malloc(len * sizeof(*addr));
+			if (!addr)
+			    return;
+
+			memcpy(addr, iface->addr6, len * sizeof(*addr));
+		}
+	}
+
+	free(addr);
+}
+
+static int handle_rtm_link(struct nlmsghdr *hdr)
+{
+	struct ifinfomsg *ifi = nlmsg_data(hdr);
+	struct nlattr *nla[__IFLA_MAX];
+	struct interface *iface;
+	struct netevent_handler_info event_info;
+	const char *ifname;
+
+	memset(&event_info, 0, sizeof(event_info));
+
+	if (!nlmsg_valid_hdr(hdr, sizeof(*ifi)) || ifi->ifi_family != AF_UNSPEC)
+		return NL_SKIP;
+
+	nlmsg_parse(hdr, sizeof(*ifi), nla, __IFLA_MAX - 1, NULL);
+	if (!nla[IFLA_IFNAME])
+		return NL_SKIP;
+
+	ifname = nla_get_string(nla[IFLA_IFNAME]);
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (strcmp(iface->ifname, ifname) || iface->ifindex == ifi->ifi_index)
+			continue;
+
+		iface->ifindex = ifi->ifi_index;
+		event_info.iface = iface;
+		call_netevent_handler_list(NETEV_IFINDEX_CHANGE, &event_info);
+	}
+
+	return NL_OK;
+}
+
+static int handle_rtm_route(struct nlmsghdr *hdr, bool add)
+{
+	struct rtmsg *rtm = nlmsg_data(hdr);
+	struct nlattr *nla[__RTA_MAX];
+	struct interface *iface;
+	struct netevent_handler_info event_info;
+	int ifindex = 0;
+
+	if (!nlmsg_valid_hdr(hdr, sizeof(*rtm)) || rtm->rtm_family != AF_INET6)
+		return NL_SKIP;
+
+	nlmsg_parse(hdr, sizeof(*rtm), nla, __RTA_MAX - 1, NULL);
+
+	memset(&event_info, 0, sizeof(event_info));
+	event_info.rt.dst_len = rtm->rtm_dst_len;
+
+	if (nla[RTA_DST])
+		nla_memcpy(&event_info.rt.dst, nla[RTA_DST],
+				sizeof(event_info.rt.dst));
+
+	if (nla[RTA_OIF])
+		ifindex = nla_get_u32(nla[RTA_OIF]);
+
+	if (nla[RTA_GATEWAY])
+		nla_memcpy(&event_info.rt.gateway, nla[RTA_GATEWAY],
+				sizeof(event_info.rt.gateway));
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (ifindex && iface->ifindex != ifindex)
+			continue;
+
+		event_info.iface = ifindex ? iface : NULL;
+		call_netevent_handler_list(add ? NETEV_ROUTE6_ADD : NETEV_ROUTE6_DEL,
+						&event_info);
+	}
+
+	return NL_OK;
+}
+
+static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
+{
+	struct ifaddrmsg *ifa = nlmsg_data(hdr);
+	struct nlattr *nla[__IFA_MAX];
+	struct interface *iface;
+	struct netevent_handler_info event_info;
+	char buf[INET6_ADDRSTRLEN];
+
+	if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
+			(ifa->ifa_family != AF_INET6 &&
+			 ifa->ifa_family != AF_INET))
+		return NL_SKIP;
+
+	memset(&event_info, 0, sizeof(event_info));
+
+	nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
+
+	if (ifa->ifa_family == AF_INET6) {
+		if (!nla[IFA_ADDRESS])
+			return NL_SKIP;
+
+		nla_memcpy(&event_info.addr, nla[IFA_ADDRESS], sizeof(event_info.addr));
+
+		if (IN6_IS_ADDR_LINKLOCAL(&event_info.addr) || IN6_IS_ADDR_MULTICAST(&event_info.addr))
+			return NL_SKIP;
+
+		inet_ntop(AF_INET6, &event_info.addr, buf, sizeof(buf));
+
+		avl_for_each_element(&interfaces, iface, avl) {
+			if (iface->ifindex != (int)ifa->ifa_index)
+				continue;
+
+			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+					buf, iface->name);
+
+			event_info.iface = iface;
+			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
+							&event_info);
+		}
+
+		refresh_iface_addr6(ifa->ifa_index);
+	} else {
+		if (!nla[IFA_LOCAL])
+			return NL_SKIP;
+
+		nla_memcpy(&event_info.addr, nla[IFA_LOCAL], sizeof(event_info.addr));
+
+		inet_ntop(AF_INET, &event_info.addr, buf, sizeof(buf));
+
+		avl_for_each_element(&interfaces, iface, avl) {
+			if (iface->ifindex != (int)ifa->ifa_index)
+				continue;
+
+			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+					buf, iface->name);
+
+			event_info.iface = iface;
+			call_netevent_handler_list(add ? NETEV_ADDR_ADD : NETEV_ADDR_DEL,
+							&event_info);
+		}
+
+		refresh_iface_addr4(ifa->ifa_index);
+	}
+
+	return NL_OK;
+}
+
+static int handle_rtm_neigh(struct nlmsghdr *hdr, bool add)
+{
+	struct ndmsg *ndm = nlmsg_data(hdr);
+	struct nlattr *nla[__NDA_MAX];
+	struct interface *iface;
+	struct netevent_handler_info event_info;
+	char buf[INET6_ADDRSTRLEN];
+
+	if (!nlmsg_valid_hdr(hdr, sizeof(*ndm)) ||
+			ndm->ndm_family != AF_INET6)
+		return NL_SKIP;
+
+	nlmsg_parse(hdr, sizeof(*ndm), nla, __NDA_MAX - 1, NULL);
+	if (!nla[NDA_DST])
+		return NL_SKIP;
+
+	memset(&event_info, 0, sizeof(event_info));
+
+	nla_memcpy(&event_info.neigh.dst, nla[NDA_DST], sizeof(event_info.neigh.dst));
+
+	if (IN6_IS_ADDR_LINKLOCAL(&event_info.neigh.dst) ||
+			IN6_IS_ADDR_MULTICAST(&event_info.neigh.dst))
+		return NL_SKIP;
+
+	inet_ntop(AF_INET6, &event_info.neigh.dst, buf, sizeof(buf));
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->ifindex != ndm->ndm_ifindex)
+			continue;
+
+		syslog(LOG_DEBUG, "Netlink %s %s on %s", true ? "newneigh" : "delneigh",
+				buf, iface->name);
+
+		event_info.neigh.state = ndm->ndm_state;
+		event_info.neigh.flags = ndm->ndm_flags;
+
+		call_netevent_handler_list(add ? NETEV_NEIGH6_ADD : NETEV_NEIGH6_DEL,
+						&event_info);
+	}
+
+	return NL_OK;
 }
 
 /* Handler for neighbor cache entries from the kernel. This is our source
@@ -190,161 +431,40 @@ static void refresh_iface_addr6(struct netevent_handler_info *event_info)
 static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 {
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
-	struct netevent_handler_info event_info;
+	int ret = NL_SKIP;
 	bool add = false;
-	char ipbuf[INET6_ADDRSTRLEN];
 
-	memset(&event_info, 0, sizeof(event_info));
 	switch (hdr->nlmsg_type) {
-	case RTM_NEWLINK: {
-		struct ifinfomsg *ifi = nlmsg_data(hdr);
-		struct nlattr *nla[__IFLA_MAX];
-
-		if (!nlmsg_valid_hdr(hdr, sizeof(*ifi)) ||
-				ifi->ifi_family != AF_UNSPEC)
-			return NL_SKIP;
-
-		nlmsg_parse(hdr, sizeof(*ifi), nla, __IFLA_MAX - 1, NULL);
-		if (!nla[IFLA_IFNAME])
-			return NL_SKIP;
-
-		event_info.iface = odhcpd_get_interface_by_name(nla_get_string(nla[IFLA_IFNAME]));
-		if (!event_info.iface)
-			return NL_SKIP;
-
-		if (event_info.iface->ifindex != ifi->ifi_index) {
-			event_info.iface->ifindex = ifi->ifi_index;
-			call_netevent_handler_list(NETEV_IFINDEX_CHANGE, &event_info);
-		}
+	case RTM_NEWLINK:
+		ret = handle_rtm_link(hdr);
 		break;
-	}
 
 	case RTM_NEWROUTE:
 		add = true;
 		/* fall through */
-	case RTM_DELROUTE: {
-		struct rtmsg *rtm = nlmsg_data(hdr);
-		struct nlattr *nla[__RTA_MAX];
-
-		if (!nlmsg_valid_hdr(hdr, sizeof(*rtm)) ||
-				rtm->rtm_family != AF_INET6)
-			return NL_SKIP;
-
-		nlmsg_parse(hdr, sizeof(*rtm), nla, __RTA_MAX - 1, NULL);
-
-		event_info.rt.dst_len = rtm->rtm_dst_len;
-		if (nla[RTA_DST])
-			nla_memcpy(&event_info.rt.dst, nla[RTA_DST],
-					sizeof(event_info.rt.dst));
-
-		if (nla[RTA_OIF])
-			event_info.iface = odhcpd_get_interface_by_index(nla_get_u32(nla[RTA_OIF]));
-
-		if (nla[RTA_GATEWAY])
-			nla_memcpy(&event_info.rt.gateway, nla[RTA_GATEWAY],
-					sizeof(event_info.rt.gateway));
-
-		call_netevent_handler_list(add ? NETEV_ROUTE6_ADD : NETEV_ROUTE6_DEL,
-					&event_info);
+	case RTM_DELROUTE:
+		ret = handle_rtm_route(hdr, add);
 		break;
-	}
 
 	case RTM_NEWADDR:
 		add = true;
 		/* fall through */
-	case RTM_DELADDR: {
-		struct ifaddrmsg *ifa = nlmsg_data(hdr);
-		struct nlattr *nla[__IFA_MAX];
-
-		if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
-				(ifa->ifa_family != AF_INET6 &&
-				 ifa->ifa_family != AF_INET))
-			return NL_SKIP;
-
-		event_info.iface = odhcpd_get_interface_by_index(ifa->ifa_index);
-		if (!event_info.iface)
-			return NL_SKIP;
-
-		nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
-
-		if (ifa->ifa_family == AF_INET6) {
-			if (!nla[IFA_ADDRESS])
-				return NL_SKIP;
-
-			nla_memcpy(&event_info.addr, nla[IFA_ADDRESS], sizeof(event_info.addr));
-
-			if (IN6_IS_ADDR_LINKLOCAL(&event_info.addr) ||
-			    IN6_IS_ADDR_MULTICAST(&event_info.addr))
-				return NL_SKIP;
-
-			inet_ntop(AF_INET6, &event_info.addr, ipbuf, sizeof(ipbuf));
-			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
-				ipbuf, event_info.iface->name);
-
-			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
-							&event_info);
-
-			refresh_iface_addr6(&event_info);
-		} else {
-			if (!nla[IFA_LOCAL])
-				return NL_SKIP;
-
-			nla_memcpy(&event_info.addr, nla[IFA_LOCAL], sizeof(event_info.addr));
-
-			inet_ntop(AF_INET, &event_info.addr, ipbuf, sizeof(ipbuf));
-			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
-				ipbuf, event_info.iface->name);
-
-			call_netevent_handler_list(add ? NETEV_ADDR_ADD : NETEV_ADDR_DEL,
-							&event_info);
-
-			refresh_iface_addr4(&event_info);
-		}
+	case RTM_DELADDR:
+		ret = handle_rtm_addr(hdr, add);
 		break;
-	}
 
 	case RTM_NEWNEIGH:
 		add = true;
 		/* fall through */
-	case RTM_DELNEIGH: {
-		struct ndmsg *ndm = nlmsg_data(hdr);
-		struct nlattr *nla[__NDA_MAX];
+	case RTM_DELNEIGH:
+		ret = handle_rtm_neigh(hdr, add);
+		break;
 
-		if (!nlmsg_valid_hdr(hdr, sizeof(*ndm)) ||
-				ndm->ndm_family != AF_INET6)
-			return NL_SKIP;
-
-		event_info.iface = odhcpd_get_interface_by_index(ndm->ndm_ifindex);
-		if (!event_info.iface)
-			return NL_SKIP;
-
-		nlmsg_parse(hdr, sizeof(*ndm), nla, __NDA_MAX - 1, NULL);
-		if (!nla[NDA_DST])
-			return NL_SKIP;
-
-		nla_memcpy(&event_info.neigh.dst, nla[NDA_DST], sizeof(event_info.neigh.dst));
-
-		if (IN6_IS_ADDR_LINKLOCAL(&event_info.neigh.dst) ||
-		    IN6_IS_ADDR_MULTICAST(&event_info.neigh.dst))
-			return NL_SKIP;
-
-		inet_ntop(AF_INET6, &event_info.neigh.dst, ipbuf, sizeof(ipbuf));
-		syslog(LOG_DEBUG, "Netlink %s %s on %s", true ? "newneigh" : "delneigh",
-			ipbuf, event_info.iface->name);
-
-		event_info.neigh.state = ndm->ndm_state;
-		event_info.neigh.flags = ndm->ndm_flags;
-
-		call_netevent_handler_list(add ? NETEV_NEIGH6_ADD : NETEV_NEIGH6_DEL,
-						&event_info);
+	default:
 		break;
 	}
 
-	default:
-		return NL_SKIP;
-	}
-
-	return NL_OK;
+	return ret;
 }
 
 static void catch_rtnl_err(struct odhcpd_event *e, int error)

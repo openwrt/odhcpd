@@ -348,19 +348,20 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
 		handle_nested_message(data, len, &opts, &opts_end, iov);
 
-	memcpy(dest.tr_id, &opts[-3], sizeof(dest.tr_id));
+	memcpy(dest.tr_id, hdr->transaction_id, sizeof(dest.tr_id));
 
-	if (opts[-4] == DHCPV6_MSG_ADVERTISE || opts[-4] == DHCPV6_MSG_REPLY || opts[-4] == DHCPV6_MSG_RELAY_REPL)
+	if (hdr->msg_type == DHCPV6_MSG_ADVERTISE || hdr->msg_type == DHCPV6_MSG_REPLY ||
+	    hdr->msg_type == DHCPV6_MSG_RELAY_REPL)
 		return;
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
-		(opts[-4] == DHCPV6_MSG_SOLICIT || opts[-4] == DHCPV6_MSG_CONFIRM ||
-		 opts[-4] == DHCPV6_MSG_REBIND || opts[-4] == DHCPV6_MSG_INFORMATION_REQUEST))
+		(hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||
+		 hdr->msg_type == DHCPV6_MSG_REBIND || hdr->msg_type == DHCPV6_MSG_INFORMATION_REQUEST))
 		return;
 
-	if (opts[-4] == DHCPV6_MSG_SOLICIT) {
+	if (hdr->msg_type == DHCPV6_MSG_SOLICIT) {
 		dest.msg_type = DHCPV6_MSG_ADVERTISE;
-	} else if (opts[-4] == DHCPV6_MSG_INFORMATION_REQUEST) {
+	} else if (hdr->msg_type == DHCPV6_MSG_INFORMATION_REQUEST) {
 		iov[IOV_REFRESH].iov_base = &refresh;
 		iov[IOV_REFRESH].iov_len = sizeof(refresh);
 
@@ -407,8 +408,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
-		(opts[-4] == DHCPV6_MSG_REQUEST || opts[-4] == DHCPV6_MSG_RENEW ||
-		 opts[-4] == DHCPV6_MSG_RELEASE || opts[-4] == DHCPV6_MSG_DECLINE)) {
+	    (hdr->msg_type == DHCPV6_MSG_REQUEST || hdr->msg_type == DHCPV6_MSG_RENEW ||
+	     hdr->msg_type == DHCPV6_MSG_RELEASE || hdr->msg_type == DHCPV6_MSG_DECLINE)) {
 		iov[IOV_STAT].iov_base = &stat;
 		iov[IOV_STAT].iov_len = sizeof(stat);
 
@@ -419,10 +420,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		return;
 	}
 
-	if (opts[-4] != DHCPV6_MSG_INFORMATION_REQUEST) {
-		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, &opts[-4], opts_end);
+	if (hdr->msg_type != DHCPV6_MSG_INFORMATION_REQUEST) {
+		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, data, opts_end);
+
 		iov[IOV_PDBUF].iov_len = ialen;
-		if (ialen < 0 || (ialen == 0 && (opts[-4] == DHCPV6_MSG_REBIND || opts[-4] == DHCPV6_MSG_CONFIRM)))
+		if (ialen < 0 ||
+		    (ialen == 0 && (hdr->msg_type == DHCPV6_MSG_REBIND || hdr->msg_type == DHCPV6_MSG_CONFIRM)))
 			return;
 	}
 

@@ -52,6 +52,10 @@ struct odhcpd_event {
 	void (*recv_msgs)(struct odhcpd_event *e);
 };
 
+typedef void (*dhcpv6_binding_cb_handler_t)(struct in6_addr *addr, int prefix,
+					    uint32_t pref, uint32_t valid,
+					    void *arg);
+
 union if_addr {
 	struct in_addr in;
 	struct in6_addr in6;
@@ -331,6 +335,14 @@ bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t mac_len,
 		const struct in_addr *addr, const char *name, const char *interface);
 #endif
+
+ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
+		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
+int dhcpv6_ia_init(void);
+int dhcpv6_ia_setup_interface(struct interface *iface, bool enable);
+void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c, time_t now,
+				dhcpv6_binding_cb_handler_t func, void *arg);
+void dhcpv6_ia_write_statefile(void);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,

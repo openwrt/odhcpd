@@ -147,7 +147,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 		odhcpd_register(&iface->dhcpv6_event);
 	}
 
-	ret = dhcpv6_setup_ia_interface(iface, enable);
+	ret = dhcpv6_ia_setup_interface(iface, enable);
 
 out:
 	if (ret < 0 && iface->dhcpv6_event.uloop.fd > 0) {
@@ -421,7 +421,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (hdr->msg_type != DHCPV6_MSG_INFORMATION_REQUEST) {
-		ssize_t ialen = dhcpv6_handle_ia(pdbuf, sizeof(pdbuf), iface, addr, data, opts_end);
+		ssize_t ialen = dhcpv6_ia_handle_IAs(pdbuf, sizeof(pdbuf), iface, addr, data, opts_end);
 
 		iov[IOV_PDBUF].iov_len = ialen;
 		if (ialen < 0 ||

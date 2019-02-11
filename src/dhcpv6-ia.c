@@ -61,7 +61,7 @@ int dhcpv6_ia_init(void)
 	return 0;
 }
 
-int dhcpv6_setup_ia_interface(struct interface *iface, bool enable)
+int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 {
 	if (!enable && iface->ia_assignments.next) {
 		struct dhcp_assignment *c;
@@ -272,7 +272,7 @@ static int send_reconf(struct dhcp_assignment *assign)
 	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
 }
 
-void dhcpv6_enum_ia_addrs(struct interface *iface, struct dhcp_assignment *c,
+void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 				time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
 	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
@@ -349,7 +349,7 @@ void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pr
 					"%s/%d ", ipbuf, prefix);
 }
 
-void dhcpv6_write_statefile(void)
+void dhcpv6_ia_write_statefile(void)
 {
 	struct write_ctxt ctxt;
 
@@ -405,7 +405,7 @@ void dhcpv6_write_statefile(void)
 								ctxt.c->assigned, (unsigned)ctxt.c->length);
 
 					if (INFINITE_VALID(ctxt.c->valid_until) || ctxt.c->valid_until > now)
-						dhcpv6_enum_ia_addrs(ctxt.iface, ctxt.c, now,
+						dhcpv6_ia_enum_addrs(ctxt.iface, ctxt.c, now,
 									dhcpv6_write_ia_addr, &ctxt);
 
 					ctxt.buf[ctxt.buf_idx - 1] = '\n';
@@ -770,7 +770,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 		}
 	}
 
-	dhcpv6_write_statefile();
+	dhcpv6_ia_write_statefile();
 }
 
 static void reconf_timeout_cb(struct uloop_timeout *event)
@@ -1109,7 +1109,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 					.buf_len = sizeof(leasebuf),
 					.buf_idx = 0 };
 
-		dhcpv6_enum_ia_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
+		dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
 	syslog(LOG_WARNING, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
@@ -1157,7 +1157,7 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assign
 	return onlink;
 }
 
-ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
+ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
 	time_t now = odhcpd_time();
@@ -1446,7 +1446,7 @@ ssize_t dhcpv6_handle_ia(uint8_t *buf, size_t buflen, struct interface *iface,
 		break;
 	}
 
-	dhcpv6_write_statefile();
+	dhcpv6_ia_write_statefile();
 
 out:
 	return response_len;

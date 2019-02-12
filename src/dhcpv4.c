@@ -1137,7 +1137,7 @@ static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		}
 	}
 
-	dhcpv6_write_statefile();
+	dhcpv6_ia_write_statefile();
 
 	return lease;
 }

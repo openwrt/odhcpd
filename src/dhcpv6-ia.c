@@ -40,7 +40,6 @@
      (addrs)[(i)].prefix > 64)
 
 static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info *info);
-static void free_dhcpv6_assignment(struct dhcp_assignment *c);
 static void set_border_assignment_size(struct interface *iface, struct dhcp_assignment *b);
 static void handle_addrlist_change(struct netevent_handler_info *info);
 static void start_reconf(struct dhcp_assignment *a);
@@ -68,13 +67,12 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 
 		while (!list_empty(&iface->ia_assignments)) {
 			c = list_first_entry(&iface->ia_assignments, struct dhcp_assignment, head);
-			free_dhcpv6_assignment(c);
+			dhcpv6_ia_free_assignment(c);
 		}
 	}
 
 	if (enable && iface->dhcpv6 == MODE_SERVER) {
 		struct dhcp_assignment *border;
-		struct lease *lease;
 
 		if (!iface->ia_assignments.next)
 			INIT_LIST_HEAD(&iface->ia_assignments);
@@ -93,57 +91,6 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			border = list_last_entry(&iface->ia_assignments, struct dhcp_assignment, head);
 
 		set_border_assignment_size(iface, border);
-
-		/* Parse static entries */
-		list_for_each_entry(lease, &leases, head) {
-			/* Construct entry */
-			size_t duid_len = lease->duid_len ? lease->duid_len : 14;
-			struct dhcp_assignment *a = calloc(1, sizeof(*a) + duid_len);
-			if (!a) {
-				syslog(LOG_ERR, "Calloc failed for static lease assignment on %s",
-					iface->name);
-				return -1;
-			}
-
-			a->leasetime = lease->dhcpv4_leasetime;
-
-			a->clid_len = duid_len;
-			a->length = 128;
-			if (lease->hostid) {
-				a->assigned = lease->hostid;
-			} else {
-				uint32_t i4a = ntohl(lease->ipaddr.s_addr) & 0xff;
-				a->assigned = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
-			}
-
-			odhcpd_urandom(a->key, sizeof(a->key));
-			memcpy(a->clid_data, lease->duid, lease->duid_len);
-			memcpy(a->mac, lease->mac.ether_addr_octet, sizeof(a->mac));
-			/* Static assignment */
-			a->flags |= OAF_STATIC;
-			/* Infinite valid */
-			a->valid_until = 0;
-
-			/* Assign to all interfaces */
-			struct dhcp_assignment *c;
-			list_for_each_entry(c, &iface->ia_assignments, head) {
-				if (c->length != 128 || c->assigned > a->assigned) {
-					list_add_tail(&a->head, &c->head);
-					break;
-				} else if (c->assigned == a->assigned)
-					/* Already an assignment with that number */
-					break;
-			}
-
-			if (a->head.next) {
-				a->iface = iface;
-				if (lease->hostname[0]) {
-					free(a->hostname);
-					a->hostname = strdup(lease->hostname);
-				}
-			} else
-				free_dhcpv6_assignment(a);
-		}
 	}
 	return 0;
 }
@@ -165,24 +112,6 @@ static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info
 	}
 }
 
-
-static void free_dhcpv6_assignment(struct dhcp_assignment *c)
-{
-	if (c->managed_sock.fd.registered) {
-		ustream_free(&c->managed_sock.stream);
-		close(c->managed_sock.fd.fd);
-	}
-
-	if (c->head.next)
-		list_del(&c->head);
-
-	if (c->reconf_cnt)
-		stop_reconf(c);
-
-	free(c->managed);
-	free(c->hostname);
-	free(c);
-}
 
 static inline bool valid_prefix_length(const struct dhcp_assignment *a, const uint8_t prefix_length)
 {
@@ -272,8 +201,29 @@ static int send_reconf(struct dhcp_assignment *assign)
 	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
 }
 
+void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
+{
+	if (a->managed_sock.fd.registered) {
+		ustream_free(&a->managed_sock.stream);
+		close(a->managed_sock.fd.fd);
+	}
+
+	if (a->head.next)
+		list_del(&a->head);
+
+	if (a->lease_list.next)
+		list_del(&a->lease_list);
+
+	if (a->reconf_cnt)
+		stop_reconf(a);
+
+	free(a->managed);
+	free(a->hostname);
+	free(a);
+}
+
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
-				time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
+			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
 	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
 	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
@@ -584,7 +534,7 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 	}
 
 	if (first && c->managed_size == 0)
-		free_dhcpv6_assignment(c);
+		dhcpv6_ia_free_assignment(c);
 	else if (first && !(c->flags & OAF_STATIC))
 		c->valid_until = now + 150;
 }
@@ -691,12 +641,28 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 	return false;
 }
 
-static bool assign_na(struct interface *iface, struct dhcp_assignment *assign)
+static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 {
-	/* Seed RNG with checksum of DUID */
+	struct dhcp_assignment *c;
 	uint32_t seed = 0;
-	for (size_t i = 0; i < assign->clid_len; ++i)
-		seed += assign->clid_data[i];
+
+	/* Preconfigured assignment by static lease */
+	if (a->assigned) {
+		list_for_each_entry(c, &iface->ia_assignments, head) {
+			if (c->length == 0)
+				continue;
+
+			if (c->assigned > a->assigned || c->length != 128) {
+				list_add_tail(&a->head, &c->head);
+				return true;
+			} else if (c->assigned == a->assigned)
+				return false;
+		}
+	}
+
+	/* Seed RNG with checksum of DUID */
+	for (size_t i = 0; i < a->clid_len; ++i)
+		seed += a->clid_data[i];
 	srand(seed);
 
 	/* Try to assign up to 100x */
@@ -704,14 +670,16 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *assign)
 		uint32_t try;
 		do try = ((uint32_t)rand()) % 0x0fff; while (try < 0x100);
 
-		struct dhcp_assignment *c;
+		if (config_find_lease_by_hostid(try))
+			continue;
+
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->length == 0)
 				continue;
 
 			if (c->assigned > try || c->length != 128) {
-				assign->assigned = try;
-				list_add_tail(&assign->head, &c->head);
+				a->assigned = try;
+				list_add_tail(&a->head, &c->head);
 				return true;
 			} else if (c->assigned == try)
 				break;
@@ -818,7 +786,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||
 						(a->length == 128 && a->clid_len == 0))
-					free_dhcpv6_assignment(a);
+					dhcpv6_ia_free_assignment(a);
 
 			}
 		}
@@ -1160,18 +1128,16 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assign
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
-	time_t now = odhcpd_time();
-	size_t response_len = 0;
+	struct lease *l;
+	struct dhcp_assignment *first = NULL;
 	const struct dhcpv6_client_header *hdr = data;
-	uint8_t *start = (uint8_t*)&hdr[1], *odata;
-	uint16_t otype, olen;
-	/* Find and parse client-id and hostname */
-	bool accept_reconf = false;
-	uint8_t *clid_data = NULL, clid_len = 0, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-	char hostname[256];
-	size_t hostname_len = 0;
-	bool notonlink = false, rapid_commit = false;
-	char duidbuf[261];
+	time_t now = odhcpd_time();
+	uint16_t otype, olen, clid_len = 0;
+	uint8_t *start = (uint8_t *)&hdr[1], *odata;
+	uint8_t *clid_data = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	size_t hostname_len = 0, response_len = 0;
+	bool notonlink = false, rapid_commit = false, accept_reconf = false;
+	char duidbuf[261], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
@@ -1201,7 +1167,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	if (!clid_data || !clid_len || clid_len > 130)
 		goto out;
 
-	struct dhcp_assignment *first = NULL;
+	l = config_find_lease_by_duid(clid_data, clid_len);
+	if (!l)
+		l = config_find_lease_by_mac(mac);
+
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
 		bool is_na = (otype == DHCPV6_OPT_IA_NA);
@@ -1247,25 +1216,23 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		/* Find assignment */
 		struct dhcp_assignment *c, *a = NULL;
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) ||
-					(c->clid_len >= clid_len && !c->clid_data[0] && !c->clid_data[1]
-						&& !memcmp(c->mac, mac, sizeof(mac)))) &&
-					(!(c->flags & (OAF_BOUND|OAF_TENTATIVE)) || c->iaid == ia->iaid) &&
-					(INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
-					((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
+			if ((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) &&
+			    c->iaid == ia->iaid && (INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
+			    ((is_pd && c->length <= 64) || (is_na && c->length == 128))) {
 				a = c;
 
 				/* Reset state */
 				if (a->flags & OAF_BOUND)
 					apply_lease(iface, a, false);
 
-				memcpy(a->clid_data, clid_data, clid_len);
-				a->clid_len = clid_len;
-				a->iaid = ia->iaid;
-				a->peer = *addr;
 				stop_reconf(a);
 				break;
 			}
+		}
+
+		if (l && a && a->lease != l) {
+			dhcpv6_ia_free_assignment(a);
+			a = NULL;
 		}
 
 		/* Generic message handling */
@@ -1278,34 +1245,52 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				(hdr->msg_type == DHCPV6_MSG_REBIND && !a)) {
 			bool assigned = !!a;
 
-			if (!a && !iface->no_dynamic_dhcp && (iface->dhcpv6_pd || iface->dhcpv6_na)) {
-				/* Create new binding */
-				a = calloc(1, sizeof(*a) + clid_len);
-				if (a) {
-					a->clid_len = clid_len;
-					a->iaid = ia->iaid;
-					a->length = reqlen;
-					a->peer = *addr;
-					a->assigned = reqhint;
-					/* Set valid time to current time indicating  */
-					/* assignment is not having infinite lifetime */
-					a->valid_until = now;
-					a->iface = iface;
+			if (!a) {
+				if ((!iface->no_dynamic_dhcp || (l && is_na)) &&
+				    (iface->dhcpv6_pd || iface->dhcpv6_na)) {
+					/* Create new binding */
+					a = calloc(1, sizeof(*a) + clid_len);
 
-					if (first)
-						memcpy(a->key, first->key, sizeof(a->key));
-					else
-						odhcpd_urandom(a->key, sizeof(a->key));
-					memcpy(a->clid_data, clid_data, clid_len);
+					if (a) {
+						a->clid_len = clid_len;
+						memcpy(a->clid_data, clid_data, clid_len);
+						a->iaid = ia->iaid;
+						a->length = reqlen;
+						a->peer = *addr;
+						a->assigned = is_na && l ? l->hostid : reqhint;
+						/* Set valid time to 0 for static lease indicating */
+						/* infinite lifetime otherwise current time        */
+						a->valid_until = l ? 0 : now;
+						a->iface = iface;
+						a->flags = OAF_DHCPV6;
 
-					if (is_pd && iface->dhcpv6_pd)
-						while (!(assigned = assign_pd(iface, a)) &&
-								!a->managed_size && ++a->length <= 64);
-					else if (is_na && iface->dhcpv6_na)
-						assigned = assign_na(iface, a);
+						if (first)
+							memcpy(a->key, first->key, sizeof(a->key));
+						else
+							odhcpd_urandom(a->key, sizeof(a->key));
 
-					if (a->managed_size && !assigned)
-						return -1;
+						if (is_pd && iface->dhcpv6_pd)
+							while (!(assigned = assign_pd(iface, a)) &&
+							       !a->managed_size && ++a->length <= 64);
+						else if (is_na && iface->dhcpv6_na)
+							assigned = assign_na(iface, a);
+
+						if (l && assigned) {
+							a->flags |= OAF_STATIC;
+
+							if (l->hostname)
+								a->hostname = strdup(l->hostname);
+
+							if (l->leasetime)
+								a->leasetime = l->leasetime;
+
+							list_add(&a->lease_list, &l->assignments);
+							a->lease = l;
+						}
+
+						if (a->managed_size && !assigned)
+							return -1;
+					}
 				}
 			}
 
@@ -1362,7 +1347,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				   ((hdr->msg_type == DHCPV6_MSG_SOLICIT && rapid_commit) ||
 				    hdr->msg_type == DHCPV6_MSG_REQUEST ||
 				    hdr->msg_type == DHCPV6_MSG_REBIND)) {
-				if (hostname_len > 0) {
+				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
 					if (a->hostname) {
 						memcpy(a->hostname, hostname, hostname_len);
@@ -1380,7 +1365,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				apply_lease(iface, a, true);
 			} else if (!assigned && a && a->managed_size == 0) {
 				/* Cleanup failed assignment */
-				free_dhcpv6_assignment(a);
+				dhcpv6_ia_free_assignment(a);
 				a = NULL;
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||

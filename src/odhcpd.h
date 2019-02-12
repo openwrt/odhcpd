@@ -24,6 +24,7 @@
 #include <libubox/uloop.h>
 #include <libubox/avl.h>
 #include <libubox/ustream.h>
+#include <libubox/vlist.h>
 
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
@@ -42,7 +43,7 @@
 
 struct interface;
 struct nl_sock;
-extern struct list_head leases;
+extern struct vlist_tree leases;
 
 struct odhcpd_event {
 	struct uloop_fd uloop;
@@ -127,6 +128,8 @@ enum odhcpd_assignment_flags {
 	OAF_BOUND		= (1 << 1),
 	OAF_STATIC		= (1 << 2),
 	OAF_BROKEN_HOSTNAME	= (1 << 3),
+	OAF_DHCPV4		= (1 << 4),
+	OAF_DHCPV6		= (1 << 5),
 };
 
 struct config {
@@ -139,14 +142,15 @@ struct config {
 
 
 struct lease {
-	struct list_head head;
-	struct in_addr ipaddr;
+	struct vlist_node node;
+	struct list_head assignments;
+	uint32_t ipaddr;
 	uint32_t hostid;
 	struct ether_addr mac;
 	uint16_t duid_len;
 	uint8_t *duid;
-	uint32_t dhcpv4_leasetime;
-	char hostname[];
+	uint32_t leasetime;
+	char *hostname;
 };
 
 
@@ -154,7 +158,10 @@ struct odhcpd_ref_ip;
 
 struct dhcp_assignment {
 	struct list_head head;
+	struct list_head lease_list;
+
 	struct interface *iface;
+	struct lease *lease;
 
 	struct sockaddr_in6 peer;
 	time_t valid_until;
@@ -183,7 +190,7 @@ struct dhcp_assignment {
 #define hwaddr		mac
 	uint8_t mac[6];
 
-	uint8_t clid_len;
+	uint16_t clid_len;
 	uint8_t clid_data[];
 };
 
@@ -326,6 +333,10 @@ bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
 bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
+struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len);
+struct lease *config_find_lease_by_mac(const uint8_t *mac);
+struct lease *config_find_lease_by_hostid(const uint32_t hostid);
+struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);
 
 #ifdef WITH_UBUS
 int ubus_init(void);
@@ -336,6 +347,8 @@ void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t ma
 		const struct in_addr *addr, const char *name, const char *interface);
 #endif
 
+void dhcpv4_free_assignment(struct dhcp_assignment *a);
+
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
 int dhcpv6_ia_init(void);
@@ -343,6 +356,7 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable);
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c, time_t now,
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_ia_write_statefile(void);
+void dhcpv6_ia_free_assignment(struct dhcp_assignment *c);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,

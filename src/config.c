@@ -14,12 +14,19 @@
 #include <libubox/utils.h>
 #include <libubox/avl.h>
 #include <libubox/avl-cmp.h>
+#include <libubox/list.h>
+#include <libubox/vlist.h>
 
 #include "odhcpd.h"
 
 static struct blob_buf b;
 static int reload_pipe[2];
-struct list_head leases = LIST_HEAD_INIT(leases);
+
+static int lease_cmp(const void *k1, const void *k2, void *ptr);
+static void lease_update(struct vlist_tree *tree, struct vlist_node *node_new,
+			 struct vlist_node *node_old);
+
+struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true, false);
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {.legacy = false, .main_dhcpv4 = false,
 			.dhcp_cb = NULL, .dhcp_statefile = NULL,
@@ -199,15 +206,6 @@ static int mkdir_p(char *dir, mode_t mask)
 	return ret;
 }
 
-static void free_lease(struct lease *l)
-{
-	if (l->head.next)
-		list_del(&l->head);
-
-	free(l->duid);
-	free(l);
-}
-
 static void set_interface_defaults(struct interface *iface)
 {
 	iface->learn_routes = 1;
@@ -329,56 +327,64 @@ err:
 	return -1;
 }
 
+static void free_lease(struct lease *l)
+{
+	free(l->hostname);
+	free(l);
+}
+
 static int set_lease(struct uci_section *s)
 {
 	struct blob_attr *tb[LEASE_ATTR_MAX], *c;
+	struct lease *l;
+	size_t duidlen = 0;
+	uint8_t *duid;
 
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &lease_attr_list);
 	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
 
-	size_t hostlen = 1;
-	if ((c = tb[LEASE_ATTR_NAME]))
-		hostlen = blobmsg_data_len(c);
+	if ((c = tb[LEASE_ATTR_DUID]))
+		duidlen = (blobmsg_data_len(c) - 1) / 2;
 
-	struct lease *lease = calloc(1, sizeof(*lease) + hostlen);
-	if (!lease)
+	l = calloc_a(sizeof(*l), &duid, duidlen);
+	if (!l)
 		goto err;
 
-	if (hostlen > 1) {
-		memcpy(lease->hostname, blobmsg_get_string(c), hostlen);
-		if (!odhcpd_valid_hostname(lease->hostname))
-			goto err;
-	}
-
-	if ((c = tb[LEASE_ATTR_IP]))
-		if (inet_pton(AF_INET, blobmsg_get_string(c), &lease->ipaddr) < 0)
-			goto err;
-
 	if ((c = tb[LEASE_ATTR_MAC]))
-		if (!ether_aton_r(blobmsg_get_string(c), &lease->mac))
+		if (!ether_aton_r(blobmsg_get_string(c), &l->mac))
 			goto err;
 
 	if ((c = tb[LEASE_ATTR_DUID])) {
-		size_t duidlen = (blobmsg_data_len(c) - 1) / 2;
-		lease->duid = malloc(duidlen);
-		if (!lease->duid)
-			goto err;
+		ssize_t len;
 
-		ssize_t len = odhcpd_unhexlify(lease->duid,
-				duidlen, blobmsg_get_string(c));
+		l->duid = duid;
+		len = odhcpd_unhexlify(l->duid, duidlen, blobmsg_get_string(c));
 
 		if (len < 0)
 			goto err;
 
-		lease->duid_len = len;
+		l->duid_len = len;
 	}
+
+	if ((c = tb[LEASE_ATTR_NAME])) {
+		l->hostname = strdup(blobmsg_get_string(c));
+		if (!l->hostname || !odhcpd_valid_hostname(l->hostname))
+			goto err;
+	}
+
+	if ((c = tb[LEASE_ATTR_IP]))
+		if (inet_pton(AF_INET, blobmsg_get_string(c), &l->ipaddr) < 0)
+			goto err;
 
 	if ((c = tb[LEASE_ATTR_HOSTID])) {
 		errno = 0;
-		lease->hostid = strtoul(blobmsg_get_string(c), NULL, 16);
+		l->hostid = strtoul(blobmsg_get_string(c), NULL, 16);
 		if (errno)
 			goto err;
+	} else {
+		uint32_t i4a = ntohl(l->ipaddr) & 0xff;
+		l->hostid = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
 	}
 
 	if ((c = tb[LEASE_ATTR_LEASETIME])) {
@@ -386,15 +392,16 @@ static int set_lease(struct uci_section *s)
 		if (time < 0)
 			goto err;
 
-		lease->dhcpv4_leasetime = time;
+		l->leasetime = time;
 	}
 
-	list_add(&lease->head, &leases);
+	INIT_LIST_HEAD(&l->assignments);
+	vlist_add(&leases, &l->node, l);
 	return 0;
 
 err:
-	if (lease)
-		free_lease(lease);
+	if (l)
+		free_lease(l);
 
 	return -1;
 }
@@ -775,17 +782,171 @@ static int set_interface(struct uci_section *s)
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
+static void lease_delete_assignments(struct lease *l, bool v6)
+{
+	struct dhcp_assignment *a, *tmp;
+	unsigned int flag = v6 ? OAF_DHCPV6 : OAF_DHCPV4;
+
+	list_for_each_entry_safe(a, tmp, &l->assignments, lease_list) {
+		if (a->flags & flag)
+			v6 ? dhcpv6_ia_free_assignment(a) : dhcpv4_free_assignment(a);
+	}
+}
+
+static void lease_update_assignments(struct lease *l)
+{
+	struct dhcp_assignment *a;
+
+	list_for_each_entry(a, &l->assignments, lease_list) {
+		if (a->hostname)
+			free(a->hostname);
+		a->hostname = NULL;
+
+		if (l->hostname)
+			a->hostname = strdup(l->hostname);
+
+		a->leasetime = l->leasetime;
+	}
+}
+
+static int lease_cmp(const void *k1, const void *k2, _unused void *ptr)
+{
+	const struct lease *l1 = k1, *l2 = k2;
+	int cmp = 0;
+
+	if (l1->duid_len != l2->duid_len)
+		return l1->duid_len - l2->duid_len;
+
+	if (l1->duid_len && l2->duid_len)
+		cmp = memcmp(l1->duid, l2->duid, l1->duid_len);
+
+	if (cmp)
+		return cmp;
+
+	return memcmp(l1->mac.ether_addr_octet, l2->mac.ether_addr_octet,
+		      sizeof(l1->mac.ether_addr_octet));
+}
+
+static void lease_change_config(struct lease *l_old, struct lease *l_new)
+{
+	bool update = false;
+
+	if ((!!l_new->hostname != !!l_old->hostname) ||
+	    (l_new->hostname && strcmp(l_new->hostname, l_old->hostname))) {
+		free(l_old->hostname);
+		l_old->hostname = NULL;
+
+		if (l_new->hostname)
+			l_old->hostname = strdup(l_new->hostname);
+
+		update = true;
+	}
+
+	if (l_old->leasetime != l_new->leasetime) {
+		l_old->leasetime = l_new->leasetime;
+		update = true;
+	}
+
+	if (l_old->ipaddr != l_new->ipaddr) {
+		l_old->ipaddr = l_new->ipaddr;
+		lease_delete_assignments(l_old, false);
+	}
+
+	if (l_old->hostid != l_new->hostid) {
+		l_old->hostid = l_new->hostid;
+		lease_delete_assignments(l_old, true);
+	}
+
+	if (update)
+		lease_update_assignments(l_old);
+
+	free_lease(l_new);
+}
+
+static void lease_delete(struct lease *l)
+{
+	struct dhcp_assignment *a;
+
+	list_for_each_entry(a, &l->assignments, lease_list) {
+		if (a->flags & OAF_DHCPV6)
+			dhcpv6_ia_free_assignment(a);
+		else if (a->flags & OAF_DHCPV4)
+			dhcpv4_free_assignment(a);
+	}
+
+	free_lease(l);
+}
+
+static void lease_update(_unused struct vlist_tree *tree, struct vlist_node *node_new,
+			 struct vlist_node *node_old)
+{
+	struct lease *lease_new = container_of(node_new, struct lease, node);
+	struct lease *lease_old = container_of(node_old, struct lease, node);
+
+	if (node_old && node_new)
+		lease_change_config(lease_old, lease_new);
+	else if (node_old)
+		lease_delete(lease_old);
+}
+
+struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len)
+{
+	struct lease *l;
+
+	vlist_for_each_element(&leases, l, node) {
+		if (l->duid_len == len && !memcmp(l->duid, duid, len))
+			return l;
+	}
+
+	return NULL;
+}
+
+struct lease *config_find_lease_by_mac(const uint8_t *mac)
+{
+	struct lease *l;
+
+	vlist_for_each_element(&leases, l, node) {
+		if (!memcmp(l->mac.ether_addr_octet, mac,
+			    sizeof(l->mac.ether_addr_octet)))
+			return l;
+	}
+
+	return NULL;
+}
+
+struct lease *config_find_lease_by_hostid(const uint32_t hostid)
+{
+	struct lease *l;
+
+	vlist_for_each_element(&leases, l, node) {
+		if (l->hostid == hostid)
+			return l;
+	}
+
+	return NULL;
+}
+
+struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr)
+{
+	struct lease *l;
+
+	vlist_for_each_element(&leases, l, node) {
+		if (l->ipaddr == ipaddr)
+			return l;
+	}
+
+	return NULL;
+}
+
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
 	struct interface *master = NULL, *i, *tmp;
 
-	while (!list_empty(&leases))
-		free_lease(list_first_entry(&leases, struct lease, head));
-
 	if (!uci)
 		return;
 
+	vlist_update(&leases);
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
@@ -813,6 +974,8 @@ void odhcpd_reload(void)
 		mkdir_p(dirname(path), 0755);
 		free(path);
 	}
+
+	vlist_flush(&leases);
 
 #ifdef WITH_UBUS
 	ubus_apply_network();
@@ -937,4 +1100,3 @@ void odhcpd_run(void)
 	odhcpd_reload();
 	uloop_run();
 }
-

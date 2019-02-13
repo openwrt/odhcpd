@@ -176,9 +176,13 @@ enum {
 };
 
 static void handle_nested_message(uint8_t *data, size_t len,
-		uint8_t **opts, uint8_t **end, struct iovec iov[IOV_TOTAL])
+				  struct dhcpv6_client_header **c_hdr, uint8_t **opts,
+				  uint8_t **end, struct iovec iov[IOV_TOTAL])
 {
-	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
+	struct dhcpv6_relay_header *r_hdr = (struct dhcpv6_relay_header *)data;
+	uint16_t otype, olen;
+	uint8_t *odata;
+
 	if (iov[IOV_NESTED].iov_base == NULL) {
 		iov[IOV_NESTED].iov_base = data;
 		iov[IOV_NESTED].iov_len = len;
@@ -187,22 +191,20 @@ static void handle_nested_message(uint8_t *data, size_t len,
 	if (len < sizeof(struct dhcpv6_client_header))
 		return;
 
-	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW) {
-		iov[IOV_NESTED].iov_len = data - (uint8_t*)iov[IOV_NESTED].iov_base;
-		struct dhcpv6_client_header *hdr = (void*)data;
-		*opts = (uint8_t*)&hdr[1];
+	if (r_hdr->msg_type != DHCPV6_MSG_RELAY_FORW) {
+		iov[IOV_NESTED].iov_len = data - (uint8_t *)iov[IOV_NESTED].iov_base;
+		*c_hdr = (void *)data;
+		*opts = (uint8_t *)&(*c_hdr)[1];
 		*end = data + len;
 		return;
 	}
 
-	uint16_t otype, olen;
-	uint8_t *odata;
-	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
+	dhcpv6_for_each_option(r_hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
 			iov[IOV_RELAY_MSG].iov_base = odata + olen;
-			iov[IOV_RELAY_MSG].iov_len = (((uint8_t*)iov[IOV_NESTED].iov_base) + 
+			iov[IOV_RELAY_MSG].iov_len = (((uint8_t *)iov[IOV_NESTED].iov_base) +
 					iov[IOV_NESTED].iov_len) - (odata + olen);
-			handle_nested_message(odata, olen, opts, end, iov);
+			handle_nested_message(odata, olen, c_hdr, opts, end, iov);
 			return;
 		}
 	}
@@ -346,7 +348,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	uint8_t *opts = (uint8_t*)&hdr[1], *opts_end = (uint8_t*)data + len;
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
-		handle_nested_message(data, len, &opts, &opts_end, iov);
+		handle_nested_message(data, len, &hdr, &opts, &opts_end, iov);
 
 	memcpy(dest.tr_id, hdr->transaction_id, sizeof(dest.tr_id));
 
@@ -421,7 +423,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (hdr->msg_type != DHCPV6_MSG_INFORMATION_REQUEST) {
-		ssize_t ialen = dhcpv6_ia_handle_IAs(pdbuf, sizeof(pdbuf), iface, addr, data, opts_end);
+		ssize_t ialen = dhcpv6_ia_handle_IAs(pdbuf, sizeof(pdbuf), iface, addr, (const void *)hdr, opts_end);
 
 		iov[IOV_PDBUF].iov_len = ialen;
 		if (ialen < 0 ||

@@ -1170,7 +1170,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint8_t *clid_data = NULL, clid_len = 0, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	char hostname[256];
 	size_t hostname_len = 0;
-	bool notonlink = false;
+	bool notonlink = false, rapid_commit = false;
 	char duidbuf[261];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -1194,6 +1194,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				hostname_len = strcspn(hostname, ".");
 		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT)
 			accept_reconf = true;
+		else if (otype == DHCPV6_OPT_RAPID_COMMIT && hdr->msg_type == DHCPV6_MSG_SOLICIT)
+			rapid_commit = true;
 	}
 
 	if (!clid_data || !clid_len || clid_len > 130)
@@ -1348,16 +1350,18 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 							hdr->msg_type == DHCPV6_MSG_REBIND ? false : true);
 
 			/* Was only a solicitation: mark binding for removal */
-			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
+			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT && !rapid_commit) {
 				a->flags &= ~OAF_BOUND;
 				a->flags |= OAF_TENTATIVE;
 
 				if (!(a->flags & OAF_STATIC))
 					/* Keep tentative assignment around for 60 seconds */
 					a->valid_until = now + 60;
+
 			} else if (assigned &&
-					(hdr->msg_type == DHCPV6_MSG_REQUEST ||
-					 hdr->msg_type == DHCPV6_MSG_REBIND)) {
+				   ((hdr->msg_type == DHCPV6_MSG_SOLICIT && rapid_commit) ||
+				    hdr->msg_type == DHCPV6_MSG_REQUEST ||
+				    hdr->msg_type == DHCPV6_MSG_REBIND)) {
 				if (hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
 					if (a->hostname) {

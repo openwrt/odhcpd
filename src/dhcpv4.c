@@ -158,7 +158,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 		odhcpd_register(&iface->dhcpv4_event);
 	} else if (iface->dhcpv4_assignments.next) {
 		while (!list_empty(&iface->dhcpv4_assignments))
-			dhcpv4_free_assignment(list_first_entry(&iface->dhcpv4_assignments,
+			free_assignment(list_first_entry(&iface->dhcpv4_assignments,
 							struct dhcp_assignment, head));
 	}
 
@@ -345,7 +345,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 		struct dhcp_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
-				dhcpv4_free_assignment(a);
+				free_assignment(a);
 		}
 	}
 	uloop_timeout_set(event, 1000);
@@ -418,19 +418,10 @@ static char *dhcpv4_msg_to_string(uint8_t reqmsg)
 	}
 }
 
-void dhcpv4_free_assignment(struct dhcp_assignment *a)
+static void dhcpv4_free_assignment(struct dhcp_assignment *a)
 {
-	if (a->head.next)
-		list_del(&a->head);
-
-	if (a->lease_list.next)
-		list_del(&a->lease_list);
-
 	if (a->fr_ip)
 		dhcpv4_fr_stop(a);
-
-	free(a->hostname);
-	free(a);
 }
 
 static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
@@ -999,7 +990,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	time_t now = odhcpd_time();
 
 	if (l && a && a->lease != l) {
-		dhcpv4_free_assignment(a);
+		free_assignment(a);
 		a = NULL;
 	}
 
@@ -1024,6 +1015,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				/* Set valid time to 0 for static lease indicating */
 				/* infinite lifetime otherwise current time        */
 				a->valid_until = l ? 0 : now;
+				a->dhcp_free_cb = dhcpv4_free_assignment;
 				a->iface = iface;
 				a->flags = OAF_DHCPV4;
 				a->addr = l ? l->ipaddr : INADDR_ANY;
@@ -1096,7 +1088,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			}
 		} else if (!assigned && a) {
 			/* Cleanup failed assignment */
-			dhcpv4_free_assignment(a);
+			free_assignment(a);
 			a = NULL;
 		}
 

@@ -67,7 +67,7 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 
 		while (!list_empty(&iface->ia_assignments)) {
 			c = list_first_entry(&iface->ia_assignments, struct dhcp_assignment, head);
-			dhcpv6_ia_free_assignment(c);
+			free_assignment(c);
 		}
 	}
 
@@ -201,25 +201,17 @@ static int send_reconf(struct dhcp_assignment *assign)
 	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
 }
 
-void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
+static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 {
 	if (a->managed_sock.fd.registered) {
 		ustream_free(&a->managed_sock.stream);
 		close(a->managed_sock.fd.fd);
 	}
 
-	if (a->head.next)
-		list_del(&a->head);
-
-	if (a->lease_list.next)
-		list_del(&a->lease_list);
-
 	if (a->reconf_cnt)
 		stop_reconf(a);
 
 	free(a->managed);
-	free(a->hostname);
-	free(a);
 }
 
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
@@ -534,7 +526,7 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 	}
 
 	if (first && c->managed_size == 0)
-		dhcpv6_ia_free_assignment(c);
+		free_assignment(c);
 	else if (first && !(c->flags & OAF_STATIC))
 		c->valid_until = now + 150;
 }
@@ -786,7 +778,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
 				if ((a->length < 128 && a->clid_len > 0) ||
 						(a->length == 128 && a->clid_len == 0))
-					dhcpv6_ia_free_assignment(a);
+					free_assignment(a);
 
 			}
 		}
@@ -1231,7 +1223,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		}
 
 		if (l && a && a->lease != l) {
-			dhcpv6_ia_free_assignment(a);
+			free_assignment(a);
 			a = NULL;
 		}
 
@@ -1261,6 +1253,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 						/* Set valid time to 0 for static lease indicating */
 						/* infinite lifetime otherwise current time        */
 						a->valid_until = l ? 0 : now;
+						a->dhcp_free_cb = dhcpv6_ia_free_assignment;
 						a->iface = iface;
 						a->flags = OAF_DHCPV6;
 
@@ -1365,7 +1358,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				apply_lease(iface, a, true);
 			} else if (!assigned && a && a->managed_size == 0) {
 				/* Cleanup failed assignment */
-				dhcpv6_ia_free_assignment(a);
+				free_assignment(a);
 				a = NULL;
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||

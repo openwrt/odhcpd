@@ -789,11 +789,7 @@ static void lease_delete_assignments(struct lease *l, bool v6)
 
 	list_for_each_entry_safe(a, tmp, &l->assignments, lease_list) {
 		if (a->flags & flag)
-#ifdef DHCPV4_SUPPORT
-			v6 ? dhcpv6_ia_free_assignment(a) : dhcpv4_free_assignment(a);
-#else
-			dhcpv6_ia_free_assignment(a);
-#endif
+			free_assignment(a);
 	}
 }
 
@@ -871,14 +867,8 @@ static void lease_delete(struct lease *l)
 {
 	struct dhcp_assignment *a;
 
-	list_for_each_entry(a, &l->assignments, lease_list) {
-		if (a->flags & OAF_DHCPV6)
-			dhcpv6_ia_free_assignment(a);
-#ifdef DHCPV4_SUPPORT
-		else if (a->flags & OAF_DHCPV4)
-			dhcpv4_free_assignment(a);
-#endif
-	}
+	list_for_each_entry(a, &l->assignments, lease_list)
+		free_assignment(a);
 
 	free_lease(l);
 }

@@ -920,9 +920,15 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	/* try to assign the IP the client asked for */
 	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
 	    !config_find_lease_by_ipaddr(raddr)) {
+		if (list_empty(&iface->dhcpv4_assignments)) {
+			list_add(&a->head, &iface->dhcpv4_assignments);
+			goto raddr_out;
+		}
+
 		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
 			if (ntohl(c->addr) > ntohl(raddr)) {
 				list_add_tail(&a->head, &c->head);
+raddr_out:
 				a->addr = raddr;
 
 				syslog(LOG_INFO, "Assigning the IP the client asked for: %u.%u.%u.%u",

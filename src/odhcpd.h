@@ -347,8 +347,6 @@ void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t ma
 		const struct in_addr *addr, const char *name, const char *interface);
 #endif
 
-void dhcpv4_free_assignment(struct dhcp_assignment *a);
-
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
 int dhcpv6_ia_init(void);
@@ -378,6 +376,7 @@ int dhcpv6_init(void);
 int ndp_init(void);
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
+void dhcpv4_free_assignment(struct dhcp_assignment *a);
 
 int dhcpv4_setup_interface(struct interface *iface, bool enable);
 #endif

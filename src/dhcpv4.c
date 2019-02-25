@@ -944,7 +944,7 @@ raddr_out:
 	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
 	     ++i, try = (((try - start) + 1) % count) + start) {
 
-		if (config_find_lease_by_ipaddr(try))
+		if (config_find_lease_by_ipaddr(htonl(try)))
 			continue;
 
 		if (list_empty(&iface->dhcpv4_assignments)) {

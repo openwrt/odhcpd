@@ -917,8 +917,12 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 		}
 
 		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (ntohl(c->addr) > ntohl(raddr)) {
-				list_add_tail(&a->head, &c->head);
+			if (ntohl(raddr) == ntohl(c->addr))
+				break;
+
+			if (ntohl(c->addr) > ntohl(raddr) || list_is_last(&c->head, &iface->dhcpv4_assignments)) {
+				list_add_tail(&a->head,
+					      ntohl(c->addr) > ntohl(raddr) ? &c->head : &iface->dhcpv4_assignments);
 raddr_out:
 				a->addr = raddr;
 
@@ -927,8 +931,7 @@ raddr_out:
 				       ((uint8_t *)&a->addr)[2], ((uint8_t *)&a->addr)[3]);
 
 				return true;
-			} else if (ntohl(raddr) == ntohl(c->addr))
-				break;
+			}
 		}
 	}
 
@@ -959,8 +962,12 @@ raddr_out:
 		}
 
 		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (ntohl(c->addr) > try) {
-				list_add_tail(&a->head, &c->head);
+			if (try == ntohl(c->addr))
+				break;
+
+			if (ntohl(c->addr) > try || list_is_last(&c->head, &iface->dhcpv4_assignments)) {
+				list_add_tail(&a->head,
+					      ntohl(c->addr) > try ? &c->head : &iface->dhcpv4_assignments);
 				a->addr = htonl(try);
 
 				syslog(LOG_DEBUG, "Assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
@@ -969,8 +976,7 @@ raddr_out:
 					i, count);
 
 				return true;
-			} else if (try == ntohl(c->addr))
-				break;
+			}
 		}
 	}
 

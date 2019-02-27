@@ -245,15 +245,15 @@ static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_o
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX];
 	struct interface *c;
-	bool update = false;
+	bool update = true;
 
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
 	const char *interface = (tb[IFACE_ATTR_INTERFACE]) ?
 			blobmsg_get_string(tb[IFACE_ATTR_INTERFACE]) : "";
 
 	avl_for_each_element(&interfaces, c, avl) {
-		if (!strcmp(interface, c->name) && !c->ignore) {
-			update = true;
+		if (!strcmp(interface, c->name) && c->ignore) {
+			update = false;
 			break;
 		}
 	}

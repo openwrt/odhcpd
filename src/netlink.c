@@ -416,6 +416,7 @@ static int handle_rtm_neigh(struct nlmsghdr *hdr, bool add)
 		syslog(LOG_DEBUG, "Netlink %s %s on %s", true ? "newneigh" : "delneigh",
 				buf, iface->name);
 
+		event_info.iface = iface;
 		event_info.neigh.state = ndm->ndm_state;
 		event_info.neigh.flags = ndm->ndm_flags;
 

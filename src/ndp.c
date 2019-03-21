@@ -342,16 +342,14 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
 	avl_for_each_element(&interfaces, c, avl) {
-		if (iface == c || (c->ndp != MODE_RELAY && !add))
+		if (iface == c || c->ndp != MODE_RELAY)
 			continue;
 
-		bool neigh_add = (c->ndp == MODE_RELAY ? add : false);
-
-		if (netlink_setup_proxy_neigh(addr, c->ifindex, neigh_add))
+		if (netlink_setup_proxy_neigh(addr, c->ifindex, add))
 			syslog(LOG_DEBUG, "Failed to %s proxy neighbour entry %s on %s",
-				neigh_add ? "add" : "delete", ipbuf, c->name);
+				add ? "add" : "delete", ipbuf, c->name);
 		else
 			syslog(LOG_DEBUG, "%s proxy neighbour entry %s on %s",
-				neigh_add ? "Added" : "Deleted", ipbuf, c->name);
+				add ? "Added" : "Deleted", ipbuf, c->name);
 	}
 }

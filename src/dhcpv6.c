@@ -244,7 +244,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
-	syslog(LOG_NOTICE, "Got DHCPv6 request on %s", iface->name);
+	syslog(LOG_NOTICE, "Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
 	struct __attribute__((packed)) {
@@ -450,6 +450,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len -
 				      (4 + opts_end - opts));
 
+	syslog(LOG_NOTICE, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
+
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }
 
@@ -478,19 +480,17 @@ static void relay_server_response(uint8_t *data, size_t len)
 	int32_t ifaceidx = 0;
 	struct sockaddr_in6 target = {AF_INET6, htons(DHCPV6_CLIENT_PORT),
 		0, IN6ADDR_ANY_INIT, 0};
-
-	syslog(LOG_NOTICE, "Got a DHCPv6-reply");
-
 	int otype, olen;
 	uint8_t *odata, *end = data + len;
-
 	/* Relay DHCPv6 reply from server to client */
 	struct dhcpv6_relay_header *h = (void*)data;
+
+	syslog(LOG_NOTICE, "Got a DHCPv6-relay-reply");
+
 	if (len < sizeof(*h) || h->msg_type != DHCPV6_MSG_RELAY_REPL)
 		return;
 
-	memcpy(&target.sin6_addr, &h->peer_address,
-			sizeof(struct in6_addr));
+	memcpy(&target.sin6_addr, &h->peer_address, sizeof(struct in6_addr));
 
 	/* Go through options and find what we need */
 	dhcpv6_for_each_option(h->options, end, otype, olen, odata) {
@@ -540,7 +540,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 
 		if (rewrite_cnt == 0) {
 			if (odhcpd_get_interface_dns_addr(iface, &addr))
-				return; // Unable to get interface address
+				return; /* Unable to get interface address */
 
 			rewrite = &addr;
 			rewrite_cnt = 1;
@@ -554,6 +554,9 @@ static void relay_server_response(uint8_t *data, size_t len)
 	}
 
 	struct iovec iov = {payload_data, payload_len};
+
+	syslog(LOG_NOTICE, "Sending a DHCPv6-reply on %s", iface->name);
+
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
 }
 

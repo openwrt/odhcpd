@@ -332,7 +332,6 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface,
 int odhcpd_get_interface_config(const char *ifname, const char *what);
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);
 struct interface* odhcpd_get_interface_by_index(int ifindex);
-struct interface* odhcpd_get_master_interface(void);
 int odhcpd_urandom(void *data, size_t len);
 
 void odhcpd_run(void);

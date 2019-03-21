@@ -712,10 +712,17 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 		if (hdr->icmp6_type == ND_ROUTER_SOLICIT)
 			send_router_advert(iface, &from->sin6_addr);
 	} else if (iface->ra == MODE_RELAY) { /* Relay mode */
-		if (hdr->icmp6_type == ND_ROUTER_ADVERT && iface->master)
+		if (hdr->icmp6_type == ND_ROUTER_SOLICIT && !iface->master) {
+			struct interface *c;
+
+			avl_for_each_element(&interfaces, c, avl) {
+				if (!c->master || c->ra != MODE_RELAY)
+					continue;
+
+				forward_router_solicitation(c);
+			}
+		} else if (hdr->icmp6_type == ND_ROUTER_ADVERT && iface->master)
 			forward_router_advertisement(iface, data, len);
-		else if (hdr->icmp6_type == ND_ROUTER_SOLICIT && !iface->master)
-			forward_router_solicitation(odhcpd_get_master_interface());
 	}
 }
 

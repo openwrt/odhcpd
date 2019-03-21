@@ -582,19 +582,7 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 static void relay_client_request(struct sockaddr_in6 *source,
 		const void *data, size_t len, struct interface *iface)
 {
-	struct interface *master = odhcpd_get_master_interface();
 	const struct dhcpv6_relay_header *h = data;
-	struct sockaddr_in6 s;
-
-	if (!master || master->dhcpv6 != MODE_RELAY ||
-			h->msg_type == DHCPV6_MSG_RELAY_REPL ||
-			h->msg_type == DHCPV6_MSG_RECONFIGURE ||
-			h->msg_type == DHCPV6_MSG_REPLY ||
-			h->msg_type == DHCPV6_MSG_ADVERTISE)
-		return; /* Invalid message types for client */
-
-	syslog(LOG_NOTICE, "Got a DHCPv6-request");
-
 	/* Construct our forwarding envelope */
 	struct dhcpv6_relay_forward_envelope hdr = {
 		.msg_type = DHCPV6_MSG_RELAY_FORW,
@@ -604,39 +592,60 @@ static void relay_client_request(struct sockaddr_in6 *source,
 		.relay_message_type = htons(DHCPV6_OPT_RELAY_MSG),
 		.relay_message_len = htons(len),
 	};
+	struct iovec iov[2] = {{&hdr, sizeof(hdr)}, {(void *)data, len}};
+	struct interface *c;
+	struct odhcpd_ipaddr *ip;
+	struct sockaddr_in6 s;
+
+	if (h->msg_type == DHCPV6_MSG_RELAY_REPL ||
+	    h->msg_type == DHCPV6_MSG_RECONFIGURE ||
+	    h->msg_type == DHCPV6_MSG_REPLY ||
+	    h->msg_type == DHCPV6_MSG_ADVERTISE)
+		return; /* Invalid message types for client */
+
+	syslog(LOG_NOTICE, "Got a DHCPv6-request on %s", iface->name);
 
 	if (h->msg_type == DHCPV6_MSG_RELAY_FORW) { /* handle relay-forward */
 		if (h->hop_count >= DHCPV6_HOP_COUNT_LIMIT)
-			return; // Invalid hop count
-		else
-			hdr.hop_count = h->hop_count + 1;
+			return; /* Invalid hop count */
+
+		hdr.hop_count = h->hop_count + 1;
 	}
 
 	/* use memcpy here as the destination fields are unaligned */
-	uint32_t ifindex = iface->ifindex;
 	memcpy(&hdr.peer_address, &source->sin6_addr, sizeof(struct in6_addr));
-	memcpy(&hdr.interface_id_data, &ifindex, sizeof(ifindex));
+	memcpy(&hdr.interface_id_data, &iface->ifindex, sizeof(iface->ifindex));
 
 	/* Detect public IP of slave interface to use as link-address */
-	struct odhcpd_ipaddr *ip = relay_link_address(iface);
-	if (!ip) {
-		/* No suitable address! Is the slave not configured yet?
-		 * Detect public IP of master interface and use it instead
-		 * This is WRONG and probably violates the RFC. However
-		 * otherwise we have a hen and egg problem because the
-		 * slave-interface cannot be auto-configured. */
-		ip = relay_link_address(master);
-		if (!ip)
-			return; /* Could not obtain a suitable address */
-	}
-
-	memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));
+	ip = relay_link_address(iface);
+	if (ip)
+		memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));
 
 	memset(&s, 0, sizeof(s));
 	s.sin6_family = AF_INET6;
 	s.sin6_port = htons(DHCPV6_SERVER_PORT);
 	inet_pton(AF_INET6, ALL_DHCPV6_SERVERS, &s.sin6_addr);
 
-	struct iovec iov[2] = {{&hdr, sizeof(hdr)}, {(void*)data, len}};
-	odhcpd_send(master->dhcpv6_event.uloop.fd, &s, iov, 2, master);
+	avl_for_each_element(&interfaces, c, avl) {
+		if (!c->master || c->dhcpv6 != MODE_RELAY)
+			continue;
+
+		if (!ip) {
+			/* No suitable address! Is the slave not configured yet?
+			 * Detect public IP of master interface and use it instead
+			 * This is WRONG and probably violates the RFC. However
+			 * otherwise we have a hen and egg problem because the
+			 * slave-interface cannot be auto-configured. */
+			ip = relay_link_address(c);
+			if (!ip)
+				continue; /* Could not obtain a suitable address */
+
+			memcpy(&hdr.link_address, &ip->addr.in6, sizeof(hdr.link_address));
+			ip = NULL;
+		}
+
+		syslog(LOG_NOTICE, "Sending a DHCPv6-relay-forward on %s", c->name);
+
+		odhcpd_send(c->dhcpv6_event.uloop.fd, &s, iov, 2, c);
+	}
 }

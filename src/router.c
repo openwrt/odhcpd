@@ -292,7 +292,6 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 					break;
 				}
 			}
-
 		}
 	}
 
@@ -456,9 +455,13 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		}
 
 		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
-				iface->pio_filter_length) != 0 ||
-				addr->prefix < iface->pio_filter_length)
-			continue; // PIO filtered out of this RA
+				   iface->pio_filter_length) != 0 ||
+		    addr->prefix < iface->pio_filter_length) {
+			syslog(LOG_INFO, "Address %s filtered out as RA prefix on %s",
+			       inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			       iface->name);
+			continue; /* PIO filtered out of this RA */
+		}
 
 		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < pfxs_cnt; ++i) {
@@ -605,8 +608,12 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
 				iface->pio_filter_length) != 0 ||
-				addr->prefix < iface->pio_filter_length)
-			continue; /* RIO filtered out of this RA */
+				addr->prefix < iface->pio_filter_length) {
+			syslog(LOG_INFO, "Address %s filtered out as RA route on %s",
+			       inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			       iface->name);
+			continue; /* PIO filtered out of this RA */
+		}
 
 		if (addr->dprefix > 32) {
 			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));
@@ -667,6 +674,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		dest.sin6_addr = *from;
 	else
 		inet_pton(AF_INET6, ALL_IPV6_NODES, &dest.sin6_addr);
+
+	syslog(LOG_INFO, "Sending a RA on %s", iface->name);
 
 	odhcpd_send(router_event.uloop.fd,
 			&dest, iov, ARRAY_SIZE(iov), iface);
@@ -794,6 +803,8 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 				dns_ptr[i] = rewrite[j];
 			}
 		}
+
+		syslog(LOG_NOTICE, "Forward a RA on %s", c->name);
 
 		odhcpd_send(router_event.uloop.fd, &all_nodes, &iov, 1, c);
 	}

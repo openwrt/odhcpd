@@ -212,7 +212,9 @@ static void refresh_iface_addr6(int ifindex)
 	}
 
 	if (!change) {
-		free(addr);
+		free(iface->addr6);
+		iface->addr6 = addr;
+		iface->addr6_len = len;
 		return;
 	}
 

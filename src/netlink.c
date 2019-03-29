@@ -198,27 +198,6 @@ static void refresh_iface_addr6(int ifindex)
 		return;
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->ifindex != ifindex)
-			continue;
-
-		change = len != (ssize_t)iface->addr6_len;
-		for (ssize_t i = 0; !change && i < len; ++i) {
-			if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
-			    (addr[i].preferred > (uint32_t)now) != (iface->addr6[i].preferred > (uint32_t)now) ||
-			    addr[i].valid < iface->addr6[i].valid || addr[i].preferred < iface->addr6[i].preferred)
-				change = true;
-		}
-		break;
-	}
-
-	if (!change) {
-		free(iface->addr6);
-		iface->addr6 = addr;
-		iface->addr6_len = len;
-		return;
-	}
-
-	avl_for_element_range(iface, avl_last_element(&interfaces, iface, avl), iface, avl) {
 		struct netevent_handler_info event_info;
 
 		if (iface->ifindex != ifindex)
@@ -229,20 +208,32 @@ static void refresh_iface_addr6(int ifindex)
 		event_info.addrs_old.addrs = iface->addr6;
 		event_info.addrs_old.len = iface->addr6_len;
 
+		if (!change) {
+			change = len != (ssize_t)iface->addr6_len;
+			for (ssize_t i = 0; !change && i < len; ++i) {
+				if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
+				    (addr[i].preferred > (uint32_t)now) != (iface->addr6[i].preferred > (uint32_t)now) ||
+				    addr[i].valid < iface->addr6[i].valid || addr[i].preferred < iface->addr6[i].preferred)
+					change = true;
+			}
+		}
+
 		iface->addr6 = addr;
 		iface->addr6_len = len;
 
-		call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, &event_info);
+		if (change)
+			call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, &event_info);
 
 		free(event_info.addrs_old.addrs);
 
-		if (len) {
-			addr = malloc(len * sizeof(*addr));
-			if (!addr)
-			    return;
+		if (!len)
+			continue;
 
-			memcpy(addr, iface->addr6, len * sizeof(*addr));
-		}
+		addr = malloc(len * sizeof(*addr));
+		if (!addr)
+			break;
+
+		memcpy(addr, iface->addr6, len * sizeof(*addr));
 	}
 
 	free(addr);

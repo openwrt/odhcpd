@@ -140,23 +140,6 @@ static void refresh_iface_addr4(int ifindex)
 		return;
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->ifindex != ifindex)
-			continue;
-
-		change = len != (ssize_t)iface->addr4_len;
-		for (ssize_t i = 0; !change && i < len; ++i) {
-			if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
-				change = true;
-		}
-		break;
-	}
-
-	if (!change) {
-		free(addr);
-		return;
-	}
-
-	avl_for_element_range(iface, avl_last_element(&interfaces, iface, avl), iface, avl) {
 		struct netevent_handler_info event_info;
 
 		if (iface->ifindex != ifindex)
@@ -167,20 +150,30 @@ static void refresh_iface_addr4(int ifindex)
 		event_info.addrs_old.addrs = iface->addr4;
 		event_info.addrs_old.len = iface->addr4_len;
 
+		if (!change) {
+			change = len != (ssize_t)iface->addr4_len;
+			for (ssize_t i = 0; !change && i < len; ++i) {
+				if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
+					change = true;
+			}
+		}
+
 		iface->addr4 = addr;
 		iface->addr4_len = len;
 
-		call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, &event_info);
+		if (change)
+			call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, &event_info);
 
 		free(event_info.addrs_old.addrs);
 
-		if (len) {
-			addr = malloc(len * sizeof(*addr));
-			if (!addr)
-				return;
+		if (!len)
+			continue;
 
-			memcpy(addr, iface->addr4, len * sizeof(*addr));
-		}
+		addr = malloc(len * sizeof(*addr));
+		if (!addr)
+			break;
+
+		memcpy(addr, iface->addr4, len * sizeof(*addr));
 	}
 
 	free(addr);

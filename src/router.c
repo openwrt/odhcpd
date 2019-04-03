@@ -38,7 +38,6 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 static void trigger_router_advert(struct uloop_timeout *event);
 static void router_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 
-static struct odhcpd_event router_event = {.uloop = {.fd = -1}, .handle_dgram = handle_icmpv6, };
 static struct netevent_handler router_netevent_handler = { .cb = router_netevent_cb, };
 
 static FILE *fp_route = NULL;
@@ -48,77 +47,7 @@ static FILE *fp_route = NULL;
 
 int router_init(void)
 {
-	struct icmp6_filter filt;
 	int ret = 0;
-
-	/* Open ICMPv6 socket */
-	router_event.uloop.fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
-	if (router_event.uloop.fd < 0) {
-		syslog(LOG_ERR, "socket(AF_INET6): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* Let the kernel compute our checksums */
-	int val = 2;
-	if (setsockopt(router_event.uloop.fd, IPPROTO_RAW, IPV6_CHECKSUM,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* This is required by RFC 4861 */
-	val = 255;
-	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
-		ret = -1;
-		goto out;
-	}
-
-	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* We need to know the source interface */
-	val = 1;
-	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
-		ret = -1;
-		goto out;
-	}
-
-	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_RECVHOPLIMIT): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* Don't loop back */
-	val = 0;
-	if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* Filter ICMPv6 package types */
-	ICMP6_FILTER_SETBLOCKALL(&filt);
-	ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
-	ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
-	if (setsockopt(router_event.uloop.fd, IPPROTO_ICMPV6, ICMP6_FILTER,
-				&filt, sizeof(filt)) < 0) {
-		syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
-		ret = -1;
-		goto out;
-	}
 
 	if (!(fp_route = fopen("/proc/net/ipv6_route", "r"))) {
 		syslog(LOG_ERR, "fopen(/proc/net/ipv6_route): %m");
@@ -129,22 +58,12 @@ int router_init(void)
 	if (netlink_add_netevent_handler(&router_netevent_handler) < 0) {
 		syslog(LOG_ERR, "Failed to add netevent handler");
 		ret = -1;
-		goto out;
 	}
 
-	/* Register socket */
-	odhcpd_register(&router_event);
 out:
-	if (ret < 0) {
-		if (router_event.uloop.fd > 0) {
-			close(router_event.uloop.fd);
-			router_event.uloop.fd = -1;
-		}
-
-		if (fp_route) {
-			fclose(fp_route);
-			fp_route = NULL;
-		}
+	if (ret < 0 && fp_route) {
+		fclose(fp_route);
+		fp_route = NULL;
 	}
 
 	return ret;
@@ -153,48 +72,149 @@ out:
 
 int router_setup_interface(struct interface *iface, bool enable)
 {
-	struct ipv6_mreq mreq;
 	int ret = 0;
 
-	if (!fp_route || router_event.uloop.fd < 0) {
+	if (!fp_route) {
 		ret = -1;
 		goto out;
 	}
 
-	uloop_timeout_cancel(&iface->timer_rs);
-	iface->timer_rs.cb = NULL;
 
-	memset(&mreq, 0, sizeof(mreq));
-	mreq.ipv6mr_interface = iface->ifindex;
-	inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
-	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-			&mreq, sizeof(mreq));
+	if ((!enable || iface->ra == MODE_DISABLED) && iface->router_event.uloop.fd >= 0) {
+		if (!iface->master) {
+			uloop_timeout_cancel(&iface->timer_rs);
+			iface->timer_rs.cb = NULL;
 
-	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
-	setsockopt(router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-			&mreq, sizeof(mreq));
-
-	if (!enable) {
-		if (iface->ra == MODE_SERVER || (iface->ra == MODE_RELAY && !iface->master))
 			trigger_router_advert(&iface->timer_rs);
-	} else {
+		}
+
+		uloop_fd_delete(&iface->router_event.uloop);
+		close(iface->router_event.uloop.fd);
+		iface->router_event.uloop.fd = -1;
+	} else if (enable && iface->ra != MODE_DISABLED) {
+		struct icmp6_filter filt;
+		struct ipv6_mreq mreq;
+		int val = 2;
+
+		if (iface->router_event.uloop.fd < 0) {
+			/* Open ICMPv6 socket */
+			iface->router_event.uloop.fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC,
+							      IPPROTO_ICMPV6);
+			if (iface->router_event.uloop.fd < 0) {
+				syslog(LOG_ERR, "socket(AF_INET6): %m");
+				ret = -1;
+				goto out;
+			}
+
+			if (setsockopt(iface->router_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
+				       iface->ifname, strlen(iface->ifname)) < 0) {
+				syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+				ret = -1;
+				goto out;
+			}
+
+			/* Let the kernel compute our checksums */
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_RAW, IPV6_CHECKSUM,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
+				ret = -1;
+				goto out;
+			}
+
+			/* This is required by RFC 4861 */
+			val = 255;
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+				ret = -1;
+				goto out;
+			}
+
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
+				ret = -1;
+				goto out;
+			}
+
+			/* We need to know the source interface */
+			val = 1;
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
+				ret = -1;
+				goto out;
+			}
+
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_RECVHOPLIMIT): %m");
+				ret = -1;
+				goto out;
+			}
+
+			/* Don't loop back */
+			val = 0;
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
+				       &val, sizeof(val)) < 0) {
+				syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
+				ret = -1;
+				goto out;
+			}
+
+			/* Filter ICMPv6 package types */
+			ICMP6_FILTER_SETBLOCKALL(&filt);
+			ICMP6_FILTER_SETPASS(ND_ROUTER_ADVERT, &filt);
+			ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
+			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_ICMPV6, ICMP6_FILTER,
+				       &filt, sizeof(filt)) < 0) {
+				syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
+				ret = -1;
+				goto out;
+			}
+
+			iface->router_event.handle_dgram = handle_icmpv6;
+			odhcpd_register(&iface->router_event);
+		} else {
+			uloop_timeout_cancel(&iface->timer_rs);
+			iface->timer_rs.cb = NULL;
+
+			memset(&mreq, 0, sizeof(mreq));
+			mreq.ipv6mr_interface = iface->ifindex;
+			inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
+			setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
+				   &mreq, sizeof(mreq));
+
+			inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
+			setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
+				   &mreq, sizeof(mreq));
+		}
+
+		memset(&mreq, 0, sizeof(mreq));
+		mreq.ipv6mr_interface = iface->ifindex;
+		inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
+
 		if (iface->ra == MODE_RELAY && iface->master) {
 			inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
 			forward_router_solicitation(iface);
-		} else if (iface->ra == MODE_SERVER && !iface->master) {
+		} else if (iface->ra == MODE_SERVER) {
 			iface->timer_rs.cb = trigger_router_advert;
 			uloop_timeout_set(&iface->timer_rs, 1000);
 		}
 
-		if (iface->ra == MODE_RELAY || (iface->ra == MODE_SERVER && !iface->master)) {
-			if (setsockopt(router_event.uloop.fd, IPPROTO_IPV6,
-					IPV6_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
-				ret = -1;
-				syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
-			}
+		if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6,
+			       IPV6_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
+			ret = -1;
+			syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+			goto out;
 		}
 	}
 out:
+	if (ret < 0 && iface->router_event.uloop.fd >= 0) {
+		close(iface->router_event.uloop.fd);
+		iface->router_event.uloop.fd = -1;
+	}
+
 	return ret;
 }
 
@@ -677,8 +697,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	syslog(LOG_INFO, "Sending a RA on %s", iface->name);
 
-	odhcpd_send(router_event.uloop.fd,
-			&dest, iov, ARRAY_SIZE(iov), iface);
+	odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface);
 
 	free(pfxs);
 	free(routes);
@@ -743,7 +762,7 @@ static void forward_router_solicitation(const struct interface *iface)
 	all_routers.sin6_scope_id = iface->ifindex;
 
 	syslog(LOG_NOTICE, "Sending RS to %s", iface->name);
-	odhcpd_send(router_event.uloop.fd, &all_routers, &iov, 1, iface);
+	odhcpd_send(iface->router_event.uloop.fd, &all_routers, &iov, 1, iface);
 }
 
 
@@ -813,6 +832,6 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 
 		syslog(LOG_NOTICE, "Forward a RA on %s", c->name);
 
-		odhcpd_send(router_event.uloop.fd, &all_nodes, &iov, 1, c);
+		odhcpd_send(c->router_event.uloop.fd, &all_nodes, &iov, 1, c);
 	}
 }

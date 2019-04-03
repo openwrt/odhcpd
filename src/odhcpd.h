@@ -209,6 +209,7 @@ struct interface {
 	size_t addr6_len;
 
 	// RA runtime data
+	struct odhcpd_event router_event;
 	struct uloop_timeout timer_rs;
 
 	// DHCPv6 runtime data

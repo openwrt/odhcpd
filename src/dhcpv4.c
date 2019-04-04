@@ -73,7 +73,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
-	if (iface->dhcpv4_event.uloop.fd > 0) {
+	if (iface->dhcpv4_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);
 		close(iface->dhcpv4_event.uloop.fd);
 		iface->dhcpv4_event.uloop.fd = -1;
@@ -163,7 +163,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	}
 
 out:
-	if (ret < 0 && iface->dhcpv4_event.uloop.fd > 0) {
+	if (ret < 0 && iface->dhcpv4_event.uloop.fd >= 0) {
 		close(iface->dhcpv4_event.uloop.fd);
 		iface->dhcpv4_event.uloop.fd = -1;
 	}

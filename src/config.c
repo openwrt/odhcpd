@@ -430,6 +430,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->name = strcpy(new_name, name);
 		iface->avl.key = iface->name;
+		iface->dhcpv6_event.uloop.fd = -1;
+		iface->ndp_event.uloop.fd = -1;
+		iface->dhcpv4_event.uloop.fd = -1;
 		set_interface_defaults(iface);
 
 		avl_insert(&interfaces, &iface->avl);

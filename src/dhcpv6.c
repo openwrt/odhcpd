@@ -47,7 +47,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
-	if (iface->dhcpv6_event.uloop.fd > 0) {
+	if (iface->dhcpv6_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
 		iface->dhcpv6_event.uloop.fd = -1;
@@ -150,7 +150,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 	ret = dhcpv6_ia_setup_interface(iface, enable);
 
 out:
-	if (ret < 0 && iface->dhcpv6_event.uloop.fd > 0) {
+	if (ret < 0 && iface->dhcpv6_event.uloop.fd >= 0) {
 		close(iface->dhcpv6_event.uloop.fd);
 		iface->dhcpv6_event.uloop.fd = -1;
 	}

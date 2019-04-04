@@ -103,7 +103,7 @@ int ndp_init(void)
 	netlink_add_netevent_handler(&ndp_netevent_handler);
 
 out:
-	if (ret < 0 && ping_socket > 0) {
+	if (ret < 0 && ping_socket >= 0) {
 		close(ping_socket);
 		ping_socket = -1;
 	}
@@ -125,7 +125,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		goto out;
 	}
 
-	if (iface->ndp_event.uloop.fd > 0) {
+	if (iface->ndp_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->ndp_event.uloop);
 		close(iface->ndp_event.uloop.fd);
 		iface->ndp_event.uloop.fd = -1;
@@ -203,7 +203,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		netlink_dump_neigh_table(true);
 
  out:
-	if (ret < 0 && iface->ndp_event.uloop.fd > 0) {
+	if (ret < 0 && iface->ndp_event.uloop.fd >= 0) {
 		close(iface->ndp_event.uloop.fd);
 		iface->ndp_event.uloop.fd = -1;
 	}

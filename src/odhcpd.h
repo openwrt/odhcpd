@@ -218,6 +218,7 @@ struct interface {
 
 	// NDP runtime data
 	struct odhcpd_event ndp_event;
+	int ndp_ping_fd;
 
 	// IPv4 runtime data
 	struct odhcpd_ipaddr *addr4;

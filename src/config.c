@@ -433,6 +433,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->router_event.uloop.fd = -1;
 		iface->dhcpv6_event.uloop.fd = -1;
 		iface->ndp_event.uloop.fd = -1;
+		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		set_interface_defaults(iface);
 

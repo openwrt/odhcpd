@@ -39,8 +39,6 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 
-static int ping_socket = -1;
-
 /* Filter ICMPv6 messages of type neighbor soliciation */
 static struct sock_filter bpf[] = {
 	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, offsetof(struct ip6_hdr, ip6_nxt)),
@@ -57,55 +55,11 @@ static struct netevent_handler ndp_netevent_handler = { .cb = ndp_netevent_cb, }
 /* Initialize NDP-proxy */
 int ndp_init(void)
 {
-	struct icmp6_filter filt;
-	int val = 2, ret = 0;
+	int ret = 0;
 
-	/* Open ICMPv6 socket */
-	ping_socket = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
-	if (ping_socket < 0) {
-		syslog(LOG_ERR, "socket(AF_INET6): %m");
+	if (netlink_add_netevent_handler(&ndp_netevent_handler) < 0) {
+		syslog(LOG_ERR, "Failed to add ndp netevent handler");
 		ret = -1;
-		goto out;
-	}
-
-	if (setsockopt(ping_socket, IPPROTO_RAW, IPV6_CHECKSUM,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* This is required by RFC 4861 */
-	val = 255;
-	if (setsockopt(ping_socket, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
-		ret = -1;
-		goto out;
-	}
-
-	if (setsockopt(ping_socket, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
-				&val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
-		ret = -1;
-		goto out;
-	}
-
-	/* Filter all packages, we only want to send */
-	ICMP6_FILTER_SETBLOCKALL(&filt);
-	if (setsockopt(ping_socket, IPPROTO_ICMPV6, ICMP6_FILTER,
-				&filt, sizeof(filt)) < 0) {
-		syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
-		ret = -1;
-		goto out;
-	}
-
-	netlink_add_netevent_handler(&ndp_netevent_handler);
-
-out:
-	if (ret < 0 && ping_socket >= 0) {
-		close(ping_socket);
-		ping_socket = -1;
 	}
 
 	return ret;
@@ -125,6 +79,11 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		goto out;
 	}
 
+	if (iface->ndp_ping_fd >= 0) {
+		close(iface->ndp_ping_fd);
+		iface->ndp_ping_fd = -1;
+	}
+
 	if (iface->ndp_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->ndp_event.uloop);
 		close(iface->ndp_event.uloop.fd);
@@ -139,8 +98,58 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 	if (enable && iface->ndp == MODE_RELAY) {
 		struct sockaddr_ll ll;
 		struct packet_mreq mreq;
+		struct icmp6_filter filt;
+		int val = 2;
 
 		if (write(procfd, "1\n", 2) < 0) {}
+
+		/* Open ICMPv6 socket */
+		iface->ndp_ping_fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC, IPPROTO_ICMPV6);
+		if (iface->ndp_ping_fd < 0) {
+			syslog(LOG_ERR, "socket(AF_INET6): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->ndp_ping_fd, SOL_SOCKET, SO_BINDTODEVICE,
+			       iface->ifname, strlen(iface->ifname)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->ndp_ping_fd, IPPROTO_RAW, IPV6_CHECKSUM,
+				&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
+			ret = -1;
+			goto out;
+		}
+
+		/* This is required by RFC 4861 */
+		val = 255;
+		if (setsockopt(iface->ndp_ping_fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
+			       &val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->ndp_ping_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+			       &val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
+			ret = -1;
+			goto out;
+		}
+
+		/* Filter all packages, we only want to send */
+		ICMP6_FILTER_SETBLOCKALL(&filt);
+		if (setsockopt(iface->ndp_ping_fd, IPPROTO_ICMPV6, ICMP6_FILTER,
+			       &filt, sizeof(filt)) < 0) {
+			syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
+			ret = -1;
+			goto out;
+		}
+
 
 		iface->ndp_event.uloop.fd = socket(AF_PACKET, SOCK_DGRAM | SOCK_CLOEXEC, htons(ETH_P_IPV6));
 		if (iface->ndp_event.uloop.fd < 0) {
@@ -203,9 +212,16 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		netlink_dump_neigh_table(true);
 
  out:
-	if (ret < 0 && iface->ndp_event.uloop.fd >= 0) {
-		close(iface->ndp_event.uloop.fd);
-		iface->ndp_event.uloop.fd = -1;
+	if (ret < 0) {
+		if (iface->ndp_event.uloop.fd >= 0) {
+			close(iface->ndp_event.uloop.fd);
+			iface->ndp_event.uloop.fd = -1;
+		}
+
+		if (iface->ndp_ping_fd >= 0) {
+			close(iface->ndp_ping_fd);
+			iface->ndp_ping_fd = -1;
+		}
 	}
 
 	if (procfd >= 0)
@@ -264,7 +280,7 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 static void ping6(struct in6_addr *addr,
 		const struct interface *iface)
 {
-	struct sockaddr_in6 dest = { .sin6_family = AF_INET6, .sin6_addr = *addr, .sin6_scope_id = iface->ifindex, };
+	struct sockaddr_in6 dest = { .sin6_family = AF_INET6, .sin6_addr = *addr , };
 	struct icmp6_hdr echo = { .icmp6_type = ICMP6_ECHO_REQUEST };
 	struct iovec iov = { .iov_base = &echo, .iov_len = sizeof(echo) };
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -273,7 +289,7 @@ static void ping6(struct in6_addr *addr,
 	syslog(LOG_NOTICE, "Pinging for %s on %s", ipbuf, iface->name);
 
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, true);
-	odhcpd_send(ping_socket, &dest, &iov, 1, iface);
+	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, false);
 }
 

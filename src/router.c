@@ -284,12 +284,12 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 /* Detect whether a default route exists, also find the source prefixes */
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
-	rewind(fp_route);
-
-	char line[512], ifname[16];
-	bool found_default = false;
 	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
 					.dprefix = 0, .preferred = 0, .valid = 0};
+	bool found_default = false;
+	char line[512], ifname[16];
+
+	rewind(fp_route);
 
 	while (fgets(line, sizeof(line), fp_route)) {
 		uint32_t rflags;
@@ -366,38 +366,70 @@ enum {
 	IOV_RA_PFXS,
 	IOV_RA_ROUTES,
 	IOV_RA_DNS,
-	IOV_RA_DNS_ADDR,
 	IOV_RA_SEARCH,
 	IOV_RA_ADV_INTERVAL,
 	IOV_RA_TOTAL,
 };
 
+struct adv_msg {
+	struct nd_router_advert h;
+	struct icmpv6_opt lladdr;
+	struct nd_opt_mtu mtu;
+};
+
+struct nd_opt_dns_server {
+	uint8_t type;
+	uint8_t len;
+	uint8_t pad;
+	uint8_t pad2;
+	uint32_t lifetime;
+	struct in6_addr addr[];
+};
+
+struct nd_opt_search_list {
+	uint8_t type;
+	uint8_t len;
+	uint8_t pad;
+	uint8_t pad2;
+	uint32_t lifetime;
+	uint8_t name[];
+};
+
+struct nd_opt_route_info {
+	uint8_t type;
+	uint8_t len;
+	uint8_t prefix;
+	uint8_t flags;
+	uint32_t lifetime;
+	uint32_t addr[4];
+};
+
 /* Router Advert server mode */
-static uint64_t send_router_advert(struct interface *iface, const struct in6_addr *from)
+static int send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
 	time_t now = odhcpd_time();
-	int mtu = iface->ra_mtu;
-	int hlim = iface->ra_hoplimit;
+	struct odhcpd_ipaddr *addrs = NULL;
+	struct adv_msg adv;
+	struct nd_opt_prefix_info *pfxs = NULL;
+	struct nd_opt_dns_server *dns = NULL;
+	struct nd_opt_search_list *search = NULL;
+	struct nd_opt_route_info *routes = NULL;
+	struct nd_opt_adv_interval adv_interval;
+	struct iovec iov[IOV_RA_TOTAL];
+	struct sockaddr_in6 dest;
+	size_t dns_sz = 0, search_sz = 0, pfxs_cnt = 0, routes_cnt = 0;
+	ssize_t addr_cnt = 0;
+	uint32_t minvalid = UINT32_MAX, maxival;
+	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
+	bool default_route = false;
+	bool valid_prefix = false;
 	char buf[INET6_ADDRSTRLEN];
 
-	if (mtu == 0)
-		mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
-
-	if (mtu < 1280)
-		mtu = 1280;
+	memset(&adv, 0, sizeof(adv));
+	adv.h.nd_ra_type = ND_ROUTER_ADVERT;
 
 	if (hlim == 0)
 		hlim = odhcpd_get_interface_config(iface->ifname, "hop_limit");
-
-	struct {
-		struct nd_router_advert h;
-		struct icmpv6_opt lladdr;
-		struct nd_opt_mtu mtu;
-	} adv = {
-		.h = {{.icmp6_type = ND_ROUTER_ADVERT, .icmp6_code = 0}, 0, 0},
-		.lladdr = {ND_OPT_SOURCE_LINKADDR, 1, {0}},
-		.mtu = {ND_OPT_MTU, 1, 0, htonl(mtu)},
-	};
 
 	if (hlim > 0)
 		adv.h.nd_ra_curhoplimit = hlim;
@@ -417,22 +449,32 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	adv.h.nd_ra_reachable = htonl(iface->ra_reachabletime);
 	adv.h.nd_ra_retransmit = htonl(iface->ra_retranstime);
 
+	adv.lladdr.type = ND_OPT_SOURCE_LINKADDR;
+	adv.lladdr.len = 1;
 	odhcpd_get_mac(iface, adv.lladdr.data);
 
-	/* If not currently shutting down */
-	struct odhcpd_ipaddr *addrs = NULL;
-	ssize_t ipcnt = 0;
-	uint32_t minvalid = UINT32_MAX;
-	bool default_route = false;
-	bool valid_prefix = false;
+	adv.mtu.nd_opt_mtu_type = ND_OPT_MTU;
+	adv.mtu.nd_opt_mtu_len = 1;
+
+	if (mtu == 0)
+		mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
+
+	if (mtu < 1280)
+		mtu = 1280;
+
+	adv.mtu.nd_opt_mtu_mtu = htonl(mtu);
+
+	iov[IOV_RA_ADV].iov_base = (char *)&adv;
+	iov[IOV_RA_ADV].iov_len = sizeof(adv);
 
 	/* If not shutdown */
 	if (iface->timer_rs.cb) {
 		size_t size = sizeof(*addrs) * iface->addr6_len;
+
 		addrs = alloca(size);
 		memcpy(addrs, iface->addr6, size);
 
-		ipcnt = iface->addr6_len;
+		addr_cnt = iface->addr6_len;
 
 		/* Check default route */
 		if (iface->default_router) {
@@ -440,30 +482,14 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 			if (iface->default_router > 1)
 				valid_prefix = true;
-		} else if (parse_routes(addrs, ipcnt))
+		} else if (parse_routes(addrs, addr_cnt))
 			default_route = true;
 	}
 
-	/* DNS Recursive DNS */
-	struct in6_addr dns_pref, *dns_addr = NULL;
-	size_t dns_cnt = 0;
-
-	if (iface->ra_dns) {
-		if (iface->dns_cnt > 0) {
-			dns_addr = iface->dns;
-			dns_cnt = iface->dns_cnt;
-		} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
-			dns_addr = &dns_pref;
-			dns_cnt = 1;
-		}
-	}
-
 	/* Construct Prefix Information options */
-	size_t pfxs_cnt = 0;
-	struct nd_opt_prefix_info *pfxs = NULL;
-
-	for (ssize_t i = 0; i < ipcnt; ++i) {
+	for (ssize_t i = 0; i < addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
+		struct nd_opt_prefix_info *p = NULL;
 		uint32_t preferred = 0;
 		uint32_t valid = 0;
 
@@ -483,7 +509,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			continue; /* PIO filtered out of this RA */
 		}
 
-		struct nd_opt_prefix_info *p = NULL;
 		for (size_t i = 0; i < pfxs_cnt; ++i) {
 			if (addr->prefix == pfxs[i].nd_opt_pi_prefix_len &&
 					!odhcpd_bmemcmp(&pfxs[i].nd_opt_pi_prefix,
@@ -539,9 +564,11 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		p->nd_opt_pi_valid_time = htonl(valid);
 	}
 
+	iov[IOV_RA_PFXS].iov_base = (char *)pfxs;
+	iov[IOV_RA_PFXS].iov_len = pfxs_cnt * sizeof(*pfxs);
+
 	/* Calculate periodic transmit */
-	uint32_t maxival;
-	int msecs = calc_adv_interval(iface, minvalid, &maxival);
+	msecs = calc_adv_interval(iface, minvalid, &maxival);
 
 	if (default_route) {
 		if (!valid_prefix) {
@@ -556,22 +583,33 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 
 	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 
-	struct {
-		uint8_t type;
-		uint8_t len;
-		uint8_t pad;
-		uint8_t pad2;
-		uint32_t lifetime;
-	} dns = {ND_OPT_RECURSIVE_DNS, (1 + (2 * dns_cnt)), 0, 0, 0};
-
-	/* DNS Search options */
-	uint8_t *search_domain = NULL;
-	size_t search_len = 0, search_padded = 0;
-
+	/* DNS options */
 	if (iface->ra_dns) {
-		search_len = iface->search_len;
-		search_domain = iface->search;
+		struct in6_addr dns_pref, *dns_addr = NULL;
+		size_t dns_cnt = 0, search_padded = 0, search_len = iface->search_len;
+		uint8_t *search_domain = iface->search;
 
+		/* DNS Recursive DNS */
+		if (iface->dns_cnt > 0) {
+			dns_addr = iface->dns;
+			dns_cnt = iface->dns_cnt;
+		} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
+			dns_addr = &dns_pref;
+			dns_cnt = 1;
+		}
+
+		if (dns_cnt) {
+			dns_sz = sizeof(*dns) + sizeof(struct in6_addr)*dns_cnt;
+
+			dns = alloca(dns_sz);
+			memset(dns, 0, dns_sz);
+			dns->type = ND_OPT_RECURSIVE_DNS;
+			dns->len = 1 + (2 * dns_cnt);
+			dns->lifetime = htonl(maxival*10);
+			memcpy(dns->addr, dns_addr, sizeof(struct in6_addr)*dns_cnt);
+		}
+
+		/* DNS Search options */
 		if (!search_domain && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
 			uint8_t search_buf[256];
 
@@ -582,42 +620,33 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 				search_len = len;
 			}
 		}
+
+		if (search_len > 0)
+			search_padded = ((search_len + 7) & (~7)) + 8;
+
+		search_sz = sizeof(*search) + search_padded;
+
+		search = alloca(search_sz);
+		memset(search, 0, search_sz);
+		search->type = ND_OPT_DNS_SEARCH;
+		search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
+		search->lifetime = htonl(maxival*10);
+
+		if (search_len > 0) {
+			memcpy(search->name, search_domain, search_len);
+			memset(&search->name[search_len], 0, search_padded - search_len);
+		}
 	}
 
-	if (search_len > 0)
-		search_padded = ((search_len + 7) & (~7)) + 8;
+	iov[IOV_RA_DNS].iov_base = (char *)dns;
+	iov[IOV_RA_DNS].iov_len = dns_sz;
+	iov[IOV_RA_SEARCH].iov_base = (char *)search;
+	iov[IOV_RA_SEARCH].iov_len = search_sz;
 
-	struct {
-		uint8_t type;
-		uint8_t len;
-		uint8_t pad;
-		uint8_t pad2;
-		uint32_t lifetime;
-		uint8_t name[];
-	} *search = alloca(sizeof(*search) + search_padded);
-
-	search->type = ND_OPT_DNS_SEARCH;
-	search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
-	search->pad = 0;
-	search->pad2 = 0;
-
-	if (search_len > 0) {
-		memcpy(search->name, search_domain, search_len);
-		memset(&search->name[search_len], 0, search_padded - search_len);
-	}
-
-	size_t routes_cnt = 0;
-	struct {
-		uint8_t type;
-		uint8_t len;
-		uint8_t prefix;
-		uint8_t flags;
-		uint32_t lifetime;
-		uint32_t addr[4];
-	} *tmp, *routes = NULL;
-
-	for (ssize_t i = 0; i < ipcnt; ++i) {
+	for (ssize_t i = 0; i < addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
+		struct nd_opt_route_info *tmp;
+
 		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
@@ -659,6 +688,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			routes[routes_cnt].flags |= ND_RA_PREF_LOW;
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
+
 		routes[routes_cnt].lifetime = htonl(TIME_LEFT(addr->valid, now));
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
@@ -668,24 +698,16 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		++routes_cnt;
 	}
 
-	search->lifetime = htonl(maxival*10);
-	dns.lifetime = search->lifetime;
+	iov[IOV_RA_ROUTES].iov_base = (char *)routes;
+	iov[IOV_RA_ROUTES].iov_len = routes_cnt * sizeof(*routes);
 
-	struct icmpv6_opt adv_interval = {
-		.type = ND_OPT_RTR_ADV_INTERVAL,
-		.len = 1,
-		.data = {0, 0, (maxival*1000) >> 24, (maxival*1000) >> 16, (maxival*1000) >> 8, maxival*1000}
-	};
+	memset(&adv_interval, 0, sizeof(adv_interval));
+	adv_interval.nd_opt_adv_interval_type = ND_OPT_RTR_ADV_INTERVAL;
+	adv_interval.nd_opt_adv_interval_len = 1;
+	adv_interval.nd_opt_adv_interval_ival = htonl(maxival);
 
-	struct iovec iov[IOV_RA_TOTAL] = {
-			[IOV_RA_ADV] = {&adv, sizeof(adv)},
-			[IOV_RA_PFXS] = {pfxs, pfxs_cnt * sizeof(*pfxs)},
-			[IOV_RA_ROUTES] = {routes, routes_cnt * sizeof(*routes)},
-			[IOV_RA_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
-			[IOV_RA_DNS_ADDR] = {dns_addr, dns_cnt * sizeof(*dns_addr)},
-			[IOV_RA_SEARCH] = {search, search->len * 8},
-			[IOV_RA_ADV_INTERVAL] = {&adv_interval, adv_interval.len * 8}};
-	struct sockaddr_in6 dest;
+	iov[IOV_RA_ADV_INTERVAL].iov_base = (char *)&adv_interval;
+	iov[IOV_RA_ADV_INTERVAL].iov_len = adv_interval.nd_opt_adv_interval_len * 8;
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sin6_family = AF_INET6;

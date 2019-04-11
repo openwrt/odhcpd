@@ -300,19 +300,6 @@ struct interface* odhcpd_get_interface_by_index(int ifindex)
 	return NULL;
 }
 
-struct interface* odhcpd_get_master_interface(void)
-{
-	struct interface *iface;
-
-	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->master)
-			return iface;
-	}
-
-	return NULL;
-}
-
-
 /* Convenience function to receive and do basic validation of packets */
 static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int events)
 {

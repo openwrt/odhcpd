@@ -265,7 +265,7 @@ struct write_ctxt {
 	int buf_idx;
 };
 
-void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref,
+static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref,
 				_unused uint32_t valid, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;

@@ -13,7 +13,7 @@ INCLUDE_DIRECTORIES(${ubox_include_dir} ${libnl-tiny_include_dir})
 
 FIND_LIBRARY(libnl NAMES nl-tiny)
 
-add_definitions(-D_GNU_SOURCE -Wall -Werror -Wextra)
+add_definitions(-D_GNU_SOURCE --std=gnu99 -Wall -Werror -Wextra -Wmissing-declarations -Wno-unused-parameter)
 
 if (${EXT_CER_ID})
 	add_definitions(-DEXT_CER_ID=${EXT_CER_ID})

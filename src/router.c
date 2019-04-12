@@ -74,13 +74,15 @@ int router_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
+	enable = enable && (iface->ra != MODE_DISABLED);
+
 	if (!fp_route) {
 		ret = -1;
 		goto out;
 	}
 
 
-	if ((!enable || iface->ra == MODE_DISABLED) && iface->router_event.uloop.fd >= 0) {
+	if (!enable && iface->router_event.uloop.fd >= 0) {
 		if (!iface->master) {
 			uloop_timeout_cancel(&iface->timer_rs);
 			iface->timer_rs.cb = NULL;
@@ -91,7 +93,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 		uloop_fd_delete(&iface->router_event.uloop);
 		close(iface->router_event.uloop.fd);
 		iface->router_event.uloop.fd = -1;
-	} else if (enable && iface->ra != MODE_DISABLED) {
+	} else if (enable) {
 		struct icmp6_filter filt;
 		struct ipv6_mreq mreq;
 		int val = 2;
@@ -434,7 +436,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (hlim > 0)
 		adv.h.nd_ra_curhoplimit = hlim;
 
-	if (iface->dhcpv6) {
+	if (iface->dhcpv6 != MODE_DISABLED) {
 		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
 
 		if (iface->ra_managed >= RA_MANAGED_MFLAG)

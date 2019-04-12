@@ -77,13 +77,15 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
+	enable = enable && (iface->dhcpv4 != MODE_DISABLED);
+
 	if (iface->dhcpv4_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);
 		close(iface->dhcpv4_event.uloop.fd);
 		iface->dhcpv4_event.uloop.fd = -1;
 	}
 
-	if (iface->dhcpv4 && enable) {
+	if (enable) {
 		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
 					{INADDR_ANY}, {0}};
 		int val = 1;
@@ -592,7 +594,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 {
 	struct dhcpv4_message *req = data;
 
-	if (!iface->dhcpv4)
+	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
 
 	if (len < offsetof(struct dhcpv4_message, options) + 4 ||

@@ -40,7 +40,6 @@ enum {
 	IFACE_ATTR_IFNAME,
 	IFACE_ATTR_NETWORKID,
 	IFACE_ATTR_DYNAMICDHCP,
-	IFACE_ATTR_IGNORE,
 	IFACE_ATTR_LEASETIME,
 	IFACE_ATTR_LIMIT,
 	IFACE_ATTR_START,
@@ -86,7 +85,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_IFNAME] = { .name = "ifname", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NETWORKID] = { .name = "networkid", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DYNAMICDHCP] = { .name = "dynamicdhcp", .type = BLOBMSG_TYPE_BOOL },
-	[IFACE_ATTR_IGNORE] = { .name = "ignore", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_START] = { .name = "start", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_LIMIT] = { .name = "limit", .type = BLOBMSG_TYPE_INT32 },
@@ -211,6 +209,11 @@ static int mkdir_p(char *dir, mode_t mask)
 
 static void set_interface_defaults(struct interface *iface)
 {
+	iface->ignore = true;
+	iface->dhcpv4 = MODE_DISABLED;
+	iface->dhcpv6 = MODE_DISABLED;
+	iface->ra = MODE_DISABLED;
+	iface->ndp = MODE_DISABLED;
 	iface->learn_routes = 1;
 	iface->dhcpv4_leasetime = 43200;
 	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
@@ -496,9 +499,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_DYNAMICDHCP]))
 		iface->no_dynamic_dhcp = !blobmsg_get_bool(c);
 
-	if (overwrite && (c = tb[IFACE_ATTR_IGNORE]))
-		iface->ignore = blobmsg_get_bool(c);
-
 	if ((c = tb[IFACE_ATTR_LEASETIME])) {
 		double time = parse_leasetime(c);
 		if (time < 0)
@@ -543,32 +543,45 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	int mode;
 	if ((c = tb[IFACE_ATTR_RA])) {
-		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
 			iface->ra = mode;
-		else
+
+			if (iface->ra != MODE_DISABLED)
+				iface->ignore = false;
+		} else
 			goto err;
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
 		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
-			if (config.main_dhcpv4)
+			if (config.main_dhcpv4) {
 				iface->dhcpv4 = mode;
+
+				if (iface->dhcpv4 != MODE_DISABLED)
+					iface->ignore = false;
+			}
 		}
 		else
 			goto err;
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6])) {
-		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
 			iface->dhcpv6 = mode;
-		else
+
+			if (iface->dhcpv6 != MODE_DISABLED)
+				iface->ignore = false;
+		} else
 			goto err;
 	}
 
 	if ((c = tb[IFACE_ATTR_NDP])) {
-		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0)
+		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
 			iface->ndp = mode;
-		else
+
+			if (iface->ndp != MODE_DISABLED)
+				iface->ignore = false;
+		} else
 			goto err;
 	}
 
@@ -1067,11 +1080,11 @@ void odhcpd_reload(void)
 				i->ndp = (master && master->ndp == MODE_RELAY) ?
 						MODE_RELAY : MODE_DISABLED;
 
-			router_setup_interface(i, !i->ignore || i->ra != MODE_DISABLED);
-			dhcpv6_setup_interface(i, !i->ignore || i->dhcpv6 != MODE_DISABLED);
-			ndp_setup_interface(i, !i->ignore || i->ndp != MODE_DISABLED);
+			router_setup_interface(i, i->ra != MODE_DISABLED);
+			dhcpv6_setup_interface(i, i->dhcpv6 != MODE_DISABLED);
+			ndp_setup_interface(i, i->ndp != MODE_DISABLED);
 #ifdef DHCPV4_SUPPORT
-			dhcpv4_setup_interface(i, !i->ignore || i->dhcpv4 != MODE_DISABLED);
+			dhcpv4_setup_interface(i, i->dhcpv4 != MODE_DISABLED);
 #endif
 		} else
 			close_interface(i);

@@ -62,16 +62,9 @@ int dhcpv6_ia_init(void)
 
 int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 {
-	if (!enable) {
-		struct dhcp_assignment *c;
+	enable = enable && (iface->dhcpv6 == MODE_SERVER);
 
-		while (!list_empty(&iface->ia_assignments)) {
-			c = list_first_entry(&iface->ia_assignments, struct dhcp_assignment, head);
-			free_assignment(c);
-		}
-	}
-
-	if (enable && iface->dhcpv6 == MODE_SERVER) {
+	if (enable) {
 		struct dhcp_assignment *border;
 
 		if (list_empty(&iface->ia_assignments)) {
@@ -88,7 +81,15 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			border = list_last_entry(&iface->ia_assignments, struct dhcp_assignment, head);
 
 		set_border_assignment_size(iface, border);
+	} else {
+		struct dhcp_assignment *c;
+
+		while (!list_empty(&iface->ia_assignments)) {
+			c = list_first_entry(&iface->ia_assignments, struct dhcp_assignment, head);
+			free_assignment(c);
+		}
 	}
+
 	return 0;
 }
 

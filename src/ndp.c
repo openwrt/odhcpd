@@ -71,6 +71,8 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 	bool dump_neigh = false;
 	char procbuf[64];
 
+	enable = enable && (iface->ndp == MODE_RELAY);
+
 	snprintf(procbuf, sizeof(procbuf), "/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface->ifname);
 	procfd = open(procbuf, O_WRONLY);
 
@@ -89,13 +91,13 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		close(iface->ndp_event.uloop.fd);
 		iface->ndp_event.uloop.fd = -1;
 
-		if (!enable || iface->ndp != MODE_RELAY)
+		if (!enable)
 			if (write(procfd, "0\n", 2) < 0) {}
 
 		dump_neigh = true;
 	}
 
-	if (enable && iface->ndp == MODE_RELAY) {
+	if (enable) {
 		struct sockaddr_ll ll;
 		struct packet_mreq mreq;
 		struct icmp6_filter filt;

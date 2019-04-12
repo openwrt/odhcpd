@@ -47,6 +47,8 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
+	enable = enable && (iface->dhcpv6 != MODE_DISABLED);
+
 	if (iface->dhcpv6_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
@@ -54,7 +56,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 	}
 
 	/* Configure multicast settings */
-	if (enable && iface->dhcpv6) {
+	if (enable) {
 		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 					0, IN6ADDR_ANY_INIT, 0};
 		struct ipv6_mreq mreq;

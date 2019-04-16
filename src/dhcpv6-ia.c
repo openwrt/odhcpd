@@ -1072,7 +1072,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
-	syslog(LOG_WARNING, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
+	syslog(LOG_NOTICE, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
 			duidbuf, iface->name, status, leasebuf);
 }
 

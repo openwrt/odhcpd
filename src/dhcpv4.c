@@ -219,7 +219,7 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 	}
 
 	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
+		syslog(LOG_ERR, "No network(s) available on %s", iface->name);
 		return -1;
 	}
 
@@ -249,7 +249,7 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 
 	/* Don't allocate IP range for subnets bigger than 28 */
 	if (iface->addr4[0].prefix > 28) {
-		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s", iface->name);
+		syslog(LOG_ERR, "Auto allocation of DHCP range fails on %s", iface->name);
 		return -1;
 	}
 
@@ -523,7 +523,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_WARNING, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
+		syslog(LOG_NOTICE, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
@@ -594,7 +594,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	syslog(LOG_NOTICE, "Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
+		syslog(LOG_ERR, "No DHCP range available on %s", iface->name);
 		return;
 	}
 
@@ -717,7 +717,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	syslog(LOG_WARNING, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
+	syslog(LOG_NOTICE, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
 			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
 #ifdef WITH_UBUS
@@ -869,7 +869,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 			inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_ERR, "Sent %s to %s - %s",
+		syslog(LOG_NOTICE, "Sent %s to %s - %s",
 			dhcpv4_msg_to_string(msg),
 			dest.sin_addr.s_addr == INADDR_BROADCAST ?
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
@@ -970,7 +970,7 @@ raddr_out:
 					      ntohl(c->addr) > try ? &c->head : &iface->dhcpv4_assignments);
 				a->addr = htonl(try);
 
-				syslog(LOG_DEBUG, "Assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
+				syslog(LOG_INFO, "Assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
 					((uint8_t *)&a->addr)[0], ((uint8_t *)&a->addr)[1],
 					((uint8_t *)&a->addr)[2], ((uint8_t *)&a->addr)[3],
 					i, count);

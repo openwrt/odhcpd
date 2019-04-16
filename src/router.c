@@ -696,7 +696,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	else
 		inet_pton(AF_INET6, ALL_IPV6_NODES, &dest.sin6_addr);
 
-	syslog(LOG_INFO, "Sending a RA on %s", iface->name);
+	syslog(LOG_NOTICE, "Sending a RA on %s", iface->name);
 
 	odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface);
 

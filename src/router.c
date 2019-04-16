@@ -542,7 +542,6 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 	/* Calculate periodic transmit */
 	uint32_t maxival;
 	int msecs = calc_adv_interval(iface, minvalid, &maxival);
-	uint16_t lifetime = calc_ra_lifetime(iface, maxival);
 
 	if (default_route) {
 		if (!valid_prefix) {
@@ -550,7 +549,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 					"on %s thus we don't announce a default route!", iface->name);
 			adv.h.nd_ra_router_lifetime = 0;
 		} else
-			adv.h.nd_ra_router_lifetime = htons(lifetime);
+			adv.h.nd_ra_router_lifetime = htons(calc_ra_lifetime(iface, maxival));
 
 	} else
 		adv.h.nd_ra_router_lifetime = 0;
@@ -660,7 +659,7 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 			routes[routes_cnt].flags |= ND_RA_PREF_LOW;
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
-		routes[routes_cnt].lifetime = htonl(lifetime);
+		routes[routes_cnt].lifetime = htonl(TIME_LEFT(addr->valid, now));
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
 		routes[routes_cnt].addr[2] = 0;
@@ -669,8 +668,8 @@ static uint64_t send_router_advert(struct interface *iface, const struct in6_add
 		++routes_cnt;
 	}
 
-	search->lifetime = htonl(lifetime);
-	dns.lifetime = htonl(lifetime);
+	search->lifetime = htonl(maxival*10);
+	dns.lifetime = search->lifetime;
 
 	struct icmpv6_opt adv_interval = {
 		.type = ND_OPT_RTR_ADV_INTERVAL,

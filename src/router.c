@@ -319,7 +319,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 }
 
 static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
-		uint32_t *maxival)
+			     uint32_t *maxival)
 {
 	uint32_t minival = iface->ra_mininterval;
 	int msecs;
@@ -346,9 +346,9 @@ static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
 	return msecs;
 }
 
-static uint16_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
+static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 {
-	uint16_t lifetime = 3*maxival;
+	uint32_t lifetime = 3*maxival;
 
 	if (iface->ra_lifetime >= 0) {
 		lifetime = iface->ra_lifetime;
@@ -419,7 +419,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct sockaddr_in6 dest;
 	size_t dns_sz = 0, search_sz = 0, pfxs_cnt = 0, routes_cnt = 0;
 	ssize_t addr_cnt = 0;
-	uint32_t minvalid = UINT32_MAX, maxival;
+	uint32_t minvalid = UINT32_MAX, maxival, lifetime;
 	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
 	bool default_route = false;
 	bool valid_prefix = false;
@@ -569,6 +569,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	/* Calculate periodic transmit */
 	msecs = calc_adv_interval(iface, minvalid, &maxival);
+	lifetime = calc_ra_lifetime(iface, maxival);
 
 	if (default_route) {
 		if (!valid_prefix) {
@@ -576,7 +577,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 					"on %s thus we don't announce a default route!", iface->name);
 			adv.h.nd_ra_router_lifetime = 0;
 		} else
-			adv.h.nd_ra_router_lifetime = htons(calc_ra_lifetime(iface, maxival));
+			adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
 
 	} else
 		adv.h.nd_ra_router_lifetime = 0;
@@ -605,7 +606,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memset(dns, 0, dns_sz);
 			dns->type = ND_OPT_RECURSIVE_DNS;
 			dns->len = 1 + (2 * dns_cnt);
-			dns->lifetime = htonl(maxival*10);
+			dns->lifetime = htonl(lifetime);
 			memcpy(dns->addr, dns_addr, sizeof(struct in6_addr)*dns_cnt);
 		}
 
@@ -630,7 +631,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		memset(search, 0, search_sz);
 		search->type = ND_OPT_DNS_SEARCH;
 		search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
-		search->lifetime = htonl(maxival*10);
+		search->lifetime = htonl(lifetime);
 
 		if (search_len > 0) {
 			memcpy(search->name, search_domain, search_len);
@@ -646,6 +647,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	for (ssize_t i = 0; i < addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
+		uint32_t valid;
 
 		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
@@ -689,7 +691,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
 
-		routes[routes_cnt].lifetime = htonl(TIME_LEFT(addr->valid, now));
+		valid = TIME_LEFT(addr->valid, now);
+		routes[routes_cnt].lifetime = htonl(valid < lifetime ? valid : lifetime);
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
 		routes[routes_cnt].addr[2] = 0;

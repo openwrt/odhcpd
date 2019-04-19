@@ -587,7 +587,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	/* DNS options */
 	if (iface->ra_dns) {
 		struct in6_addr dns_pref, *dns_addr = NULL;
-		size_t dns_cnt = 0, search_padded = 0, search_len = iface->search_len;
+		size_t dns_cnt = 0, search_len = iface->search_len;
 		uint8_t *search_domain = iface->search;
 
 		/* DNS Recursive DNS */
@@ -622,18 +622,16 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			}
 		}
 
-		if (search_len > 0)
-			search_padded = ((search_len + 7) & (~7)) + 8;
-
-		search_sz = sizeof(*search) + search_padded;
-
-		search = alloca(search_sz);
-		memset(search, 0, search_sz);
-		search->type = ND_OPT_DNS_SEARCH;
-		search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
-		search->lifetime = htonl(lifetime);
-
 		if (search_len > 0) {
+			size_t search_padded = ((search_len + 7) & (~7)) + 8;
+
+			search_sz = sizeof(*search) + search_padded;
+
+			search = alloca(search_sz);
+			memset(search, 0, search_sz);
+			search->type = ND_OPT_DNS_SEARCH;
+			search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
+			search->lifetime = htonl(lifetime);
 			memcpy(search->name, search_domain, search_len);
 			memset(&search->name[search_len], 0, search_padded - search_len);
 		}

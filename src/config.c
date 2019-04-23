@@ -30,7 +30,7 @@ struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {.legacy = false, .main_dhcpv4 = false,
 			.dhcp_cb = NULL, .dhcp_statefile = NULL,
-			.log_level = LOG_INFO};
+			.log_level = LOG_WARNING};
 
 enum {
 	IFACE_ATTR_INTERFACE,

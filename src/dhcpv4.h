@@ -19,6 +19,8 @@
 
 #define DHCPV4_FLAG_BROADCAST  0x8000
 
+#define DHCPV4_MIN_PACKET_SIZE 300
+
 enum dhcpv4_op {
 	DHCPV4_BOOTREQUEST = 1,
 	DHCPV4_BOOTREPLY = 2
@@ -37,6 +39,7 @@ enum dhcpv4_msg {
 };
 
 enum dhcpv4_opt {
+	DHCPV4_OPT_PAD = 0,
 	DHCPV4_OPT_NETMASK = 1,
 	DHCPV4_OPT_ROUTER = 3,
 	DHCPV4_OPT_DNSSERVER = 6,

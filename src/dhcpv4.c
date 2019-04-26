@@ -35,6 +35,9 @@
 #include "dhcpv4.h"
 #include "dhcpv6.h"
 
+#define PACKET_SIZE(start, end) (((uint8_t *)end - (uint8_t *)start) < DHCPV4_MIN_PACKET_SIZE ? \
+				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
+
 static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static int setup_dhcpv4_addresses(struct interface *iface);
 static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
@@ -429,15 +432,20 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 {
 	uint8_t *c = *cookie;
 	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
+	bool tag_only = type == DHCPV4_OPT_PAD || type == DHCPV4_OPT_END;
+	int total_len = tag_only ? 1 : 2 + len;
 
-	if (*cookie + 2 + len > end)
+	if (*cookie + total_len > end)
 		return;
 
+	*cookie += total_len;
 	*c++ = type;
+
+	if (tag_only)
+		return;
+
 	*c++ = len;
 	memcpy(c, data, len);
-
-	*cookie = c + len;
 }
 
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
@@ -518,7 +526,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	dest.sin_addr.s_addr = a->addr;
 
-	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, sizeof(fr_msg),
+	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cookie),
 			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
@@ -861,7 +869,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			syslog(LOG_ERR, "ioctl(SIOCSARP): %m");
 	}
 
-	if (sendto(sock, &reply, sizeof(reply), MSG_DONTWAIT,
+	if (sendto(sock, &reply, PACKET_SIZE(&reply, cookie), MSG_DONTWAIT,
 			(struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
 			dhcpv4_msg_to_string(msg),

@@ -898,55 +898,71 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 #endif
 }
 
+static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignment *a,
+				     uint32_t addr)
+{
+	uint32_t h_addr = ntohl(addr);
+	struct dhcp_assignment *c;
+
+	list_for_each_entry(c, list, head) {
+		uint32_t c_addr = ntohl(c->addr);
+
+		if (c_addr == h_addr)
+			return false;
+
+		if (c_addr > h_addr)
+			break;
+	}
+
+	/* Insert new node before c (might match list head) */
+	a->addr = addr;
+	list_add_tail(&a->head, &c->head);
+
+	return true;
+}
+
+static char* ip4toa(uint32_t addr)
+{
+	static char buf[16];
+
+	snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+		((uint8_t *)&addr)[0], ((uint8_t *)&addr)[1],
+		((uint8_t *)&addr)[2], ((uint8_t *)&addr)[3]);
+
+	return buf;
+}
+
 static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 			  uint32_t raddr)
 {
-	struct dhcp_assignment *c;
 	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
 	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
 	uint32_t count = end - start + 1;
 	uint32_t seed = 0;
+	bool assigned;
 
 	/* Preconfigured IP address by static lease */
 	if (a->addr) {
-		if (list_empty(&iface->dhcpv4_assignments)) {
-			list_add(&a->head, &iface->dhcpv4_assignments);
-			return true;
-		}
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, a->addr);
 
-		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (ntohl(c->addr) > ntohl(a->addr)) {
-				list_add_tail(&a->head, &c->head);
-				return true;
-			} else if (ntohl(a->addr) == ntohl(c->addr))
-				return false;
-		}
+		if (assigned)
+			syslog(LOG_INFO, "Assigning static IP: %s", ip4toa(a->addr));
+
+		return assigned;
 	}
 
 	/* try to assign the IP the client asked for */
 	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
 	    !config_find_lease_by_ipaddr(raddr)) {
-		if (list_empty(&iface->dhcpv4_assignments)) {
-			list_add(&a->head, &iface->dhcpv4_assignments);
-			goto raddr_out;
-		}
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, raddr);
 
-		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (ntohl(raddr) == ntohl(c->addr))
-				break;
+		if (assigned) {
+			syslog(LOG_INFO, "Assigning the IP the client asked for: %s",
+			       ip4toa(a->addr));
 
-			if (ntohl(c->addr) > ntohl(raddr) || list_is_last(&c->head, &iface->dhcpv4_assignments)) {
-				list_add_tail(&a->head,
-					      ntohl(c->addr) > ntohl(raddr) ? &c->head : &iface->dhcpv4_assignments);
-raddr_out:
-				a->addr = raddr;
-
-				syslog(LOG_INFO, "Assigning the IP the client asked for: %u.%u.%u.%u",
-				       ((uint8_t *)&a->addr)[0], ((uint8_t *)&a->addr)[1],
-				       ((uint8_t *)&a->addr)[2], ((uint8_t *)&a->addr)[3]);
-
-				return true;
-			}
+			return true;
 		}
 	}
 
@@ -961,37 +977,19 @@ raddr_out:
 
 	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
 	     ++i, try = (((try - start) + 1) % count) + start) {
+		uint32_t n_try = htonl(try);
 
-		if (config_find_lease_by_ipaddr(htonl(try)))
+		if (config_find_lease_by_ipaddr(n_try))
 			continue;
 
-		if (list_empty(&iface->dhcpv4_assignments)) {
-			list_add(&a->head, &iface->dhcpv4_assignments);
-			a->addr = htonl(try);
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, n_try);
 
-			syslog(LOG_INFO, "Assigning mapped IP (empty list): %u.%u.%u.%u",
-			       ((uint8_t *)&a->addr)[0], ((uint8_t *)&a->addr)[1],
-			       ((uint8_t *)&a->addr)[2], ((uint8_t *)&a->addr)[3]);
+		if (assigned) {
+			syslog(LOG_INFO, "Assigning mapped IP: %s (try %u of %u)",
+			       ip4toa(a->addr), i + 1, count);
 
 			return true;
-		}
-
-		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-			if (try == ntohl(c->addr))
-				break;
-
-			if (ntohl(c->addr) > try || list_is_last(&c->head, &iface->dhcpv4_assignments)) {
-				list_add_tail(&a->head,
-					      ntohl(c->addr) > try ? &c->head : &iface->dhcpv4_assignments);
-				a->addr = htonl(try);
-
-				syslog(LOG_INFO, "Assigning mapped IP: %u.%u.%u.%u (try %u of %u)",
-					((uint8_t *)&a->addr)[0], ((uint8_t *)&a->addr)[1],
-					((uint8_t *)&a->addr)[2], ((uint8_t *)&a->addr)[3],
-					i, count);
-
-				return true;
-			}
 		}
 	}
 

@@ -29,7 +29,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 	a = blobmsg_open_table(&b, "device");
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
+		if (iface->dhcpv4 != MODE_SERVER)
 			continue;
 
 		void *i = blobmsg_open_table(&b, iface->ifname);
@@ -122,7 +122,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	a = blobmsg_open_table(&b, "device");
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->dhcpv6 != MODE_SERVER || iface->ia_assignments.next == NULL)
+		if (iface->dhcpv6 != MODE_SERVER)
 			continue;
 
 		void *i = blobmsg_open_table(&b, iface->ifname);

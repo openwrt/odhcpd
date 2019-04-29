@@ -62,7 +62,7 @@ int dhcpv6_ia_init(void)
 
 int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 {
-	if (!enable && iface->ia_assignments.next) {
+	if (!enable) {
 		struct dhcp_assignment *c;
 
 		while (!list_empty(&iface->ia_assignments)) {
@@ -73,9 +73,6 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 
 	if (enable && iface->dhcpv6 == MODE_SERVER) {
 		struct dhcp_assignment *border;
-
-		if (!iface->ia_assignments.next)
-			INIT_LIST_HEAD(&iface->ia_assignments);
 
 		if (list_empty(&iface->ia_assignments)) {
 			border = calloc(1, sizeof(*border));
@@ -326,8 +323,7 @@ void dhcpv6_ia_write_statefile(void)
 					ctxt.iface->dhcpv4 != MODE_SERVER)
 				continue;
 
-			if (ctxt.iface->dhcpv6 == MODE_SERVER &&
-					ctxt.iface->ia_assignments.next) {
+			if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 				list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
 					if (!(ctxt.c->flags & OAF_BOUND) || ctxt.c->managed_size < 0)
 						continue;
@@ -355,9 +351,9 @@ void dhcpv6_ia_write_statefile(void)
 				}
 			}
 
-			if (ctxt.iface->dhcpv4 == MODE_SERVER &&
-					ctxt.iface->dhcpv4_assignments.next) {
+			if (ctxt.iface->dhcpv4 == MODE_SERVER) {
 				struct dhcp_assignment *c;
+
 				list_for_each_entry(c, &ctxt.iface->dhcpv4_assignments, head) {
 					if (!(c->flags & OAF_BOUND))
 						continue;
@@ -771,7 +767,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 	avl_for_each_element(&interfaces, iface, avl) {
 		struct dhcp_assignment *a, *n;
 
-		if (iface->dhcpv6 != MODE_SERVER || iface->ia_assignments.next == NULL)
+		if (iface->dhcpv6 != MODE_SERVER)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {

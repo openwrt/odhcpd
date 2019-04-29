@@ -88,12 +88,6 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 					{INADDR_ANY}, {0}};
 		int val = 1;
 
-		if (!iface->dhcpv4_assignments.next)
-			INIT_LIST_HEAD(&iface->dhcpv4_assignments);
-
-		if (!iface->dhcpv4_fr_ips.next)
-			INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
-
 		iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (iface->dhcpv4_event.uloop.fd < 0) {
 			syslog(LOG_ERR, "socket(AF_INET): %m");
@@ -160,7 +154,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
 		odhcpd_register(&iface->dhcpv4_event);
-	} else if (iface->dhcpv4_assignments.next) {
+	} else {
 		while (!list_empty(&iface->dhcpv4_assignments))
 			free_assignment(list_first_entry(&iface->dhcpv4_assignments,
 							struct dhcp_assignment, head));
@@ -347,10 +341,11 @@ static void valid_until_cb(struct uloop_timeout *event)
 	time_t now = odhcpd_time();
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (iface->dhcpv4 != MODE_SERVER || iface->dhcpv4_assignments.next == NULL)
+		struct dhcp_assignment *a, *n;
+
+		if (iface->dhcpv4 != MODE_SERVER)
 			continue;
 
-		struct dhcp_assignment *a, *n;
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
 			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
 				free_assignment(a);

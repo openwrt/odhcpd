@@ -440,6 +440,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_event.uloop.fd = -1;
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
+		INIT_LIST_HEAD(&iface->ia_assignments);
+		INIT_LIST_HEAD(&iface->dhcpv4_assignments);
+		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
+
 		set_interface_defaults(iface);
 
 		avl_insert(&interfaces, &iface->avl);

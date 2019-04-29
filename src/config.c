@@ -965,18 +965,26 @@ void odhcpd_reload(void)
 	struct uci_package *dhcp = NULL;
 	if (!uci_load(uci, "dhcp", &dhcp)) {
 		struct uci_element *e;
+
+		/* 1. Global settings */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section *s = uci_to_section(e);
-			if (!strcmp(s->type, "host"))
-				set_lease(s);
-			else if (!strcmp(s->type, "odhcpd"))
+			if (!strcmp(s->type, "odhcpd"))
 				set_config(s);
 		}
 
+		/* 2. DHCP pools */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "dhcp"))
 				set_interface(s);
+		}
+
+		/* 3. Static leases */
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section* s = uci_to_section(e);
+			if (!strcmp(s->type, "host"))
+				set_lease(s);
 		}
 	}
 

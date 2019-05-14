@@ -1024,9 +1024,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		if (!a) {
 			if (!iface->no_dynamic_dhcp || l) {
 				/* Create new binding */
-				a = calloc(1, sizeof(*a));
+				a = alloc_assignment(0);
 				if (!a) {
-					syslog(LOG_ERR, "Failed to calloc binding on interface %s",
+					syslog(LOG_ERR, "Failed to alloc assignment on interface %s",
 							iface->ifname);
 					return NULL;
 				}
@@ -1057,7 +1057,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		} else if (((a->addr & iface->dhcpv4_mask.s_addr) !=
 			    (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
 			    !(a->flags & OAF_STATIC)) {
-			list_del(&a->head);
+			list_del_init(&a->head);
 			a->addr = INADDR_ANY;
 
 			assigned = dhcpv4_assign(iface, a, reqaddr);

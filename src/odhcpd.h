@@ -309,11 +309,8 @@ extern struct avl_tree interfaces;
 
 inline static void free_assignment(struct dhcp_assignment *a)
 {
-	if (a->head.next)
-		list_del(&a->head);
-
-	if (a->lease_list.next)
-		list_del(&a->lease_list);
+	list_del(&a->head);
+	list_del(&a->lease_list);
 
 	if (a->dhcp_free_cb)
 		a->dhcp_free_cb(a);
@@ -321,6 +318,19 @@ inline static void free_assignment(struct dhcp_assignment *a)
 	free(a->hostname);
 	free(a->reqopts);
 	free(a);
+}
+
+inline static struct dhcp_assignment *alloc_assignment(size_t extra_len)
+{
+	struct dhcp_assignment *a = calloc(1, sizeof(*a) + extra_len);
+
+	if (!a)
+		return NULL;
+
+	INIT_LIST_HEAD(&a->head);
+	INIT_LIST_HEAD(&a->lease_list);
+
+	return a;
 }
 
 // Exported main functions

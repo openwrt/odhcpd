@@ -75,10 +75,10 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 		struct dhcp_assignment *border;
 
 		if (list_empty(&iface->ia_assignments)) {
-			border = calloc(1, sizeof(*border));
+			border = alloc_assignment(0);
 
 			if (!border) {
-				syslog(LOG_ERR, "Calloc failed for border on %s", iface->name);
+				syslog(LOG_ERR, "Failed to alloc border on %s", iface->name);
 				return -1;
 			}
 
@@ -719,7 +719,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 	while (!list_empty(&reassign)) {
 		c = list_first_entry(&reassign, struct dhcp_assignment, head);
-		list_del(&c->head);
+		list_del_init(&c->head);
 		if (!assign_pd(iface, c)) {
 			c->assigned = 0;
 			list_add(&c->head, &iface->ia_assignments);
@@ -1237,7 +1237,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				if ((!iface->no_dynamic_dhcp || (l && is_na)) &&
 				    (iface->dhcpv6_pd || iface->dhcpv6_na)) {
 					/* Create new binding */
-					a = calloc(1, sizeof(*a) + clid_len);
+					a = alloc_assignment(clid_len);
 
 					if (a) {
 						a->clid_len = clid_len;

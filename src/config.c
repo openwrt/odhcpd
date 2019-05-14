@@ -881,9 +881,9 @@ static void lease_change_config(struct lease *l_old, struct lease *l_new)
 
 static void lease_delete(struct lease *l)
 {
-	struct dhcp_assignment *a;
+	struct dhcp_assignment *a, *tmp;
 
-	list_for_each_entry(a, &l->assignments, lease_list)
+	list_for_each_entry_safe(a, tmp, &l->assignments, lease_list)
 		free_assignment(a);
 
 	free_lease(l);

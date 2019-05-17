@@ -59,7 +59,8 @@ enum {
 	IFACE_ATTR_DHCPV6_PD,
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_RA_DEFAULT,
-	IFACE_ATTR_RA_MANAGEMENT,
+	IFACE_ATTR_RA_FLAGS,
+	IFACE_ATTR_RA_SLAAC,
 	IFACE_ATTR_RA_OFFLINK,
 	IFACE_ATTR_RA_PREFERENCE,
 	IFACE_ATTR_RA_ADVROUTER,
@@ -106,7 +107,8 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
-	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_RA_FLAGS] = { .name = "ra_flags", . type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_RA_SLAAC] = { .name = "ra_slaac", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_PREFERENCE] = { .name = "ra_preference", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_ADVROUTER] = { .name = "ra_advrouter", .type = BLOBMSG_TYPE_BOOL },
@@ -182,6 +184,14 @@ const struct uci_blob_param_list odhcpd_attr_list = {
 	.params = odhcpd_attrs,
 };
 
+static const struct { const char *name; uint8_t flag; } ra_flags[] = {
+	{ .name = "managed-config", .flag = ND_RA_FLAG_MANAGED },
+	{ .name = "other-config", .flag = ND_RA_FLAG_OTHER },
+	{ .name = "home-agent", .flag = ND_RA_FLAG_HOME_AGENT },
+	{ .name = "none", . flag = 0 },
+	{ .name = NULL, },
+};
+
 static int mkdir_p(char *dir, mode_t mask)
 {
 	char *l = strrchr(dir, '/');
@@ -221,7 +231,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_na = true;
-	iface->ra_managed = RA_MANAGED_MFLAG;
+	iface->ra_flags = ND_RA_FLAG_OTHER;
+	iface->ra_slaac = true;
 	iface->ra_maxinterval = 600;
 	iface->ra_mininterval = iface->ra_maxinterval/3;
 	iface->ra_lifetime = -1;
@@ -271,6 +282,34 @@ static int parse_mode(const char *mode)
 		return MODE_HYBRID;
 	else
 		return -1;
+}
+
+static int parse_ra_flags(uint8_t *flags, struct blob_attr *attr)
+{
+	struct blob_attr *cur;
+	unsigned rem;
+
+	blobmsg_for_each_attr(cur, attr, rem) {
+		int i;
+
+		if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING)
+			continue;
+
+                if (!blobmsg_check_attr(cur, false))
+                        continue;
+
+		for (i = 0; ra_flags[i].name; i++) {
+			if (!strcmp(ra_flags[i].name, blobmsg_get_string(cur))) {
+				*flags |= ra_flags[i].flag;
+				break;
+			}
+		}
+
+		if (!ra_flags[i].name)
+			return -1;
+	}
+
+	return 0;
 }
 
 static void set_config(struct uci_section *s)
@@ -695,8 +734,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);
 
-	if ((c = tb[IFACE_ATTR_RA_MANAGEMENT]))
-		iface->ra_managed = blobmsg_get_u32(c);
+	if ((c = tb[IFACE_ATTR_RA_FLAGS])) {
+		iface->ra_flags = 0;
+		if (parse_ra_flags(&iface->ra_flags, c) < 0)
+			goto err;
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);
@@ -729,6 +771,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->ra_mtu = ra_mtu;
 	}
+
+	if ((c = tb[IFACE_ATTR_RA_SLAAC]))
+		iface->ra_slaac = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_OFFLINK]))
 		iface->ra_not_onlink = blobmsg_get_bool(c);

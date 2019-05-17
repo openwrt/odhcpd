@@ -246,6 +246,13 @@ struct interface {
 	bool master;
 	bool ignore;
 	bool always_rewrite_dns;
+
+	// NDP
+	int learn_routes;
+
+	// RA
+	uint8_t ra_flags;
+	bool ra_slaac;
 	bool ra_not_onlink;
 	bool ra_advrouter;
 	bool ra_useleasetime;
@@ -253,11 +260,7 @@ struct interface {
 	bool no_dynamic_dhcp;
 	uint8_t pio_filter_length;
 	struct in6_addr pio_filter_addr;
-
-	// RA
-	int learn_routes;
 	int default_router;
-	int ra_managed;
 	int route_preference;
 	int ra_maxinterval;
 	int ra_mininterval;
@@ -302,10 +305,6 @@ struct interface {
 };
 
 extern struct avl_tree interfaces;
-
-#define RA_MANAGED_NO_MFLAG	0
-#define RA_MANAGED_MFLAG	1
-#define RA_MANAGED_NO_AFLAG	2
 
 inline static void free_assignment(struct dhcp_assignment *a)
 {

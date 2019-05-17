@@ -111,8 +111,10 @@ limit			integer	150			DHCPv4 pool size
 
 ra_default		integer	0			Override default route
 			0: default, 1: ignore no public address, 2: ignore all
-ra_management		integer	1			RA management mode
-			0: no M-Flag but A-Flag, 1: both M and A, 2: M but not A
+ra_flags		list	other-config		List of RA flags to be
+							advertised in RA messages
+			[managed-config other-config home-agent none]
+ra_slaac		bool	1			Announce slaac for a prefix
 ra_offlink		bool	0			Announce prefixes off-link
 ra_preference		string	medium			Route(r) preference
 			[medium|high|low]

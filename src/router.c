@@ -436,12 +436,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (hlim > 0)
 		adv.h.nd_ra_curhoplimit = hlim;
 
-	if (iface->dhcpv6 != MODE_DISABLED) {
-		adv.h.nd_ra_flags_reserved = ND_RA_FLAG_OTHER;
-
-		if (iface->ra_managed >= RA_MANAGED_MFLAG)
-			adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
-	}
+	adv.h.nd_ra_flags_reserved = iface->ra_flags;
 
 	if (iface->route_preference < 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;
@@ -558,7 +553,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
-		if (iface->ra_managed < RA_MANAGED_NO_AFLAG && addr->prefix <= 64)
+		if (iface->ra_slaac && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;

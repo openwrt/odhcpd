@@ -687,7 +687,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	time_t now = odhcpd_time();
 
 	list_for_each_entry(c, &iface->ia_assignments, head) {
-		if (c != border && iface->ra_managed == RA_MANAGED_NO_MFLAG
+		if (c != border && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
 				&& (c->flags & OAF_BOUND))
 			__apply_lease(iface, c, info->addrs_old.addrs,
 					info->addrs_old.len, false);

@@ -204,6 +204,8 @@ struct interface {
 	int ifindex;
 	char *ifname;
 	const char *name;
+	int current_device_index;
+	int member_ship_active ;
 
 	// IPv6 runtime data
 	struct odhcpd_ipaddr *addr6;
@@ -233,7 +235,6 @@ struct interface {
 	// Managed PD
 	char dhcpv6_pd_manager[128];
 	struct in6_addr dhcpv6_pd_cer;
-
 	// Services
 	enum odhcpd_mode ra;
 	enum odhcpd_mode dhcpv6;

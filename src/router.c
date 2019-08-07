@@ -73,6 +73,7 @@ out:
 int router_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
+	struct ipv6_mreq mreq;
 
 	enable = enable && (iface->ra != MODE_DISABLED);
 
@@ -81,12 +82,20 @@ int router_setup_interface(struct interface *iface, bool enable)
 		goto out;
 	}
 
+	if (iface->ifindex != iface->current_device_index &&  iface->router_event.uloop.fd >=0 ) {
+		uloop_timeout_cancel(&iface->timer_rs);
+		iface->timer_rs.cb = NULL;
+		trigger_router_advert(&iface->timer_rs);
+		uloop_fd_delete(&iface->router_event.uloop);
+		close(iface->router_event.uloop.fd);
+		iface->router_event.uloop.fd = -1;
+		iface->member_ship_active=0 ;
+	}
 
 	if (!enable && iface->router_event.uloop.fd >= 0) {
 		if (!iface->master) {
 			uloop_timeout_cancel(&iface->timer_rs);
 			iface->timer_rs.cb = NULL;
-
 			trigger_router_advert(&iface->timer_rs);
 		}
 
@@ -95,7 +104,6 @@ int router_setup_interface(struct interface *iface, bool enable)
 		iface->router_event.uloop.fd = -1;
 	} else if (enable) {
 		struct icmp6_filter filt;
-		struct ipv6_mreq mreq;
 		int val = 2;
 
 		if (iface->router_event.uloop.fd < 0) {
@@ -174,24 +182,12 @@ int router_setup_interface(struct interface *iface, bool enable)
 				ret = -1;
 				goto out;
 			}
-
+			iface->current_device_index=iface->ifindex ;
 			iface->router_event.handle_dgram = handle_icmpv6;
 			odhcpd_register(&iface->router_event);
-		} else {
-			uloop_timeout_cancel(&iface->timer_rs);
-			iface->timer_rs.cb = NULL;
-
-			memset(&mreq, 0, sizeof(mreq));
-			mreq.ipv6mr_interface = iface->ifindex;
-			inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
-			setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-				   &mreq, sizeof(mreq));
-
-			inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
-			setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
-				   &mreq, sizeof(mreq));
 		}
 
+		if (!iface->member_ship_active && iface->router_event.uloop.fd >= 0) {
 		memset(&mreq, 0, sizeof(mreq));
 		mreq.ipv6mr_interface = iface->ifindex;
 		inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
@@ -210,11 +206,33 @@ int router_setup_interface(struct interface *iface, bool enable)
 			syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
 			goto out;
 		}
+			iface->member_ship_active=1 ;
+		}
+
+	} else {	// !enabled
+		if (iface->member_ship_active ) {
+			iface->member_ship_active=0 ;
+			uloop_timeout_cancel(&iface->timer_rs);
+			iface->timer_rs.cb = NULL;
+			if ( iface->router_event.uloop.fd >= 0 ) {
+				memset(&mreq, 0, sizeof(mreq));
+				mreq.ipv6mr_interface = iface->ifindex;
+				inet_pton(AF_INET6, ALL_IPV6_NODES, &mreq.ipv6mr_multiaddr);
+				setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
+					   &mreq, sizeof(mreq));
+
+				inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &mreq.ipv6mr_multiaddr);
+				setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP,
+					   &mreq, sizeof(mreq));
+			}
+		}
 	}
 out:
 	if (ret < 0 && iface->router_event.uloop.fd >= 0) {
+		iface->member_ship_active=0 ;
 		close(iface->router_event.uloop.fd);
 		iface->router_event.uloop.fd = -1;
+		iface->current_device_index=0 ;
 	}
 
 	return ret;

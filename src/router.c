@@ -213,6 +213,9 @@ int router_setup_interface(struct interface *iface, bool enable)
 	}
 out:
 	if (ret < 0 && iface->router_event.uloop.fd >= 0) {
+		if (iface->router_event.uloop.registered)
+			uloop_fd_delete(&iface->router_event.uloop);
+
 		close(iface->router_event.uloop.fd);
 		iface->router_event.uloop.fd = -1;
 	}

@@ -229,6 +229,11 @@ static void router_netevent_cb(unsigned long event, struct netevent_handler_info
 	struct interface *iface;
 
 	switch (event) {
+	case NETEV_IFINDEX_CHANGE:
+		iface = info->iface;
+		if (iface && iface->router_event.uloop.fd >= 0)
+			close(iface->router_event.uloop.fd);
+		break;
 	case NETEV_ROUTE6_ADD:
 	case NETEV_ROUTE6_DEL:
 		if (info->rt.dst_len)

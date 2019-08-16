@@ -176,6 +176,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 			}
 
 			iface->router_event.handle_dgram = handle_icmpv6;
+			iface->ra_sent = 0;
 			odhcpd_register(&iface->router_event);
 		} else {
 			uloop_timeout_cancel(&iface->timer_rs);
@@ -357,6 +358,13 @@ static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
 			minival*1000;
+
+	/* RFC 2461 6.2.4 For the first MAX_INITIAL_RTR_ADVERTISEMENTS advertisements */
+	/* if the timer is bigger than MAX_INITIAL_RTR_ADVERT_INTERVAL it should be   */
+	/* set to MAX_INITIAL_RTR_ADVERT_INTERVAL                                     */
+	/* Off by one as an initial interval timer has already expired                */
+	if ((iface->ra_sent + 1) < MaxInitialRtAdvs && msecs > MaxInitialRtrAdvInterval*1000)
+		msecs = MaxInitialRtrAdvInterval*1000;
 
 	return msecs;
 }
@@ -730,7 +738,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	syslog(LOG_NOTICE, "Sending a RA on %s", iface->name);
 
-	odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface);
+	if (odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0)
+		iface->ra_sent++;
 
 	free(pfxs);
 	free(routes);

@@ -212,6 +212,7 @@ struct interface {
 	// RA runtime data
 	struct odhcpd_event router_event;
 	struct uloop_timeout timer_rs;
+	uint32_t ra_sent;
 
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;

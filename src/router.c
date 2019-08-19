@@ -232,6 +232,8 @@ static void router_netevent_cb(unsigned long event, struct netevent_handler_info
 	case NETEV_IFINDEX_CHANGE:
 		iface = info->iface;
 		if (iface && iface->router_event.uloop.fd >= 0) {
+			if (iface->router_event.uloop.registered)
+				uloop_fd_delete(&iface->router_event.uloop);
 			close(iface->router_event.uloop.fd);
 			iface->router_event.uloop.fd = -1;
 		}

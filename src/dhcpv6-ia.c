@@ -772,12 +772,8 @@ static void valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
-				if ((a->length < 128 && a->clid_len > 0) ||
-						(a->length == 128 && a->clid_len == 0))
-					free_assignment(a);
-
-			}
+			if (a->clid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+				free_assignment(a);
 		}
 	}
 	uloop_timeout_set(event, 1000);
@@ -1384,7 +1380,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				a->flags &= ~OAF_BOUND;
 
 				if (!(a->flags & OAF_STATIC)) {
-					a->clid_len = 0;
+					memset(a->clid_data, 0, a->clid_len);
 					a->valid_until = now + 3600; /* Block address for 1h */
 				}
 			}

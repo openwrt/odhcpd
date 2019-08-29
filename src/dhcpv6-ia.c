@@ -700,7 +700,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 				c->managed_size)
 			continue;
 
-		if (c->length < 128 && c->assigned >= border->assigned && c != border)
+		if (c->length < 128 && (c->assigned == 0 || c->assigned >= border->assigned) && c != border)
 			list_move(&c->head, &reassign);
 		else if (c != border && (c->flags & OAF_BOUND))
 			apply_lease(iface, c, true);

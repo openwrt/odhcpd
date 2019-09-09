@@ -59,6 +59,7 @@ enum {
 	IFACE_ATTR_DHCPV6_PD,
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_RA_DEFAULT,
+	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_FLAGS,
 	IFACE_ATTR_RA_SLAAC,
 	IFACE_ATTR_RA_OFFLINK,
@@ -107,6 +108,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_FLAGS] = { .name = "ra_flags", . type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_RA_SLAAC] = { .name = "ra_slaac", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
@@ -733,6 +735,26 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);
+
+	if (!tb[IFACE_ATTR_RA_FLAGS] && !tb[IFACE_ATTR_RA_SLAAC] &&
+	    (c = tb[IFACE_ATTR_RA_MANAGEMENT])) {
+		switch (blobmsg_get_u32(c)) {
+		case 0:
+			iface->ra_flags = ND_RA_FLAG_OTHER;
+			iface->ra_slaac = true;
+			break;
+		case 1:
+			iface->ra_flags = ND_RA_FLAG_OTHER|ND_RA_FLAG_MANAGED;
+			iface->ra_slaac = true;
+			break;
+		case 2:
+			iface->ra_flags = ND_RA_FLAG_OTHER|ND_RA_FLAG_MANAGED;
+			iface->ra_slaac = false;
+			break;
+		default:
+			break;
+		}
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_FLAGS])) {
 		iface->ra_flags = 0;

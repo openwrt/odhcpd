@@ -504,7 +504,7 @@ struct addr_info {
 };
 
 
-static int cb_valid_handler(struct nl_msg *msg, void *arg)
+static int cb_addr_valid(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
@@ -571,7 +571,7 @@ static int cb_valid_handler(struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_finish_handler(_unused struct nl_msg *msg, void *arg)
+static int cb_addr_finish(_unused struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
@@ -581,7 +581,7 @@ static int cb_finish_handler(_unused struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_error_handler(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+static int cb_addr_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
 		void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
@@ -651,9 +651,9 @@ ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr *
 
 	nlmsg_append(msg, &ifa, sizeof(ifa), 0);
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_valid_handler, &ctxt);
-	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_finish_handler, &ctxt);
-	nl_cb_err(cb, NL_CB_CUSTOM, cb_error_handler, &ctxt);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_addr_valid, &ctxt);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_addr_finish, &ctxt);
+	nl_cb_err(cb, NL_CB_CUSTOM, cb_addr_error, &ctxt);
 
 	nl_send_auto_complete(rtnl_socket, msg);
 	while (ctxt.pending > 0)
@@ -692,7 +692,7 @@ struct neigh_info {
 };
 
 
-static int cb_valid_handler2(struct nl_msg *msg, void *arg)
+static int cb_proxy_neigh_valid(struct nl_msg *msg, void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
@@ -721,7 +721,7 @@ static int cb_valid_handler2(struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_finish_handler2(_unused struct nl_msg *msg, void *arg)
+static int cb_proxy_neigh_finish(_unused struct nl_msg *msg, void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
 
@@ -731,7 +731,7 @@ static int cb_finish_handler2(_unused struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_error_handler2(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+static int cb_proxy_neigh_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
 		void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
@@ -774,9 +774,9 @@ int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr)
 	nlmsg_append(msg, &ndm, sizeof(ndm), 0);
 	nla_put(msg, NDA_DST, sizeof(*addr), addr);
 
-	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_valid_handler2, &ctxt);
-	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_finish_handler2, &ctxt);
-	nl_cb_err(cb, NL_CB_CUSTOM, cb_error_handler2, &ctxt);
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_proxy_neigh_valid, &ctxt);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_proxy_neigh_finish, &ctxt);
+	nl_cb_err(cb, NL_CB_CUSTOM, cb_proxy_neigh_error, &ctxt);
 
 	nl_send_auto_complete(rtnl_socket, msg);
 	while (ctxt.pending > 0)

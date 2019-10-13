@@ -310,7 +310,7 @@ static void send_na(struct in6_addr *to_addr,
 	memset(pbuf, 0, sizeof(pbuf));
 	adv->nd_na_hdr = (struct icmp6_hdr) {
 		.icmp6_type = ND_NEIGHBOR_ADVERT,
-		.icmp6_dataun.icmp6_un_data32 = { 0x40000000L }
+		.icmp6_dataun.icmp6_un_data32 = { ND_NA_FLAG_SOLICITED }
 	};
 	adv->nd_na_target = *for_addr;
 	*opt = (struct nd_opt_hdr) { .nd_opt_type = ND_OPT_TARGET_LINKADDR, .nd_opt_len = 1 };

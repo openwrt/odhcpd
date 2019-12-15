@@ -71,7 +71,7 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			border = alloc_assignment(0);
 
 			if (!border) {
-				syslog(LOG_ERR, "Failed to alloc border on %s", iface->name);
+				syslog(LOG_WARNING, "Failed to alloc border on %s", iface->name);
 				return -1;
 			}
 
@@ -1065,8 +1065,8 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
-	syslog(LOG_NOTICE, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
-			duidbuf, iface->name, status, leasebuf);
+	syslog(LOG_INFO, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
+			 duidbuf, iface->name, status, leasebuf);
 }
 
 static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assignment *a,

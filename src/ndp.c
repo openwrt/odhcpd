@@ -288,7 +288,7 @@ static void ping6(struct in6_addr *addr,
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-	syslog(LOG_NOTICE, "Pinging for %s on %s", ipbuf, iface->name);
+	syslog(LOG_DEBUG, "Pinging for %s on %s", ipbuf, iface->name);
 
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, true);
 	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
@@ -343,7 +343,7 @@ static void setup_route(struct in6_addr *addr, struct interface *iface, bool add
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-	syslog(LOG_NOTICE, "%s about %s%s on %s",
+	syslog(LOG_DEBUG, "%s about %s%s on %s",
 			(add) ? "Learning" : "Forgetting",
 			iface->learn_routes ? "proxy routing for " : "",
 			ipbuf, iface->name);

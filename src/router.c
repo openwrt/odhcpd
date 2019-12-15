@@ -597,7 +597,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	} else
 		adv.h.nd_ra_router_lifetime = 0;
 
-	syslog(LOG_INFO, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
+	syslog(LOG_DEBUG, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 
 	/* DNS options */
 	if (iface->ra_dns) {

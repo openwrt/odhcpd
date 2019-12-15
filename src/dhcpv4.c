@@ -214,12 +214,12 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
 	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
 	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		syslog(LOG_ERR, "Invalid DHCP range for %s", iface->name);
+		syslog(LOG_WARNING, "Invalid DHCP range for %s", iface->name);
 		return -1;
 	}
 
 	if (!iface->addr4_len) {
-		syslog(LOG_ERR, "No network(s) available on %s", iface->name);
+		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
 		return -1;
 	}
 
@@ -250,7 +250,7 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 
 	/* Don't allocate IP range for subnets bigger than 28 */
 	if (iface->addr4[0].prefix > 28) {
-		syslog(LOG_ERR, "Auto allocation of DHCP range fails on %s", iface->name);
+		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s", iface->name);
 		return -1;
 	}
 
@@ -383,7 +383,7 @@ static void handle_addrlist_change(struct interface *iface)
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
 	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
-		syslog(LOG_ERR, "Failed to add ip address on %s", iface->name);
+		syslog(LOG_WARNING, "Failed to add ip address on %s", iface->name);
 		return;
 	}
 
@@ -533,7 +533,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_NOTICE, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
+		syslog(LOG_DEBUG, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
@@ -601,10 +601,10 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->op != DHCPV4_BOOTREQUEST || req->hlen != 6)
 		return;
 
-	syslog(LOG_NOTICE, "Got DHCPv4 request on %s", iface->name);
+	syslog(LOG_DEBUG, "Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		syslog(LOG_ERR, "No DHCP range available on %s", iface->name);
+		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
 		return;
 	}
 
@@ -734,7 +734,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	syslog(LOG_NOTICE, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
+	syslog(LOG_INFO, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
 			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
 #ifdef WITH_UBUS
@@ -886,7 +886,7 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 			inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_NOTICE, "Sent %s to %s - %s",
+		syslog(LOG_DEBUG, "Sent %s to %s - %s",
 			dhcpv4_msg_to_string(msg),
 			dest.sin_addr.s_addr == INADDR_BROADCAST ?
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
@@ -949,7 +949,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, a->addr);
 
 		if (assigned)
-			syslog(LOG_INFO, "Assigning static IP: %s", ip4toa(a->addr));
+			syslog(LOG_DEBUG, "Assigning static IP: %s", ip4toa(a->addr));
 
 		return assigned;
 	}
@@ -961,7 +961,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, raddr);
 
 		if (assigned) {
-			syslog(LOG_INFO, "Assigning the IP the client asked for: %s",
+			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
 			       ip4toa(a->addr));
 
 			return true;
@@ -988,14 +988,15 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, n_try);
 
 		if (assigned) {
-			syslog(LOG_INFO, "Assigning mapped IP: %s (try %u of %u)",
+			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
 			       ip4toa(a->addr), i + 1, count);
 
 			return true;
 		}
 	}
 
-	syslog(LOG_WARNING, "Can't assign any IP address -> address space is full");
+	syslog(LOG_NOTICE, "Can't assign any IP address -> address space is full");
+
 	return false;
 }
 
@@ -1028,8 +1029,8 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				/* Create new binding */
 				a = alloc_assignment(0);
 				if (!a) {
-					syslog(LOG_ERR, "Failed to alloc assignment on interface %s",
-							iface->ifname);
+					syslog(LOG_WARNING, "Failed to alloc assignment on interface %s",
+							    iface->ifname);
 					return NULL;
 				}
 				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));

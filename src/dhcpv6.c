@@ -246,7 +246,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
-	syslog(LOG_NOTICE, "Got a DHCPv6-request on %s", iface->name);
+	syslog(LOG_DEBUG, "Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
 	struct __attribute__((packed)) {
@@ -452,7 +452,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len -
 				      (4 + opts_end - opts));
 
-	syslog(LOG_NOTICE, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
+	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }
@@ -487,7 +487,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	/* Relay DHCPv6 reply from server to client */
 	struct dhcpv6_relay_header *h = (void*)data;
 
-	syslog(LOG_NOTICE, "Got a DHCPv6-relay-reply");
+	syslog(LOG_DEBUG, "Got a DHCPv6-relay-reply");
 
 	if (len < sizeof(*h) || h->msg_type != DHCPV6_MSG_RELAY_REPL)
 		return;
@@ -557,7 +557,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 
 	struct iovec iov = {payload_data, payload_len};
 
-	syslog(LOG_NOTICE, "Sending a DHCPv6-reply on %s", iface->name);
+	syslog(LOG_DEBUG, "Sending a DHCPv6-reply on %s", iface->name);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
 }
@@ -608,7 +608,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	    h->msg_type == DHCPV6_MSG_ADVERTISE)
 		return; /* Invalid message types for client */
 
-	syslog(LOG_NOTICE, "Got a DHCPv6-request on %s", iface->name);
+	syslog(LOG_DEBUG, "Got a DHCPv6-request on %s", iface->name);
 
 	if (h->msg_type == DHCPV6_MSG_RELAY_FORW) { /* handle relay-forward */
 		if (h->hop_count >= DHCPV6_HOP_COUNT_LIMIT)
@@ -649,7 +649,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 			ip = NULL;
 		}
 
-		syslog(LOG_NOTICE, "Sending a DHCPv6-relay-forward on %s", c->name);
+		syslog(LOG_DEBUG, "Sending a DHCPv6-relay-forward on %s", c->name);
 
 		odhcpd_send(c->dhcpv6_event.uloop.fd, &s, iov, 2, c);
 	}

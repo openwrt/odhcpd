@@ -40,6 +40,7 @@
      (addrs)[(i)].prefix > 64)
 
 static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info *info);
+static void apply_lease(struct dhcp_assignment *a, bool add);
 static void set_border_assignment_size(struct interface *iface, struct dhcp_assignment *b);
 static void handle_addrlist_change(struct netevent_handler_info *info);
 static void start_reconf(struct dhcp_assignment *a);
@@ -205,6 +206,9 @@ static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 		ustream_free(&a->managed_sock.stream);
 		close(a->managed_sock.fd.fd);
 	}
+
+	if (a->flags & OAF_BOUND && a->length < 128)
+		apply_lease(a, false);
 
 	if (a->reconf_cnt)
 		stop_reconf(a);
@@ -1370,13 +1374,13 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					apply_lease(a, true);
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
-				if (!(a->flags & OAF_STATIC))
-					a->valid_until = now - 1;
-
-				if (a->flags & OAF_BOUND) {
+				if (a->flags & OAF_STATIC) {
 					apply_lease(a, false);
 					a->flags &= ~OAF_BOUND;
 				}
+				else
+					a->valid_until = now - 1;
+
 			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {
 				a->flags &= ~OAF_BOUND;
 

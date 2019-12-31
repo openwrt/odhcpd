@@ -415,7 +415,7 @@ void dhcpv6_ia_write_statefile(void)
 	}
 }
 
-static void __apply_lease(struct interface *iface, struct dhcp_assignment *a,
+static void __apply_lease(struct dhcp_assignment *a,
 		struct odhcpd_ipaddr *addrs, ssize_t addr_len, bool add)
 {
 	if (a->length > 64)
@@ -426,16 +426,17 @@ static void __apply_lease(struct interface *iface, struct dhcp_assignment *a,
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
-				iface->ifindex, &a->peer.sin6_addr, 1024, add);
+				a->iface->ifindex, &a->peer.sin6_addr, 1024, add);
 	}
 }
 
-static void apply_lease(struct interface *iface, struct dhcp_assignment *a, bool add)
+static void apply_lease(struct dhcp_assignment *a, bool add)
 {
+	struct interface *iface = a->iface;
 	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
 	ssize_t addrlen = (a->managed) ? a->managed_size : (ssize_t)iface->addr6_len;
 
-	__apply_lease(iface, a, addrs, addrlen, add);
+	__apply_lease(a, addrs, addrlen, add);
 }
 
 /* Set border assignment size based on the IPv6 address prefixes */
@@ -596,7 +597,7 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 				list_add_tail(&assign->head, &c->head);
 
 				if (assign->flags & OAF_BOUND)
-					apply_lease(iface, assign, true);
+					apply_lease(assign, true);
 
 				return true;
 			}
@@ -618,7 +619,7 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 			list_add_tail(&assign->head, &c->head);
 
 			if (assign->flags & OAF_BOUND)
-				apply_lease(iface, assign, true);
+				apply_lease(assign, true);
 
 			return true;
 		}
@@ -689,7 +690,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if (c != border && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
 				&& (c->flags & OAF_BOUND))
-			__apply_lease(iface, c, info->addrs_old.addrs,
+			__apply_lease(c, info->addrs_old.addrs,
 					info->addrs_old.len, false);
 	}
 
@@ -703,7 +704,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 		if (c->length < 128 && (c->assigned == 0 || c->assigned >= border->assigned) && c != border)
 			list_move(&c->head, &reassign);
 		else if (c != border && (c->flags & OAF_BOUND))
-			apply_lease(iface, c, true);
+			apply_lease(c, true);
 
 		if (c->accept_reconf && c->reconf_cnt == 0) {
 			struct dhcp_assignment *a;
@@ -1208,7 +1209,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 				/* Reset state */
 				if (a->flags & OAF_BOUND)
-					apply_lease(iface, a, false);
+					apply_lease(a, false);
 
 				stop_reconf(a);
 				break;
@@ -1348,7 +1349,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				a->accept_reconf = accept_reconf;
 				a->flags &= ~OAF_TENTATIVE;
 				a->flags |= OAF_BOUND;
-				apply_lease(iface, a, true);
+				apply_lease(a, true);
 			} else if (!assigned && a && a->managed_size == 0) {
 				/* Cleanup failed assignment */
 				free_assignment(a);
@@ -1366,14 +1367,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
 				if (a) {
 					a->flags |= OAF_BOUND;
-					apply_lease(iface, a, true);
+					apply_lease(a, true);
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
 				if (!(a->flags & OAF_STATIC))
 					a->valid_until = now - 1;
 
 				if (a->flags & OAF_BOUND) {
-					apply_lease(iface, a, false);
+					apply_lease(a, false);
 					a->flags &= ~OAF_BOUND;
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_DECLINE && a->length == 128) {

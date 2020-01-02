@@ -35,6 +35,8 @@ struct config config = {.legacy = false, .main_dhcpv4 = false,
 #define START_DEFAULT	100
 #define LIMIT_DEFAULT	150
 
+#define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
+
 enum {
 	IFACE_ATTR_INTERFACE,
 	IFACE_ATTR_IFNAME,

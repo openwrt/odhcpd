@@ -129,7 +129,8 @@ enum odhcpd_assignment_flags {
 	OAF_STATIC		= (1 << 2),
 	OAF_BROKEN_HOSTNAME	= (1 << 3),
 	OAF_DHCPV4		= (1 << 4),
-	OAF_DHCPV6		= (1 << 5),
+	OAF_DHCPV6_NA		= (1 << 5),
+	OAF_DHCPV6_PD		= (1 << 6),
 };
 
 struct config {

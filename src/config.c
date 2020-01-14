@@ -229,7 +229,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra = MODE_DISABLED;
 	iface->ndp = MODE_DISABLED;
 	iface->learn_routes = 1;
-	iface->dhcpv4_leasetime = 43200;
+	iface->dhcp_leasetime = 43200;
 	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
 	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
 	iface->dhcpv6_assignall = true;
@@ -547,7 +547,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (time < 0)
 			goto err;
 
-		iface->dhcpv4_leasetime = time;
+		iface->dhcp_leasetime = time;
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {

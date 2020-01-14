@@ -552,13 +552,13 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			preferred = TIME_LEFT(addr->preferred, now);
 
 			if (iface->ra_useleasetime &&
-					preferred > iface->dhcpv4_leasetime)
-				preferred = iface->dhcpv4_leasetime;
+			    preferred > iface->dhcp_leasetime)
+				preferred = iface->dhcp_leasetime;
 		}
 
 		valid = TIME_LEFT(addr->valid, now);
-		if (iface->ra_useleasetime && valid > iface->dhcpv4_leasetime)
-			valid = iface->dhcpv4_leasetime;
+		if (iface->ra_useleasetime && valid > iface->dhcp_leasetime)
+			valid = iface->dhcp_leasetime;
 
 		if (minvalid > valid)
 			minvalid = valid;

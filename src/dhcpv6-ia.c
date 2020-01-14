@@ -823,7 +823,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		if (a->leasetime)
 			leasetime = a->leasetime;
 		else
-			leasetime = iface->dhcpv4_leasetime;
+			leasetime = iface->dhcp_leasetime;
 
 		uint32_t pref = leasetime;
 		uint32_t valid = leasetime;
@@ -842,8 +842,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (prefix_pref != UINT32_MAX)
 				prefix_pref -= now;
 
+			if (prefix_pref > leasetime)
+				prefix_pref = leasetime;
+
 			if (prefix_valid != UINT32_MAX)
 				prefix_valid -= now;
+
+			if (prefix_valid > leasetime)
+				prefix_valid = leasetime;
 
 			if (a->flags & OAF_DHCPV6_PD) {
 				struct dhcpv6_ia_prefix o_ia_p = {

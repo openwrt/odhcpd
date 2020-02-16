@@ -1081,8 +1081,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				a->flags &= ~OAF_BOUND;
 
 				*incl_fr_opt = accept_fr_nonce;
-				if (!(a->flags & OAF_STATIC))
-					a->valid_until = now;
+				a->valid_until = now;
 			} else {
 				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
 					a->hostname = realloc(a->hostname, hostname_len + 1);
@@ -1113,8 +1112,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				} else
 					*incl_fr_opt = false;
 
-				if (!(a->flags & OAF_STATIC))
-					a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
+				a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
 			}
 		} else if (!assigned && a) {
 			/* Cleanup failed assignment */
@@ -1124,17 +1122,16 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 
 	} else if (msg == DHCPV4_MSG_RELEASE && a) {
 		a->flags &= ~OAF_BOUND;
-
-		if (!(a->flags & OAF_STATIC))
-			a->valid_until = now - 1;
+		a->valid_until = now - 1;
 
 	} else if (msg == DHCPV4_MSG_DECLINE && a) {
 		a->flags &= ~OAF_BOUND;
 
-		if (!(a->flags & OAF_STATIC)) {
+		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
 			memset(a->hwaddr, 0, sizeof(a->hwaddr));
 			a->valid_until = now + 3600; /* Block address for 1h */
-		}
+		} else
+			a->valid_until = now - 1;
 	}
 
 	dhcpv6_ia_write_statefile();

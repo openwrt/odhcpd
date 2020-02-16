@@ -529,7 +529,7 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 
 	if (first && c->managed_size == 0)
 		free_assignment(c);
-	else if (first && !(c->flags & OAF_STATIC))
+	else if (first)
 		c->valid_until = now + 150;
 }
 
@@ -540,8 +540,7 @@ static void managed_handle_pd_done(struct ustream *s)
 	struct ustream_fd *fd = container_of(s, struct ustream_fd, stream);
 	struct dhcp_assignment *c = container_of(fd, struct dhcp_assignment, managed_sock);
 
-	if (!(c->flags & OAF_STATIC))
-		c->valid_until = odhcpd_time() + 15;
+	c->valid_until = odhcpd_time() + 15;
 
 	c->managed_size = 0;
 
@@ -569,8 +568,7 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 			ustream_write_pending(&assign->managed_sock.stream);
 			assign->managed_size = -1;
 
-			if (!(assign->flags & OAF_STATIC))
-				assign->valid_until = odhcpd_time() + 15;
+			assign->valid_until = odhcpd_time() + 15;
 
 			list_add(&assign->head, &iface->ia_assignments);
 
@@ -1252,9 +1250,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 						a->length = reqlen;
 						a->peer = *addr;
 						a->assigned = is_na && l ? l->hostid : reqhint;
-						/* Set valid time to 0 for static lease indicating */
-						/* infinite lifetime otherwise current time        */
-						a->valid_until = l ? 0 : now;
+						a->valid_until =  now;
 						a->dhcp_free_cb = dhcpv6_ia_free_assignment;
 						a->iface = iface;
 						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);
@@ -1334,9 +1330,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				a->flags &= ~OAF_BOUND;
 				a->flags |= OAF_TENTATIVE;
 
-				if (!(a->flags & OAF_STATIC))
-					/* Keep tentative assignment around for 60 seconds */
-					a->valid_until = now + 60;
+				/* Keep tentative assignment around for 60 seconds */
+				a->valid_until = now + 60;
 
 			} else if (assigned &&
 				   ((hdr->msg_type == DHCPV6_MSG_SOLICIT && rapid_commit) ||
@@ -1378,20 +1373,15 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					apply_lease(a, true);
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
-				if (a->flags & OAF_STATIC) {
-					apply_lease(a, false);
-					a->flags &= ~OAF_BOUND;
-				}
-				else
-					a->valid_until = now - 1;
-
+				a->valid_until = now - 1;
 			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
 				a->flags &= ~OAF_BOUND;
 
-				if (!(a->flags & OAF_STATIC)) {
+				if (!(a->flags & OAF_STATIC) || a->lease->hostid != a->assigned) {
 					memset(a->clid_data, 0, a->clid_len);
 					a->valid_until = now + 3600; /* Block address for 1h */
-				}
+				} else
+					a->valid_until = now - 1;
 			}
 		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM) {
 			if (ia_addr_present && !dhcpv6_ia_on_link(ia, a, iface)) {

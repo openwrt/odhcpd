@@ -360,9 +360,24 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
 		handle_nested_message(data, len, &hdr, &opts, &opts_end, iov);
 
-	if (hdr->msg_type == DHCPV6_MSG_ADVERTISE || hdr->msg_type == DHCPV6_MSG_REPLY ||
-	    hdr->msg_type == DHCPV6_MSG_RELAY_REPL)
-		return;
+	switch (hdr->msg_type) {
+	case DHCPV6_MSG_SOLICIT:
+	case DHCPV6_MSG_REQUEST:
+	case DHCPV6_MSG_CONFIRM:
+	case DHCPV6_MSG_RENEW:
+	case DHCPV6_MSG_REBIND:
+	case DHCPV6_MSG_RELEASE:
+	case DHCPV6_MSG_DECLINE:
+	case DHCPV6_MSG_INFORMATION_REQUEST:
+	case DHCPV6_MSG_RELAY_FORW:
+		break; /* Valid message types for clients */
+	case DHCPV6_MSG_ADVERTISE:
+	case DHCPV6_MSG_REPLY:
+	case DHCPV6_MSG_RECONFIGURE:
+	case DHCPV6_MSG_RELAY_REPL:
+	default:
+		return; /* Invalid message types for clients */
+	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||

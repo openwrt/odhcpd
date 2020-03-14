@@ -234,7 +234,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		addr = addrs[i].addr.in6;
 		pref = addrs[i].preferred;
 		valid = addrs[i].valid;
-		if (prefix == 128) {
+		if (c->flags & OAF_DHCPV6_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 

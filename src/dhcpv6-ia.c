@@ -247,8 +247,14 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 
+		if (pref > (uint32_t)c->valid_until)
+			pref = c->valid_until;
+
 		if (pref != UINT32_MAX)
 			pref -= now;
+
+		if (valid > (uint32_t)c->valid_until)
+			valid = c->valid_until;
 
 		if (valid != UINT32_MAX)
 			valid -= now;

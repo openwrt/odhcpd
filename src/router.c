@@ -659,12 +659,22 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_SEARCH].iov_base = (char *)search;
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
 
+	/*
+	 * RFC7084 § 4.3 :
+	 *    L-3:   An IPv6 CE router MUST advertise itself as a router for the
+	 *           delegated prefix(es) (and ULA prefix if configured to provide
+	 *           ULA addressing) using the "Route Information Option" specified
+	 *           in Section 2.3 of [RFC4191].  This advertisement is
+	 *           independent of having or not having IPv6 connectivity on the
+	 *           WAN interface.
+	 */
+
 	for (ssize_t i = 0; i < addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
 		uint32_t valid;
 
-		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
+		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 				addr->dprefix, addr->valid, iface->name);

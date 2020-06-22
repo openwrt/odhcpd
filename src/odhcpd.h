@@ -44,6 +44,7 @@
 struct interface;
 struct nl_sock;
 extern struct vlist_tree leases;
+extern struct config config;
 
 struct odhcpd_event {
 	struct uloop_fd uloop;
@@ -138,7 +139,7 @@ struct config {
 	char *dhcp_cb;
 	char *dhcp_statefile;
 	int log_level;
-} config;
+};
 
 
 struct lease {

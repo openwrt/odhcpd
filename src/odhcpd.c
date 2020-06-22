@@ -43,8 +43,6 @@
 #include <libubox/uloop.h>
 #include "odhcpd.h"
 
-
-
 static int ioctl_sock = -1;
 static int urandom_fd = -1;
 

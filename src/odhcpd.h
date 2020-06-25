@@ -109,9 +109,6 @@ struct odhcpd_ipaddr {
 	uint32_t preferred;
 	uint32_t valid;
 
-	/* ipv6 only */
-	uint8_t dprefix;
-
 	/* ipv4 only */
 	struct in_addr broadcast;
 };

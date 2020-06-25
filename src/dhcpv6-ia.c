@@ -525,8 +525,6 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 			else
 				n->valid += now;
 
-			n->dprefix = 0;
-
 			++c->managed_size;
 		}
 

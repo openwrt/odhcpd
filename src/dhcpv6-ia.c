@@ -306,18 +306,24 @@ void dhcpv6_ia_write_statefile(void)
 	md5_begin(&ctxt.md5);
 
 	if (config.dhcp_statefile) {
+		unsigned tmp_statefile_strlen = strlen(config.dhcp_statefile) + strlen(".tmp") + 1;
+		char *tmp_statefile = alloca(tmp_statefile_strlen);
 		time_t now = odhcpd_time(), wall_time = time(NULL);
-		int fd = open(config.dhcp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+		int fd, ret;
 		char leasebuf[512];
 
+		snprintf(tmp_statefile, tmp_statefile_strlen, "%s.tmp", config.dhcp_statefile);
+
+		fd = open(tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
 		if (fd < 0)
 			return;
-		int ret;
+
 		ret = lockf(fd, F_LOCK, 0);
 		if (ret < 0) {
 			close(fd);
 			return;
 		}
+
 		if (ftruncate(fd, 0) < 0) {}
 
 		ctxt.fp = fdopen(fd, "w");
@@ -410,6 +416,8 @@ void dhcpv6_ia_write_statefile(void)
 		}
 
 		fclose(ctxt.fp);
+
+		rename(tmp_statefile, config.dhcp_statefile);
 	}
 
 	uint8_t newmd5[16];

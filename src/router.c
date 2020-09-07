@@ -732,7 +732,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	memset(&adv_interval, 0, sizeof(adv_interval));
 	adv_interval.nd_opt_adv_interval_type = ND_OPT_RTR_ADV_INTERVAL;
 	adv_interval.nd_opt_adv_interval_len = 1;
-	adv_interval.nd_opt_adv_interval_ival = htonl(maxival);
+	adv_interval.nd_opt_adv_interval_ival = htonl(maxival*1000);
 
 	iov[IOV_RA_ADV_INTERVAL].iov_base = (char *)&adv_interval;
 	iov[IOV_RA_ADV_INTERVAL].iov_len = adv_interval.nd_opt_adv_interval_len * 8;

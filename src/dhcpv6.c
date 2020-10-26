@@ -25,7 +25,9 @@
 
 #include "odhcpd.h"
 #include "dhcpv6.h"
-
+#ifdef DHCPV4_SUPPORT
+#include "dhcpv4.h"
+#endif
 
 static void relay_client_request(struct sockaddr_in6 *source,
 		const void *data, size_t len, struct interface *iface);
@@ -175,6 +177,7 @@ enum {
 	IOV_CERID,
 	IOV_DHCPV6_RAW,
 	IOV_RELAY_MSG,
+	IOV_DHCPV4O6_SERVER,
 	IOV_TOTAL
 };
 
@@ -234,6 +237,66 @@ static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
 		}
 	}
 }
+
+#ifdef DHCPV4_SUPPORT
+
+struct dhcpv4_msg_data {
+	uint8_t *msg;
+	size_t maxsize;
+	ssize_t len;
+};
+
+static int send_reply(_unused const void *buf, size_t len,
+		      _unused const struct sockaddr *dest, _unused socklen_t dest_len,
+		      _unused void *opaque)
+{
+	struct dhcpv4_msg_data *reply = opaque;
+	if (len > reply->maxsize) {
+		syslog(LOG_ERR, "4o6: reply too large, %ld > %ld", len, reply->maxsize);
+		reply->len = -1;
+	} else {
+		memcpy(reply->msg, buf, len);
+		reply->len = len;
+	}
+	return reply->len;
+}
+
+static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
+				struct interface *iface,
+				const struct sockaddr_in6 *addr,
+				const void *data, const uint8_t *end)
+{
+	const struct dhcpv6_client_header *hdr = data;
+	uint16_t otype, olen, msgv4_len = 0;
+	uint8_t *msgv4_data = NULL;
+	uint8_t *start = (uint8_t *)&hdr[1], *odata;
+	struct sockaddr_in addrv4;
+
+	dhcpv6_for_each_option(start, end, otype, olen, odata) {
+		if (otype == DHCPV6_OPT_DHCPV4_MSG) {
+			msgv4_data = odata;
+			msgv4_len = olen;
+		}
+	}
+
+	if (!msgv4_data || msgv4_len == 0) {
+		syslog(LOG_ERR, "4o6: missing DHCPv4 message option (%d)", DHCPV6_OPT_DHCPV4_MSG);
+		return -1;
+	}
+
+	// Dummy IPv4 address
+	memset(&addrv4, 0, sizeof(addrv4));
+	addrv4.sin_family = AF_INET;
+	addrv4.sin_addr.s_addr = INADDR_ANY;
+	addrv4.sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	struct dhcpv4_msg_data reply = { buf, buflen, -1 };
+
+	dhcpv4_handle_msg(&addrv4, msgv4_data, msgv4_len,
+			  iface, NULL, send_reply, &reply);
+	return reply.len;
+}
+#endif	/* DHCPV4_SUPPORT */
 
 /* Simple DHCPv6-server for information requests */
 static void handle_client_request(void *addr, void *data, size_t len,
@@ -332,6 +395,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} search = {htons(DHCPV6_OPT_DNS_DOMAIN), htons(search_len)};
 
 
+	struct __attribute__((packed)) {
+		uint16_t type;
+		uint16_t len;
+	} dhcpv4o6_server = {htons(DHCPV6_OPT_4O6_SERVER), 0};
+
 	struct dhcpv6_cer_id cerid = {
 #ifdef EXT_CER_ID
 		.type = htons(EXT_CER_ID),
@@ -354,7 +422,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_PDBUF] = {pdbuf, 0},
 		[IOV_CERID] = {&cerid, 0},
 		[IOV_DHCPV6_RAW] = {iface->dhcpv6_raw, iface->dhcpv6_raw_len},
-		[IOV_RELAY_MSG] = {NULL, 0}
+		[IOV_RELAY_MSG] = {NULL, 0},
+		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
@@ -370,11 +439,18 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	case DHCPV6_MSG_DECLINE:
 	case DHCPV6_MSG_INFORMATION_REQUEST:
 	case DHCPV6_MSG_RELAY_FORW:
+#ifdef DHCPV4_SUPPORT
+	case DHCPV6_MSG_DHCPV4_QUERY:
+#endif
 		break; /* Valid message types for clients */
 	case DHCPV6_MSG_ADVERTISE:
 	case DHCPV6_MSG_REPLY:
 	case DHCPV6_MSG_RECONFIGURE:
 	case DHCPV6_MSG_RELAY_REPL:
+	case DHCPV6_MSG_DHCPV4_RESPONSE:
+#ifndef DHCPV4_SUPPORT
+	case DHCPV6_MSG_DHCPV4_QUERY:
+#endif
 	default:
 		return; /* Invalid message types for clients */
 	}
@@ -424,6 +500,21 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		} else if (otype == DHCPV6_OPT_RAPID_COMMIT && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
 			iov[IOV_RAPID_COMMIT].iov_len = sizeof(rapid_commit);
 			o_rapid_commit = true;
+		} else if (otype == DHCPV6_OPT_ORO) {
+			for (int i=0; i < olen/2; i++) {
+				uint16_t option = ntohs(((uint16_t *)odata)[i]);
+				switch (option) {
+#ifdef DHCPV4_SUPPORT
+				case DHCPV6_OPT_4O6_SERVER:
+					if (iface->dhcpv4) {
+						iov[IOV_DHCPV4O6_SERVER].iov_len = sizeof(dhcpv4o6_server);
+					}
+					break;
+#endif /* DHCPV4_SUPPORT */
+				default:
+					break;
+				}
+			}
 		}
 	}
 
@@ -450,6 +541,26 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		maxrt.type = htons(DHCPV6_OPT_INF_MAX_RT);
 	}
 
+#ifdef DHCPV4_SUPPORT
+	if (hdr->msg_type == DHCPV6_MSG_DHCPV4_QUERY) {
+		memset(pdbuf, 0, sizeof(pdbuf));
+		struct _packed dhcpv4_msg_data {
+			uint16_t type;
+			uint16_t len;
+			uint8_t msg[1];
+		} *msg_opt = (struct dhcpv4_msg_data*)pdbuf;
+
+		ssize_t msglen = dhcpv6_4o6_query(msg_opt->msg, sizeof(pdbuf)-sizeof(*msg_opt)+1, iface, addr, (const void*)hdr, opts_end);
+		if (msglen <= 0) {
+			syslog(LOG_ERR, "4o6: query failed");
+			return;
+		}
+		msg_opt->type = htons(DHCPV6_OPT_DHCPV4_MSG);
+		msg_opt->len = htons(msglen);
+		iov[IOV_PDBUF].iov_len = sizeof(*msg_opt) - 1 + msglen;
+		dest.msg_type = DHCPV6_MSG_DHCPV4_RESPONSE;
+	} else
+#endif	/* DHCPV4_SUPPORT */
 	if (hdr->msg_type != DHCPV6_MSG_INFORMATION_REQUEST) {
 		ssize_t ialen = dhcpv6_ia_handle_IAs(pdbuf, sizeof(pdbuf), iface, addr, (const void *)hdr, opts_end);
 
@@ -464,6 +575,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_RAPID_COMMIT].iov_len + iov[IOV_DNS].iov_len +
 				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
 				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
+				      iov[IOV_DHCPV4O6_SERVER].iov_len +
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len -
 				      (4 + opts_end - opts));
 

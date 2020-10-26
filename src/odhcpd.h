@@ -54,6 +54,10 @@ struct odhcpd_event {
 	void (*recv_msgs)(struct odhcpd_event *e);
 };
 
+typedef	int (*send_reply_cb_t)(const void *buf, size_t len,
+			       const struct sockaddr *dest, socklen_t dest_len,
+			       void *opaque);
+
 typedef void (*dhcpv6_binding_cb_handler_t)(struct in6_addr *addr, int prefix,
 					    uint32_t pref, uint32_t valid,
 					    void *arg);
@@ -411,6 +415,9 @@ int ndp_init(void);
 int dhcpv4_init(void);
 
 int dhcpv4_setup_interface(struct interface *iface, bool enable);
+void dhcpv4_handle_msg(void *addr, void *data, size_t len,
+		       struct interface *iface, _unused void *dest_addr,
+		       send_reply_cb_t send_reply, void *opaque);
 #endif
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);

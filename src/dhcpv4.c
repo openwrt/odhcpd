@@ -588,9 +588,27 @@ static void dhcpv4_fr_stop(struct dhcp_assignment *a)
 	a->fr_timer.cb = NULL;
 }
 
+static int dhcpv4_send_reply(const void *buf, size_t len,
+			     const struct sockaddr *dest, socklen_t dest_len,
+			     void *opaque)
+{
+	int *sock = opaque;
+
+	return sendto(*sock, buf, len, MSG_DONTWAIT, dest, dest_len);
+}
+
 /* Handler for DHCPv4 messages */
 static void handle_dhcpv4(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr)
+{
+	int sock = iface->dhcpv4_event.uloop.fd;
+
+	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
+}
+
+void dhcpv4_handle_msg(void *addr, void *data, size_t len,
+		struct interface *iface, _unused void *dest_addr,
+	        send_reply_cb_t send_reply, void *opaque)
 {
 	struct dhcpv4_message *req = data;
 
@@ -878,8 +896,8 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 			syslog(LOG_ERR, "ioctl(SIOCSARP): %m");
 	}
 
-	if (sendto(sock, &reply, PACKET_SIZE(&reply, cookie), MSG_DONTWAIT,
-			(struct sockaddr*)&dest, sizeof(dest)) < 0)
+	if (send_reply(&reply, PACKET_SIZE(&reply, cookie),
+		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
 			dhcpv4_msg_to_string(msg),
 			dest.sin_addr.s_addr == INADDR_BROADCAST ?

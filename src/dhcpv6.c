@@ -397,10 +397,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} search = {htons(DHCPV6_OPT_DNS_DOMAIN), htons(search_len)};
 
 
-	struct __attribute__((packed)) {
+	struct __attribute__((packed)) dhcpv4o6_server {
 		uint16_t type;
 		uint16_t len;
-	} dhcpv4o6_server = {htons(DHCPV6_OPT_4O6_SERVER), 0};
+		struct in6_addr addr;
+	} dhcpv4o6_server = {htons(DHCPV6_OPT_4O6_SERVER), htons(sizeof(struct in6_addr)),
+			IN6ADDR_ANY_INIT};
 
 	struct dhcpv6_cer_id cerid = {
 #ifdef EXT_CER_ID
@@ -505,11 +507,28 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		} else if (otype == DHCPV6_OPT_ORO) {
 			for (int i=0; i < olen/2; i++) {
 				uint16_t option = ntohs(((uint16_t *)odata)[i]);
+
 				switch (option) {
 #ifdef DHCPV4_SUPPORT
 				case DHCPV6_OPT_4O6_SERVER:
-					if (iface->dhcpv4)
+					if (iface->dhcpv4) {
+						/* According to RFC 7341, 7.2. DHCP 4o6 Server Address Option Format:
+						 * This option may also carry no IPv6 addresses, which instructs the
+						 * client to use the All_DHCP_Relay_Agents_and_Servers multicast address
+						 * as the destination address.
+						 *
+						 * The ISC dhclient logs a missing IPv6 address as an error but seems to
+						 * work anyway:
+						 * dhcp4-o-dhcp6-server: expecting at least 16 bytes; got 0
+						 *
+						 * Include the All_DHCP_Relay_Agents_and_Servers multicast address
+						 * to make it explicit which address to use. */
+						struct dhcpv4o6_server *server = iov[IOV_DHCPV4O6_SERVER].iov_base;
+
+						inet_pton(AF_INET6, ALL_DHCPV6_RELAYS, &server->addr);
+
 						iov[IOV_DHCPV4O6_SERVER].iov_len = sizeof(dhcpv4o6_server);
+					}
 					break;
 #endif /* DHCPV4_SUPPORT */
 				default:

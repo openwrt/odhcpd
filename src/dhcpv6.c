@@ -253,7 +253,7 @@ static int send_reply(_unused const void *buf, size_t len,
 	struct dhcpv4_msg_data *reply = opaque;
 
 	if (len > reply->maxsize) {
-		syslog(LOG_ERR, "4o6: reply too large, %u > %u", len, reply->maxsize);
+		syslog(LOG_ERR, "4o6: reply too large, %zu > %zu", len, reply->maxsize);
 		reply->len = -1;
 	} else {
 		memcpy(reply->msg, buf, len);

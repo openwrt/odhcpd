@@ -53,6 +53,7 @@ enum {
 	IFACE_ATTR_NDP,
 	IFACE_ATTR_ROUTER,
 	IFACE_ATTR_DNS,
+	IFACE_ATTR_DNS_SERVICE,
 	IFACE_ATTR_DOMAIN,
 	IFACE_ATTR_FILTER_CLASS,
 	IFACE_ATTR_DHCPV4_FORCERECONF,
@@ -100,6 +101,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDP] = { .name = "ndp", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_ROUTER] = { .name = "router", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_FILTER_CLASS] = { .name = "filter_class", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
@@ -235,6 +237,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_na = true;
+	iface->dns_service = true;
 	iface->ra_flags = ND_RA_FLAG_OTHER;
 	iface->ra_slaac = true;
 	iface->ra_maxinterval = 600;
@@ -684,6 +687,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				goto err;
 		}
 	}
+
+	if ((c = tb[IFACE_ATTR_DNS_SERVICE]))
+		iface->dns_service = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DOMAIN])) {
 		struct blob_attr *cur;

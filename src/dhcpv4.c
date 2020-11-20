@@ -842,9 +842,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
 
 
-	if (iface->dhcpv4_dns_cnt == 0)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
-	else
+	if (iface->dhcpv4_dns_cnt == 0) {
+		if (iface->dns_service)
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
+	} else
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 

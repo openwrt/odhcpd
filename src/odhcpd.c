@@ -253,6 +253,9 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 	time_t now = odhcpd_time();
 	ssize_t m = -1;
 
+	if (!iface->dns_service)
+		return -1;
+
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		if (iface->addr6[i].valid <= (uint32_t)now)
 			continue;

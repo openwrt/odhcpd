@@ -159,6 +159,15 @@ struct lease {
 	char *hostname;
 };
 
+enum {
+	LEASE_ATTR_IP,
+	LEASE_ATTR_MAC,
+	LEASE_ATTR_DUID,
+	LEASE_ATTR_HOSTID,
+	LEASE_ATTR_LEASETIME,
+	LEASE_ATTR_NAME,
+	LEASE_ATTR_MAX
+};
 
 struct odhcpd_ref_ip;
 
@@ -375,6 +384,7 @@ struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len)
 struct lease *config_find_lease_by_mac(const uint8_t *mac);
 struct lease *config_find_lease_by_hostid(const uint32_t hostid);
 struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);
+int set_lease_from_blobmsg(struct blob_attr *ba);
 
 #ifdef WITH_UBUS
 int ubus_init(void);

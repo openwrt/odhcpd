@@ -144,17 +144,7 @@ const struct uci_blob_param_list interface_attr_list = {
 	.info = iface_attr_info,
 };
 
-enum {
-	LEASE_ATTR_IP,
-	LEASE_ATTR_MAC,
-	LEASE_ATTR_DUID,
-	LEASE_ATTR_HOSTID,
-	LEASE_ATTR_LEASETIME,
-	LEASE_ATTR_NAME,
-	LEASE_ATTR_MAX
-};
-
-static const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
+const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_STRING },
@@ -387,16 +377,15 @@ static void free_lease(struct lease *l)
 	free(l);
 }
 
-static int set_lease(struct uci_section *s)
+
+int set_lease_from_blobmsg(struct blob_attr *ba)
 {
 	struct blob_attr *tb[LEASE_ATTR_MAX], *c;
 	struct lease *l;
 	size_t duidlen = 0;
 	uint8_t *duid;
 
-	blob_buf_init(&b, 0);
-	uci_to_blob(&b, s, &lease_attr_list);
-	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
 	if ((c = tb[LEASE_ATTR_DUID]))
 		duidlen = (blobmsg_data_len(c) - 1) / 2;
@@ -458,6 +447,14 @@ err:
 		free_lease(l);
 
 	return -1;
+}
+
+static int set_lease_from_uci(struct uci_section *s)
+{
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &lease_attr_list);
+
+	return set_lease_from_blobmsg(b.head);
 }
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
@@ -1072,7 +1069,7 @@ void odhcpd_reload(void)
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
 			if (!strcmp(s->type, "host"))
-				set_lease(s);
+				set_lease_from_uci(s);
 		}
 	}
 

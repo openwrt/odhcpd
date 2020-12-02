@@ -174,10 +174,20 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	return 0;
 }
 
+static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		struct blob_attr *msg)
+{
+	if (!set_lease_from_blobmsg(msg))
+		return UBUS_STATUS_OK;
+
+	return UBUS_STATUS_INVALID_ARGUMENT;
+}
 
 static struct ubus_method main_object_methods[] = {
 	{.name = "ipv4leases", .handler = handle_dhcpv4_leases},
 	{.name = "ipv6leases", .handler = handle_dhcpv6_leases},
+	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
 };
 
 static struct ubus_object_type main_object_type =

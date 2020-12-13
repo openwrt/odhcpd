@@ -188,31 +188,6 @@ static const struct { const char *name; uint8_t flag; } ra_flags[] = {
 	{ .name = NULL, },
 };
 
-static int mkdir_p(char *dir, mode_t mask)
-{
-	char *l = strrchr(dir, '/');
-	int ret;
-
-	if (!l)
-		return 0;
-
-	*l = '\0';
-
-	if (mkdir_p(dir, mask))
-		return -1;
-
-	*l = '/';
-
-	ret = mkdir(dir, mask);
-	if (ret && errno == EEXIST)
-		return 0;
-
-	if (ret)
-		syslog(LOG_ERR, "mkdir(%s, %d) failed: %m\n", dir, mask);
-
-	return ret;
-}
-
 static void set_interface_defaults(struct interface *iface)
 {
 	iface->ignore = true;

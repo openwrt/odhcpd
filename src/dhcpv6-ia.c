@@ -734,10 +734,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	while (!list_empty(&reassign)) {
 		c = list_first_entry(&reassign, struct dhcp_assignment, head);
 		list_del_init(&c->head);
-		if (!assign_pd(iface, c)) {
-			c->assigned = 0;
-			list_add(&c->head, &iface->ia_assignments);
-		}
+		if (!assign_pd(iface, c))
+			free_assignment(c);
 	}
 
 	dhcpv6_ia_write_statefile();

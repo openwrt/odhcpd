@@ -949,7 +949,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 
 				for (size_t i = 0; i < addrlen; ++i) {
-					if (!valid_addr(&addrs[i], now))
+					if (!valid_addr(&addrs[i], now) ||
+					    !valid_prefix_length(a, addrs[i].prefix))
 						continue;
 
 					struct in6_addr addr = addrs[i].addr.in6;

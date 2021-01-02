@@ -247,6 +247,9 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 
+		if (pref > (uint32_t)c->preferred_until)
+			pref = c->preferred_until;
+
 		if (pref > (uint32_t)c->valid_until)
 			pref = c->valid_until;
 
@@ -827,14 +830,16 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 	}
 
 	if (a) {
-		uint32_t leasetime;
+		uint32_t leasetime, pref;
 
-		if (a->leasetime)
+		if (a->leasetime) {
 			leasetime = a->leasetime;
-		else
+			pref = a->leasetime;
+		} else {
 			leasetime = iface->dhcp_leasetime;
+			pref = iface->preferred_lifetime;
+		}
 
-		uint32_t pref = leasetime;
 		uint32_t valid = leasetime;
 
 		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
@@ -851,8 +856,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (prefix_pref != UINT32_MAX)
 				prefix_pref -= now;
 
-			if (prefix_pref > leasetime)
-				prefix_pref = leasetime;
+			if (prefix_pref > pref)
+				prefix_pref = pref;
 
 			if (prefix_valid != UINT32_MAX)
 				prefix_valid -= now;
@@ -917,6 +922,10 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		if (!INFINITE_VALID(a->valid_until))
 			/* UINT32_MAX is considered as infinite leasetime */
 			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+
+		if (!INFINITE_VALID(a->preferred_until))
+			/* UINT32_MAX is considered as infinite leasetime */
+			a->preferred_until = (pref == UINT32_MAX) ? 0 : pref + now;
 
 		o_ia.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
 		o_ia.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
@@ -1261,6 +1270,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 						a->peer = *addr;
 						a->assigned = is_na && l ? l->hostid : reqhint;
 						a->valid_until =  now;
+						a->preferred_until =  now;
 						a->dhcp_free_cb = dhcpv6_ia_free_assignment;
 						a->iface = iface;
 						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);

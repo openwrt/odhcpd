@@ -82,6 +82,7 @@ enum {
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
 	IFACE_ATTR_PREFIX_FILTER,
+	IFACE_ATTR_PREFERRED_LIFETIME,
 	IFACE_ATTR_MAX
 };
 
@@ -130,6 +131,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_PREFERRED_LIFETIME] = { .name = "preferred_lifetime", .type = BLOBMSG_TYPE_STRING },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
@@ -197,6 +199,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ndp = MODE_DISABLED;
 	iface->learn_routes = 1;
 	iface->dhcp_leasetime = 43200;
+	iface->preferred_lifetime = 43200;
 	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
 	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
 	iface->dhcpv6_assignall = true;
@@ -523,6 +526,14 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			goto err;
 
 		iface->dhcp_leasetime = time;
+	}
+
+	if ((c = tb[IFACE_ATTR_PREFERRED_LIFETIME])) {
+		double time = parse_leasetime(c);
+		if (time < 0)
+			goto err;
+
+		iface->preferred_lifetime = time;
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {

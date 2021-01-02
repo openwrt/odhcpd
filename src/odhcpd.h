@@ -182,6 +182,7 @@ struct dhcp_assignment {
 
 	struct sockaddr_in6 peer;
 	time_t valid_until;
+	time_t preferred_until;
 
 #define fr_timer	reconf_timer
 	struct uloop_timeout reconf_timer;
@@ -286,6 +287,7 @@ struct interface {
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
 	int ra_mtu;
+	uint32_t preferred_lifetime;
 
 	// DHCP
 	uint32_t dhcp_leasetime;

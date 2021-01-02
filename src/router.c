@@ -552,8 +552,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			preferred = TIME_LEFT(addr->preferred, now);
 
 			if (iface->ra_useleasetime &&
-			    preferred > iface->dhcp_leasetime)
-				preferred = iface->dhcp_leasetime;
+			    preferred > iface->preferred_lifetime)
+				preferred = iface->preferred_lifetime;
 		}
 
 		valid = TIME_LEFT(addr->valid, now);

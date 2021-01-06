@@ -518,9 +518,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue;
 		}
 
-		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
-				   iface->pio_filter_length) != 0 ||
-		    addr->prefix < iface->pio_filter_length) {
+		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
 			syslog(LOG_INFO, "Address %s filtered out as RA prefix on %s",
 			       inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			       iface->name);
@@ -682,9 +680,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue; /* Address not suitable */
 		}
 
-		if (odhcpd_bmemcmp(&addr->addr, &iface->pio_filter_addr,
-				iface->pio_filter_length) != 0 ||
-				addr->prefix < iface->pio_filter_length) {
+		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
 			syslog(LOG_INFO, "Address %s filtered out as RA route on %s",
 			       inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			       iface->name);

@@ -41,6 +41,11 @@
 
 #define IN6_IS_ADDR_ULA(a) (((a)->s6_addr32[0] & htonl(0xfe000000)) == htonl(0xfc000000))
 
+#define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
+							    &(iface)->pio_filter_addr, \
+							    (iface)->pio_filter_length) != 0 || \
+		                             (_addr)->prefix < (iface)->pio_filter_length)
+
 struct interface;
 struct nl_sock;
 extern struct vlist_tree leases;

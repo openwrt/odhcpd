@@ -231,9 +231,19 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		if (!valid_addr(&addrs[i], now))
 			continue;
 
+		/* Filter Out Prefixes */
+		if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
+			char addrbuf[INET6_ADDRSTRLEN];
+			syslog(LOG_INFO, "Address %s filtered out on %s",
+				inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
+				iface->name);
+			continue;
+		}
+
 		addr = addrs[i].addr.in6;
 		pref = addrs[i].preferred;
 		valid = addrs[i].valid;
+
 		if (c->flags & OAF_DHCPV6_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
@@ -443,7 +453,12 @@ static void __apply_lease(struct dhcp_assignment *a,
 		return;
 
 	for (ssize_t i = 0; i < addr_len; ++i) {
-		struct in6_addr prefix = addrs[i].addr.in6;
+		struct in6_addr prefix;
+
+		if (ADDR_MATCH_PIO_FILTER(&addrs[i], a->iface))
+			continue;
+
+		prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
@@ -467,10 +482,15 @@ static void set_border_assignment_size(struct interface *iface, struct dhcp_assi
 	int minprefix = -1;
 
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
-		if (iface->addr6[i].preferred > (uint32_t)now &&
-				iface->addr6[i].prefix < 64 &&
-				iface->addr6[i].prefix > minprefix)
-			minprefix = iface->addr6[i].prefix;
+		struct odhcpd_ipaddr *addr = &iface->addr6[i];
+
+		if (ADDR_MATCH_PIO_FILTER(addr, iface))
+			continue;
+
+		if (addr->preferred > (uint32_t)now &&
+		    addr->prefix < 64 &&
+		    addr->prefix > minprefix)
+			minprefix = addr->prefix;
 	}
 
 	if (minprefix > 32 && minprefix <= 64)
@@ -847,11 +867,22 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		size_t m = get_preferred_addr(addrs, addrlen);
 
 		for (size_t i = 0; i < addrlen; ++i) {
-			uint32_t prefix_pref = addrs[i].preferred;
-			uint32_t prefix_valid = addrs[i].valid;
+			uint32_t prefix_pref, prefix_valid;
 
 			if (!valid_addr(&addrs[i], now))
 				continue;
+
+			/* Filter Out Prefixes */
+			if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
+				char addrbuf[INET6_ADDRSTRLEN];
+				syslog(LOG_INFO, "Address %s filtered out on %s",
+					inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
+					iface->name);
+				continue;
+			}
+
+			prefix_pref = addrs[i].preferred;
+			prefix_valid = addrs[i].valid;
 
 			if (prefix_pref != UINT32_MAX)
 				prefix_pref -= now;
@@ -955,11 +986,18 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 
 				for (size_t i = 0; i < addrlen; ++i) {
-					if (!valid_addr(&addrs[i], now) ||
-					    !valid_prefix_length(a, addrs[i].prefix))
+					struct in6_addr addr;
+
+					if (!valid_addr(&addrs[i], now))
 						continue;
 
-					struct in6_addr addr = addrs[i].addr.in6;
+					if (!valid_prefix_length(a, addrs[i].prefix))
+						continue;
+
+					if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
+						continue;
+
+					addr = addrs[i].addr.in6;
 					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
 						addr.s6_addr32[1] |= htonl(a->assigned);
 						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
@@ -1116,6 +1154,9 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assign
 		onlink = false;
 		for (size_t i = 0; i < addrlen; ++i) {
 			if (!valid_addr(&addrs[i], now))
+				continue;
+
+			if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
 				continue;
 
 			if (ia->type == htons(DHCPV6_OPT_IA_PD)) {

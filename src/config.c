@@ -440,6 +440,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	struct interface *iface;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
 	bool get_addrs = false;
+	int mode;
+	const char *ifname = NULL;
 
 	blobmsg_parse(iface_attrs, IFACE_ATTR_MAX, tb, data, len);
 
@@ -474,7 +476,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		get_addrs = overwrite = true;
 	}
 
-	const char *ifname = NULL;
 	if (overwrite) {
 		if ((c = tb[IFACE_ATTR_IFNAME]))
 			ifname = blobmsg_get_string(c);
@@ -522,18 +523,24 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_LEASETIME])) {
 		double time = parse_leasetime(c);
-		if (time < 0)
-			goto err;
 
-		iface->dhcp_leasetime = time;
+		if (time >= 0)
+			iface->dhcp_leasetime = time;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_LEASETIME].name, iface->name);
+
 	}
 
 	if ((c = tb[IFACE_ATTR_PREFERRED_LIFETIME])) {
 		double time = parse_leasetime(c);
-		if (time < 0)
-			goto err;
 
-		iface->preferred_lifetime = time;
+		if (time >= 0)
+			iface->preferred_lifetime = time;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_PREFERRED_LIFETIME].name, iface->name);
+
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {
@@ -570,7 +577,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	int mode;
 	if ((c = tb[IFACE_ATTR_RA])) {
 		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
 			iface->ra = mode;
@@ -578,7 +584,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->ra != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			goto err;
+			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
@@ -589,9 +596,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				if (iface->dhcpv4 != MODE_DISABLED)
 					iface->ignore = false;
 			}
-		}
-		else
-			goto err;
+		} else
+			syslog(LOG_ERR, "Invalid %s mode configured for interface %s",
+			       iface_attrs[IFACE_ATTR_DHCPV4].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6])) {
@@ -601,7 +608,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->dhcpv6 != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			goto err;
+			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_DHCPV6].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_NDP])) {
@@ -611,7 +619,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->ndp != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			goto err;
+			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_NDP].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_ROUTER])) {
@@ -619,10 +628,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
+			struct in_addr addr4;
+
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
 
-			struct in_addr addr4;
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
 				iface->dhcpv4_router = realloc(iface->dhcpv4_router,
 						(++iface->dhcpv4_router_cnt) * sizeof(*iface->dhcpv4_router));
@@ -631,7 +641,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dhcpv4_router[iface->dhcpv4_router_cnt - 1] = addr4;
 			} else
-				goto err;
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_ROUTER].name, iface->name);
 		}
 	}
 
@@ -641,14 +652,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->always_rewrite_dns = true;
 		blobmsg_for_each_attr(cur, c, rem) {
+			struct in_addr addr4;
+			struct in6_addr addr6;
+
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
 
-			struct in_addr addr4;
-			struct in6_addr addr6;
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
-				if (addr4.s_addr == INADDR_ANY)
-					goto err;
+				if (addr4.s_addr == INADDR_ANY) {
+					syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+					       iface_attrs[IFACE_ATTR_DNS].name, iface->name);
+
+					continue;
+				}
 
 				iface->dhcpv4_dns = realloc(iface->dhcpv4_dns,
 						(++iface->dhcpv4_dns_cnt) * sizeof(*iface->dhcpv4_dns));
@@ -657,8 +673,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dhcpv4_dns[iface->dhcpv4_dns_cnt - 1] = addr4;
 			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
-				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
-					goto err;
+				if (IN6_IS_ADDR_UNSPECIFIED(&addr6)) {
+					syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+					       iface_attrs[IFACE_ATTR_DNS].name, iface->name);
+
+					continue;
+				}
 
 				iface->dns = realloc(iface->dns,
 						(++iface->dns_cnt) * sizeof(*iface->dns));
@@ -667,7 +687,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dns[iface->dns_cnt - 1] = addr6;
 			} else
-				goto err;
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_DNS].name, iface->name);
 		}
 	}
 
@@ -679,18 +700,27 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
-			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
-				continue;
-
 			uint8_t buf[256];
 			char *domain = blobmsg_get_string(cur);
 			size_t domainlen = strlen(domain);
+			int len;
+
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
+				continue;
+
+			domain = blobmsg_get_string(cur);
+			domainlen = strlen(domain);
+
 			if (domainlen > 0 && domain[domainlen - 1] == '.')
 				domain[domainlen - 1] = 0;
 
-			int len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
-			if (len <= 0)
-				goto err;
+			len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
+			if (len <= 0) {
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_DOMAIN].name, iface->name);
+
+				continue;
+			}
 
 			iface->search = realloc(iface->search, iface->search_len + len);
 			if (!iface->search)
@@ -748,41 +778,49 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_FLAGS])) {
-		iface->ra_flags = 0;
 		if (parse_ra_flags(&iface->ra_flags, c) < 0)
-			goto err;
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_FLAGS].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);
-		if (ra_reachabletime > 3600000)
-			goto err;
 
-		iface->ra_reachabletime = ra_reachabletime;
+		if (ra_reachabletime <= 3600000)
+			iface->ra_reachabletime = ra_reachabletime;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {
 		uint32_t ra_retranstime = blobmsg_get_u32(c);
-		if (ra_retranstime > 60000)
-			goto err;
 
-		iface->ra_retranstime = ra_retranstime;
+		if (ra_retranstime <= 60000)
+			iface->ra_retranstime = ra_retranstime;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
 		uint32_t ra_hoplimit = blobmsg_get_u32(c);
-		if (ra_hoplimit > 255)
-			goto err;
 
-		iface->ra_hoplimit = ra_hoplimit;
+		if (ra_hoplimit <= 255)
+			iface->ra_hoplimit = ra_hoplimit;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
 		uint32_t ra_mtu = blobmsg_get_u32(c);
-		if (ra_mtu < 1280 || ra_mtu > 65535)
-			goto err;
 
-		iface->ra_mtu = ra_mtu;
+		if (ra_mtu >= 1280 || ra_mtu <= 65535)
+			iface->ra_mtu = ra_mtu;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_SLAAC]))
@@ -819,7 +857,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		else if (!strcmp(prio, "medium") || !strcmp(prio, "default"))
 			iface->route_preference = 0;
 		else
-			goto err;
+			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
@@ -828,7 +867,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_PD_CER]) &&
 			inet_pton(AF_INET6, blobmsg_get_string(c), &iface->dhcpv6_pd_cer) < 1)
-		goto err;
+		syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+		       iface_attrs[IFACE_ATTR_PD_CER].name, iface->name);
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);

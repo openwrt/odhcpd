@@ -136,7 +136,7 @@ ra_retranstime		integer	0			Retransmit Time in milliseconds to be
 							advertised in RA messages
 ra_hoplimit		integer	0			Current hoplimit to be advertised
 							in RA messages
-ra_mtu			integer 0			MTU to be advertised in
+ra_mtu			integer -			MTU to be advertised in
 							RA messages
 ra_dns			bool	1			Announce DNS configuration in
 							RA messages (RFC8106)

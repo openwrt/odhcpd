@@ -778,6 +778,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_FLAGS])) {
+		iface->ra_flags = 0;
+
 		if (parse_ra_flags(&iface->ra_flags, c) < 0)
 			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
 			       iface_attrs[IFACE_ATTR_RA_FLAGS].name, iface->name);

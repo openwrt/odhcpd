@@ -156,7 +156,7 @@ struct lease {
 	struct vlist_node node;
 	struct list_head assignments;
 	uint32_t ipaddr;
-	uint32_t hostid;
+	uint64_t hostid;
 	struct ether_addr mac;
 	uint16_t duid_len;
 	uint8_t *duid;
@@ -199,7 +199,10 @@ struct dhcp_assignment {
 	struct odhcpd_ref_ip *fr_ip;
 
 	uint32_t addr;
-	uint32_t assigned;
+	union {
+		uint64_t assigned_host_id;
+		uint32_t assigned_subnet_id;
+	};
 	uint32_t iaid;
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
@@ -323,6 +326,7 @@ struct interface {
 	bool dhcpv6_assignall;
 	bool dhcpv6_pd;
 	bool dhcpv6_na;
+	uint32_t dhcpv6_hostid_len;
 
 	char *upstream;
 	size_t upstream_len;
@@ -390,7 +394,7 @@ bool odhcpd_valid_hostname(const char *name);
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len);
 struct lease *config_find_lease_by_mac(const uint8_t *mac);
-struct lease *config_find_lease_by_hostid(const uint32_t hostid);
+struct lease *config_find_lease_by_hostid(const uint64_t hostid);
 struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);
 int set_lease_from_blobmsg(struct blob_attr *ba);
 

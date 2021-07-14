@@ -248,12 +248,13 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			addr.s6_addr32[3] = htonl(c->assigned);
+			addr.s6_addr32[2] = htonl(c->assigned_host_id >> 32);
+			addr.s6_addr32[3] = htonl(c->assigned_host_id & UINT32_MAX);
 		} else {
 			if (!valid_prefix_length(c, addrs[i].prefix))
 				continue;
 
-			addr.s6_addr32[1] |= htonl(c->assigned);
+			addr.s6_addr32[1] |= htonl(c->assigned_subnet_id);
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 
@@ -362,15 +363,28 @@ void dhcpv6_ia_write_statefile(void)
 
 					odhcpd_hexlify(duidbuf, ctxt.c->clid_data, ctxt.c->clid_len);
 
-					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %"PRId64" %x %u ",
-								ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
-								(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-								(ctxt.c->hostname ? ctxt.c->hostname : "-"),
-								(ctxt.c->valid_until > now ?
-									(int64_t)(ctxt.c->valid_until - now + wall_time) :
-									(INFINITE_VALID(ctxt.c->valid_until) ? -1 : 0)),
-								ctxt.c->assigned, (unsigned)ctxt.c->length);
+					if (ctxt.c->flags & OAF_DHCPV6_NA)
+						/* iface DUID iaid hostname lifetime assigned_host_id length [addrs...] */
+						ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %"PRId64" %" PRIx64" %u ",
+									ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
+									(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+									(ctxt.c->hostname ? ctxt.c->hostname : "-"),
+									(ctxt.c->valid_until > now ?
+										(int64_t)(ctxt.c->valid_until - now + wall_time) :
+										(INFINITE_VALID(ctxt.c->valid_until) ? -1 : 0)),
+									ctxt.c->assigned_host_id,
+									(unsigned)ctxt.c->length);
+					else
+						/* iface DUID iaid hostname lifetime assigned_subnet_id length [addrs...] */
+						ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %"PRId64" %" PRIx32" %u ",
+									ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
+									(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+									(ctxt.c->hostname ? ctxt.c->hostname : "-"),
+									(ctxt.c->valid_until > now ?
+										(int64_t)(ctxt.c->valid_until - now + wall_time) :
+										(INFINITE_VALID(ctxt.c->valid_until) ? -1 : 0)),
+									ctxt.c->assigned_subnet_id,
+									(unsigned)ctxt.c->length);
 
 					if (INFINITE_VALID(ctxt.c->valid_until) || ctxt.c->valid_until > now)
 						dhcpv6_ia_enum_addrs(ctxt.iface, ctxt.c, now,
@@ -459,7 +473,7 @@ static void __apply_lease(struct dhcp_assignment *a,
 			continue;
 
 		prefix = addrs[i].addr.in6;
-		prefix.s6_addr32[1] |= htonl(a->assigned);
+		prefix.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
 		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
 				a->iface->ifindex, &a->peer.sin6_addr, 1024, add);
@@ -494,9 +508,9 @@ static void set_border_assignment_size(struct interface *iface, struct dhcp_assi
 	}
 
 	if (minprefix > 32 && minprefix <= 64)
-		b->assigned = 1U << (64 - minprefix);
+		b->assigned_subnet_id = 1U << (64 - minprefix);
 	else
-		b->assigned = 0;
+		b->assigned_subnet_id = 0;
 }
 
 /* More data was received from TCP connection */
@@ -627,12 +641,12 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 
 	/* Try honoring the hint first */
 	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
-	if (assign->assigned) {
+	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->flags & OAF_DHCPV6_NA)
 				continue;
 
-			if (assign->assigned >= current && assign->assigned + asize < c->assigned) {
+			if (assign->assigned_subnet_id >= current && assign->assigned_subnet_id + asize < c->assigned_subnet_id) {
 				list_add_tail(&assign->head, &c->head);
 
 				if (assign->flags & OAF_BOUND)
@@ -641,7 +655,7 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 				return true;
 			}
 
-			current = (c->assigned + (1 << (64 - c->length)));
+			current = (c->assigned_subnet_id + (1 << (64 - c->length)));
 		}
 	}
 
@@ -653,8 +667,8 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 
 		current = (current + asize) & (~asize);
 
-		if (current + asize < c->assigned) {
-			assign->assigned = current;
+		if (current + asize < c->assigned_subnet_id) {
+			assign->assigned_subnet_id = current;
 			list_add_tail(&assign->head, &c->head);
 
 			if (assign->flags & OAF_BOUND)
@@ -663,8 +677,29 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 			return true;
 		}
 
-		current = (c->assigned + (1 << (64 - c->length)));
+		current = (c->assigned_subnet_id + (1 << (64 - c->length)));
 	}
+
+	return false;
+}
+
+/* Check iid against reserved IPv6 interface identifiers.
+   Refer to:
+     http://www.iana.org/assignments/ipv6-interface-ids */
+static bool is_reserved_ipv6_iid(uint64_t iid)
+{
+	if (iid == 0x0000000000000000)
+		/* Subnet-Router Anycast [RFC4291] */
+		return true;
+
+	if ((iid & 0xFFFFFFFFFF000000) == 0x02005EFFFE000000)
+		/* Reserved IPv6 Interface Identifiers corresponding
+		   to the IANA Ethernet Block [RFC4291] */
+		return true;
+
+	if ((iid & 0xFFFFFFFFFFFFFF80) == 0xFDFFFFFFFFFFFF80)
+		/* Reserved Subnet Anycast Addresses [RFC2526] */
+		return true;
 
 	return false;
 }
@@ -675,12 +710,12 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 	uint32_t seed = 0;
 
 	/* Preconfigured assignment by static lease */
-	if (a->assigned) {
+	if (a->assigned_host_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (c->assigned > a->assigned || !(c->flags & OAF_DHCPV6_NA)) {
+			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > a->assigned_host_id ) {
 				list_add_tail(&a->head, &c->head);
 				return true;
-			} else if (c->assigned == a->assigned)
+			} else if (c->assigned_host_id == a->assigned_host_id)
 				return false;
 		}
 	}
@@ -688,22 +723,46 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 	/* Seed RNG with checksum of DUID */
 	for (size_t i = 0; i < a->clid_len; ++i)
 		seed += a->clid_data[i];
-	srand(seed);
+	srandom(seed);
 
 	/* Try to assign up to 100x */
 	for (size_t i = 0; i < 100; ++i) {
-		uint32_t try;
-		do try = ((uint32_t)rand()) % 0x0fff; while (try < 0x100);
+		uint64_t try;
+
+		if (iface->dhcpv6_hostid_len > 32) {
+			uint32_t mask_high;
+
+			if (iface->dhcpv6_hostid_len >= 64)
+				mask_high = UINT32_MAX;
+			else
+				mask_high = (1 << (iface->dhcpv6_hostid_len - 32)) - 1;
+
+			do {
+				try = (uint32_t)random();
+				try |= (uint64_t)((uint32_t)random() & mask_high) << 32;
+			} while (try < 0x100);
+		} else {
+			uint32_t mask_low;
+
+			if (iface->dhcpv6_hostid_len == 32)
+				mask_low = UINT32_MAX;
+			else
+				mask_low = (1 << iface->dhcpv6_hostid_len) - 1;
+			do try = ((uint32_t)random()) & mask_low; while (try < 0x100);
+		}
+
+		if (is_reserved_ipv6_iid(try))
+			continue;
 
 		if (config_find_lease_by_hostid(try))
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (c->assigned > try || !(c->flags & OAF_DHCPV6_NA)) {
-				a->assigned = try;
+			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > try) {
+				a->assigned_host_id = try;
 				list_add_tail(&a->head, &c->head);
 				return true;
-			} else if (c->assigned == try)
+			} else if (c->assigned_host_id == try)
 				break;
 		}
 	}
@@ -735,7 +794,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 		    c->managed_size)
 			continue;
 
-		if (c->assigned >= border->assigned)
+		if (c->assigned_subnet_id >= border->assigned_subnet_id)
 			list_move(&c->head, &reassign);
 		else if (c->flags & OAF_BOUND)
 			apply_lease(c, true);
@@ -909,7 +968,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.addr = addrs[i].addr.in6,
 				};
 
-				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned);
+				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
 
 				if (!valid_prefix_length(a, addrs[i].prefix))
@@ -931,7 +990,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.valid = htonl(prefix_valid)
 				};
 
-				o_ia_a.addr.s6_addr32[3] = htonl(a->assigned);
+				o_ia_a.addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
+				o_ia_a.addr.s6_addr32[3] = htonl(a->assigned_host_id & UINT32_MAX);
 
 				if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 					continue;
@@ -1002,14 +1062,15 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 					addr = addrs[i].addr.in6;
 					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
-						addr.s6_addr32[1] |= htonl(a->assigned);
+						addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
 						if (!memcmp(&ia_p->addr, &addr, sizeof(addr)) &&
 								ia_p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
 							found = true;
 					} else {
-						addr.s6_addr32[3] = htonl(a->assigned);
+						addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
+						addr.s6_addr32[3] = htonl(a->assigned_host_id & UINT32_MAX);
 
 						if (!memcmp(&ia_a->addr, &addr, sizeof(addr)))
 							found = true;
@@ -1312,7 +1373,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 						a->iaid = ia->iaid;
 						a->length = reqlen;
 						a->peer = *addr;
-						a->assigned = is_na && l ? l->hostid : reqhint;
+						if (is_na)
+							a->assigned_host_id = l ? l->hostid : 0;
+						else
+							a->assigned_subnet_id = reqhint;
 						a->valid_until =  now;
 						a->preferred_until =  now;
 						a->dhcp_free_cb = dhcpv6_ia_free_assignment;
@@ -1441,7 +1505,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
 				a->flags &= ~OAF_BOUND;
 
-				if (!(a->flags & OAF_STATIC) || a->lease->hostid != a->assigned) {
+				if (!(a->flags & OAF_STATIC) || a->lease->hostid != a->assigned_host_id) {
 					memset(a->clid_data, 0, a->clid_len);
 					a->valid_until = now + 3600; /* Block address for 1h */
 				} else

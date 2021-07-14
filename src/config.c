@@ -35,6 +35,10 @@ struct config config = {.legacy = false, .main_dhcpv4 = false,
 #define START_DEFAULT	100
 #define LIMIT_DEFAULT	150
 
+#define HOSTID_LEN_MIN	12
+#define HOSTID_LEN_MAX	64
+#define HOSTID_LEN_DEFAULT HOSTID_LEN_MIN
+
 #define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
 
 enum {
@@ -61,6 +65,7 @@ enum {
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
 	IFACE_ATTR_DHCPV6_PD,
 	IFACE_ATTR_DHCPV6_NA,
+	IFACE_ATTR_DHCPV6_HOSTID_LEN,
 	IFACE_ATTR_RA_DEFAULT,
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_FLAGS,
@@ -110,6 +115,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_PD] = { .name = "dhcpv6_pd", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
@@ -205,6 +211,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_na = true;
+	iface->dhcpv6_hostid_len = HOSTID_LEN_DEFAULT;
 	iface->dns_service = true;
 	iface->ra_flags = ND_RA_FLAG_OTHER;
 	iface->ra_slaac = true;
@@ -400,7 +407,7 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 
 	if ((c = tb[LEASE_ATTR_HOSTID])) {
 		errno = 0;
-		l->hostid = strtoul(blobmsg_get_string(c), NULL, 16);
+		l->hostid = strtoull(blobmsg_get_string(c), NULL, 16);
 		if (errno)
 			goto err;
 	} else {
@@ -754,6 +761,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
 		iface->dhcpv6_na = blobmsg_get_bool(c);
 
+	if ((c = tb[IFACE_ATTR_DHCPV6_HOSTID_LEN])) {
+		uint32_t hostid_len = blobmsg_get_u32(c);
+
+		if (hostid_len >= HOSTID_LEN_MIN && hostid_len <= HOSTID_LEN_MAX)
+			iface->dhcpv6_hostid_len = hostid_len;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name);
+
+	}
+
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);
 
@@ -1039,7 +1057,7 @@ struct lease *config_find_lease_by_mac(const uint8_t *mac)
 	return NULL;
 }
 
-struct lease *config_find_lease_by_hostid(const uint32_t hostid)
+struct lease *config_find_lease_by_hostid(const uint64_t hostid)
 {
 	struct lease *l;
 

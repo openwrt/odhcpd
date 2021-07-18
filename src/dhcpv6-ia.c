@@ -896,6 +896,9 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (prefix_valid > leasetime)
 				prefix_valid = leasetime;
 
+			if (prefix_pref > prefix_valid)
+				prefix_pref = prefix_valid;
+
 			if (a->flags & OAF_DHCPV6_PD) {
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),

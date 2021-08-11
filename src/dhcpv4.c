@@ -758,7 +758,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 #ifdef WITH_UBUS
 	if (reqmsg == DHCPV4_MSG_RELEASE)
 		ubus_bcast_dhcp_event("dhcp.release", req->chaddr, req->hlen,
-					&req->ciaddr, hostname, iface->ifname);
+					&req->ciaddr, a ? a->hostname : NULL, iface->ifname);
 #endif
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
@@ -915,7 +915,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 #ifdef WITH_UBUS
 	if (msg == DHCPV4_MSG_ACK)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &reply.yiaddr,
-					hostname, iface->ifname);
+					a ? a->hostname : NULL, iface->ifname);
 #endif
 }
 

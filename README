@@ -147,6 +147,8 @@ ndproxy_slave		bool	0			NDProxy external slave
 prefix_filter		string	::/0			Only advertise on-link prefixes within
 			[IPv6 prefix]			the provided IPv6 prefix; others are
 							filtered out.
+ntp			list	<local address>		NTP servers to announce
+							accepts IPv4 and IPv6
 
 
 Sections of type host (static leases)

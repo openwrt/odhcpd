@@ -42,6 +42,11 @@
 #define ALL_IPV6_NODES "ff02::1"
 #define ALL_IPV6_ROUTERS "ff02::2"
 
+#define NTP_SUBOPTION_SRV_ADDR 1
+#define NTP_SUBOPTION_MC_ADDR 2
+#define NTP_SUBOPTION_SRV_FQDN 3
+#define IPV6_ADDR_LEN 16
+
 #define IN6_IS_ADDR_ULA(a) (((a)->s6_addr32[0] & htonl(0xfe000000)) == htonl(0xfc000000))
 
 #define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
@@ -342,6 +347,17 @@ struct interface {
 	size_t upstream_len;
 
 	char *filter_class;
+
+	// NTP
+	struct in_addr *dhcpv4_ntp;
+	size_t dhcpv4_ntp_cnt;
+	uint8_t *dhcpv6_ntp;
+	uint16_t dhcpv6_ntp_len;
+	size_t dhcpv6_ntp_cnt;
+
+	// SNTP
+	struct in6_addr *dhcpv6_sntp;
+	size_t dhcpv6_sntp_cnt;
 };
 
 extern struct avl_tree interfaces;

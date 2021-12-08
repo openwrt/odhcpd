@@ -176,6 +176,10 @@ enum {
 #define	IOV_REFRESH IOV_PDBUF
 	IOV_CERID,
 	IOV_DHCPV6_RAW,
+	IOV_NTP,
+	IOV_NTP_ADDR,
+	IOV_SNTP,
+	IOV_SNTP_ADDR,
 	IOV_RELAY_MSG,
 	IOV_DHCPV4O6_SERVER,
 	IOV_TOTAL
@@ -376,7 +380,50 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t len;
 	} dns = {htons(DHCPV6_OPT_DNS_SERVERS), htons(dns_cnt * sizeof(*dns_addr_ptr))};
 
+	/* SNTP */
+	struct in6_addr *sntp_addr_ptr = iface->dhcpv6_sntp;
+	size_t sntp_cnt = 0;
 
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} dhcpv6_sntp;
+
+	/* NTP */
+	uint8_t *ntp_ptr = iface->dhcpv6_ntp;
+	uint16_t ntp_len = iface->dhcpv6_ntp_len;
+	size_t ntp_cnt = 0;
+
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} ntp;
+
+	uint16_t otype, olen;
+	uint16_t *reqopts = NULL;
+	uint8_t *odata;
+	size_t reqopts_len = 0;
+
+	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
+		if (otype == DHCPV6_OPT_ORO) {
+			reqopts_len = olen;
+			reqopts = (uint16_t *)odata;
+		}
+	}
+
+	for(size_t opt = 0; opt < reqopts_len/2; opt++) {
+		if (iface->dhcpv6_sntp_cnt != 0 &&
+			DHCPV6_OPT_SNTP_SERVERS == ntohs(reqopts[opt])) {
+			sntp_cnt = iface->dhcpv6_sntp_cnt;
+			dhcpv6_sntp.type = htons(DHCPV6_OPT_SNTP_SERVERS);
+			dhcpv6_sntp.len = htons(sntp_cnt * sizeof(*sntp_addr_ptr));
+		} else if (iface->dhcpv6_ntp_cnt != 0 &&
+			DHCPV6_OPT_NTP_SERVERS == ntohs(reqopts[opt])) {
+			ntp_cnt = iface->dhcpv6_ntp_cnt;
+			ntp.type = htons(DHCPV6_OPT_NTP_SERVERS);
+			ntp.len = htons(ntp_len);
+		}
+	}
 
 	/* DNS Search options */
 	uint8_t search_buf[256], *search_domain = iface->search;
@@ -426,6 +473,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_PDBUF] = {pdbuf, 0},
 		[IOV_CERID] = {&cerid, 0},
 		[IOV_DHCPV6_RAW] = {iface->dhcpv6_raw, iface->dhcpv6_raw_len},
+		[IOV_NTP] = {&ntp, (ntp_cnt) ? sizeof(ntp) : 0},
+		[IOV_NTP_ADDR] = {ntp_ptr, (ntp_cnt) ? ntp_len : 0},
+		[IOV_SNTP] = {&dhcpv6_sntp, (sntp_cnt) ? sizeof(dhcpv6_sntp) : 0},
+		[IOV_SNTP_ADDR] = {sntp_addr_ptr, sntp_cnt * sizeof(*sntp_addr_ptr)},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 	};
@@ -467,8 +518,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	memcpy(dest.tr_id, hdr->transaction_id, sizeof(dest.tr_id));
 
 	/* Go through options and find what we need */
-	uint16_t otype, olen;
-	uint8_t *odata;
 	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID && olen <= 130) {
 			dest.clientid_length = htons(olen);
@@ -600,7 +649,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
 				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
 				      iov[IOV_DHCPV4O6_SERVER].iov_len +
-				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len -
+				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
+				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
+				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len -
 				      (4 + opts_end - opts));
 
 	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

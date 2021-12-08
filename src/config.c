@@ -88,6 +88,7 @@ enum {
 	IFACE_ATTR_NDPROXY_SLAVE,
 	IFACE_ATTR_PREFIX_FILTER,
 	IFACE_ATTR_PREFERRED_LIFETIME,
+	IFACE_ATTR_NTP,
 	IFACE_ATTR_MAX
 };
 
@@ -138,6 +139,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PREFERRED_LIFETIME] = { .name = "preferred_lifetime", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
@@ -230,6 +232,9 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
 	free(iface->filter_class);
+	free(iface->dhcpv4_ntp);
+	free(iface->dhcpv6_ntp);
+	free(iface->dhcpv6_sntp);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -440,6 +445,74 @@ static int set_lease_from_uci(struct uci_section *s)
 	uci_to_blob(&b, s, &lease_attr_list);
 
 	return set_lease_from_blobmsg(b.head);
+}
+
+/* Parse NTP Options for DHCPv6 Address */
+static int parse_ntp_options(uint16_t *dhcpv6_ntp_len, struct in6_addr addr6, uint8_t **dhcpv6_ntp)
+{
+	uint16_t sub_opt = 0, sub_len = htons(IPV6_ADDR_LEN);
+	uint16_t ntp_len = IPV6_ADDR_LEN + 4;
+	uint8_t *ntp = *dhcpv6_ntp;
+	size_t pos = *dhcpv6_ntp_len;
+
+	ntp = realloc(ntp, pos + ntp_len);
+	if (!ntp)
+		return -1;
+
+	*dhcpv6_ntp = ntp;
+
+	if (IN6_IS_ADDR_MULTICAST(&addr6))
+		sub_opt = htons(NTP_SUBOPTION_MC_ADDR);
+	else
+		sub_opt = htons(NTP_SUBOPTION_SRV_ADDR);
+
+	memcpy(ntp + pos, &sub_opt, sizeof(sub_opt));
+	pos += sizeof(sub_opt);
+	memcpy(ntp + pos, &sub_len, sizeof(sub_len));
+	pos += sizeof(sub_len);
+	memcpy(ntp + pos, &addr6, IPV6_ADDR_LEN);
+
+	*dhcpv6_ntp_len += ntp_len;
+
+	return 0;
+}
+
+/* Parse NTP Options for FQDN */
+static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6_ntp)
+{
+	size_t fqdn_len = strlen(fqdn);
+	uint16_t sub_opt = 0, sub_len = 0, ntp_len = 0;
+	uint8_t *ntp = *dhcpv6_ntp;
+	size_t pos = *dhcpv6_ntp_len;
+	uint8_t buf[256] = {0};
+
+	if (fqdn_len > 0 && fqdn[fqdn_len - 1] == '.')
+		fqdn[fqdn_len - 1] = 0;
+
+	int len = dn_comp(fqdn, buf, sizeof(buf), NULL, NULL);
+	if (len <= 0)
+		return -1;
+
+	ntp_len = len + 4;
+
+	ntp = realloc(ntp, pos + ntp_len);
+	if (!ntp)
+		return -1;
+
+	*dhcpv6_ntp = ntp;
+
+	sub_opt = htons(NTP_SUBOPTION_SRV_FQDN);
+	sub_len = htons(len);
+
+	memcpy(ntp + pos, &sub_opt, sizeof(sub_opt));
+	pos += sizeof(sub_opt);
+	memcpy(ntp + pos, &sub_len, sizeof(sub_len));
+	pos += sizeof(sub_len);
+	memcpy(ntp + pos, buf, len);
+
+	*dhcpv6_ntp_len += ntp_len;
+
+	return 0;
 }
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
@@ -912,6 +985,50 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		if (astr)
 			free(astr);
+	}
+
+	if (overwrite && (c = tb[IFACE_ATTR_NTP])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
+				continue;
+
+			char *str = blobmsg_get_string(cur);
+			struct in_addr addr4;
+			struct in6_addr addr6;
+
+			if (inet_pton(AF_INET, str, &addr4) == 1) {
+				if (addr4.s_addr == INADDR_ANY)
+					goto err;
+
+				iface->dhcpv4_ntp = realloc(iface->dhcpv4_ntp,
+						(++iface->dhcpv4_ntp_cnt) * sizeof(*iface->dhcpv4_ntp));
+				if (!iface->dhcpv4_ntp)
+					goto err;
+
+				iface->dhcpv4_ntp[iface->dhcpv4_ntp_cnt - 1] = addr4;
+			} else if (inet_pton(AF_INET6, str, &addr6) == 1) {
+				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
+					goto err;
+
+				iface->dhcpv6_sntp = realloc(iface->dhcpv6_sntp,
+						(++iface->dhcpv6_sntp_cnt) * sizeof(*iface->dhcpv6_sntp));
+				if (!iface->dhcpv6_sntp)
+					goto err;
+
+				iface->dhcpv6_sntp[iface->dhcpv6_sntp_cnt - 1] = addr6;
+
+				if (!parse_ntp_options(&iface->dhcpv6_ntp_len, addr6, &iface->dhcpv6_ntp)) {
+					iface->dhcpv6_ntp_cnt++;
+				}
+			} else {
+				if(!parse_ntp_fqdn(&iface->dhcpv6_ntp_len, str, &iface->dhcpv6_ntp)) {
+					iface->dhcpv6_ntp_cnt++;
+				}
+			}
+		}
 	}
 
 	return 0;

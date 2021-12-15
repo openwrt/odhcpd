@@ -248,6 +248,7 @@ static void close_interface(struct interface *iface)
 	clean_interface(iface);
 	free(iface->addr4);
 	free(iface->addr6);
+	free(iface->invalid_addr6);
 	free(iface->ifname);
 	free(iface);
 }

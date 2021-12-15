@@ -441,7 +441,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct iovec iov[IOV_RA_TOTAL];
 	struct sockaddr_in6 dest;
 	size_t dns_sz = 0, search_sz = 0, pfxs_cnt = 0, routes_cnt = 0;
-	ssize_t addr_cnt = 0;
+	ssize_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
 	uint32_t minvalid = UINT32_MAX, maxival, lifetime;
 	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
 	bool default_route = false;
@@ -485,33 +485,61 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_ADV].iov_base = (char *)&adv;
 	iov[IOV_RA_ADV].iov_len = sizeof(adv);
 
-	/* If not shutdown */
-	if (iface->timer_rs.cb) {
-		size_t size = sizeof(*addrs) * iface->addr6_len;
+	valid_addr_cnt = (iface->timer_rs.cb /* if not shutdown */ ? iface->addr6_len : 0);
+	invalid_addr_cnt = iface->invalid_addr6_len;
 
-		addrs = alloca(size);
-		memcpy(addrs, iface->addr6, size);
+	if (valid_addr_cnt + invalid_addr_cnt) {
+		addrs = alloca(sizeof(*addrs) * (valid_addr_cnt + invalid_addr_cnt));
 
-		addr_cnt = iface->addr6_len;
+		if (valid_addr_cnt) {
+			memcpy(addrs, iface->addr6, sizeof(*addrs) * valid_addr_cnt);
 
-		/* Check default route */
-		if (iface->default_router) {
-			default_route = true;
+			/* Check default route */
+			if (iface->default_router) {
+				default_route = true;
 
-			if (iface->default_router > 1)
-				valid_prefix = true;
-		} else if (parse_routes(addrs, addr_cnt))
-			default_route = true;
+				if (iface->default_router > 1)
+					valid_prefix = true;
+			} else if (parse_routes(addrs, valid_addr_cnt))
+				default_route = true;
+		}
+
+		if (invalid_addr_cnt) {
+			size_t i = 0;
+
+			memcpy(&addrs[valid_addr_cnt], iface->invalid_addr6, sizeof(*addrs) * invalid_addr_cnt);
+
+			/* Remove invalid prefixes that were advertised 3 times */
+			while (i < iface->invalid_addr6_len) {
+				if (++iface->invalid_addr6[i].invalid_advertisements >= 3) {
+					if (i + 1 < iface->invalid_addr6_len)
+						memmove(&iface->invalid_addr6[i], &iface->invalid_addr6[i + 1], sizeof(*addrs) * (iface->invalid_addr6_len - i - 1));
+
+					iface->invalid_addr6_len--;
+
+					if (iface->invalid_addr6_len) {
+						struct odhcpd_ipaddr *new_invalid_addr6 = realloc(iface->invalid_addr6, sizeof(*addrs) * iface->invalid_addr6_len);
+
+						if (new_invalid_addr6)
+							iface->invalid_addr6 = new_invalid_addr6;
+					} else {
+						free(iface->invalid_addr6);
+						iface->invalid_addr6 = NULL;
+					}
+				} else
+					++i;
+			}
+		}
 	}
 
 	/* Construct Prefix Information options */
-	for (ssize_t i = 0; i < addr_cnt; ++i) {
+	for (ssize_t i = 0; i < valid_addr_cnt + invalid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
 		uint32_t preferred = 0;
 		uint32_t valid = 0;
 
-		if (addr->prefix > 96 || addr->valid <= (uint32_t)now) {
+		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid <= (uint32_t)now)) {
 			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable as RA prefix on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
 				addr->valid, iface->name);
@@ -554,14 +582,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				preferred = iface->preferred_lifetime;
 		}
 
-		valid = TIME_LEFT(addr->valid, now);
-		if (iface->ra_useleasetime && valid > iface->dhcp_leasetime)
-			valid = iface->dhcp_leasetime;
+		if (addr->valid > (uint32_t)now) {
+			valid = TIME_LEFT(addr->valid, now);
+
+			if (iface->ra_useleasetime && valid > iface->dhcp_leasetime)
+				valid = iface->dhcp_leasetime;
+		}
 
 		if (minvalid > valid)
 			minvalid = valid;
 
-		if (!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router)
+		if ((!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router) && valid)
 			valid_prefix = true;
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
@@ -667,7 +698,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           WAN interface.
 	 */
 
-	for (ssize_t i = 0; i < addr_cnt; ++i) {
+	for (ssize_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
 		uint32_t valid;

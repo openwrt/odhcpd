@@ -26,6 +26,9 @@
 #include <libubox/ustream.h>
 #include <libubox/vlist.h>
 
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
 #define ND_OPT_RECURSIVE_DNS 25
@@ -118,11 +121,16 @@ struct odhcpd_ipaddr {
 	uint32_t preferred;
 	uint32_t valid;
 
-	/* ipv6 only */
-	uint8_t dprefix;
+	union {
+		/* ipv6 only */
+		struct {
+			uint8_t dprefix;
+			uint8_t invalid_advertisements;
+		};
 
-	/* ipv4 only */
-	struct in_addr broadcast;
+		/* ipv4 only */
+		struct in_addr broadcast;
+	};
 };
 
 enum odhcpd_mode {
@@ -232,6 +240,8 @@ struct interface {
 	// IPv6 runtime data
 	struct odhcpd_ipaddr *addr6;
 	size_t addr6_len;
+	struct odhcpd_ipaddr *invalid_addr6;
+	size_t invalid_addr6_len;
 
 	// RA runtime data
 	struct odhcpd_event router_event;

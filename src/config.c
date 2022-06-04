@@ -82,6 +82,7 @@ enum {
 	IFACE_ATTR_RA_HOPLIMIT,
 	IFACE_ATTR_RA_MTU,
 	IFACE_ATTR_RA_DNS,
+	IFACE_ATTR_RA_PREF64,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
@@ -135,6 +136,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_HOPLIMIT] = { .name = "ra_hoplimit", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MTU] = { .name = "ra_mtu", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_DNS] = { .name = "ra_dns", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_RA_PREF64] = { .name = "ra_pref64", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
@@ -957,6 +959,24 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_DNS]))
 		iface->ra_dns = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_RA_PREF64])) {
+		const char *str = blobmsg_get_string(c);
+		char *astr = malloc(strlen(str) + 1);
+		char *delim;
+		int l;
+
+		if (!astr || !strcpy(astr, str) ||
+				(delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
+				sscanf(delim, "%i", &l) == 0 || l > 128 ||
+				inet_pton(AF_INET6, astr, &iface->pref64_addr) == 0)
+			iface->pref64_length = 0;
+		else
+			iface->pref64_length = l;
+
+		if (astr)
+			free(astr);
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
 		const char *prio = blobmsg_get_string(c);

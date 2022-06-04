@@ -390,6 +390,7 @@ enum {
 	IOV_RA_ROUTES,
 	IOV_RA_DNS,
 	IOV_RA_SEARCH,
+	IOV_RA_PREF64,
 	IOV_RA_ADV_INTERVAL,
 	IOV_RA_TOTAL,
 };
@@ -427,6 +428,13 @@ struct nd_opt_route_info {
 	uint32_t addr[4];
 };
 
+struct nd_opt_pref64_info {
+	uint8_t type;
+	uint8_t len;
+	uint16_t lifetime_plc;
+	uint32_t addr[3];
+};
+
 /* Router Advert server mode */
 static int send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
@@ -437,10 +445,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct nd_opt_dns_server *dns = NULL;
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
+	struct nd_opt_pref64_info *pref64 = NULL;
 	struct nd_opt_adv_interval adv_interval;
 	struct iovec iov[IOV_RA_TOTAL];
 	struct sockaddr_in6 dest;
-	size_t dns_sz = 0, search_sz = 0, pfxs_cnt = 0, routes_cnt = 0;
+	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0;
+	size_t pfxs_cnt = 0, routes_cnt = 0;
 	ssize_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
 	uint32_t minvalid = UINT32_MAX, maxival, lifetime;
 	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
@@ -697,6 +707,65 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_DNS].iov_len = dns_sz;
 	iov[IOV_RA_SEARCH].iov_base = (char *)search;
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
+
+	if (iface->pref64_length) {
+		/* RFC 8781 § 4.1 rounding up lifetime to multiply of 8 */
+		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : UINT16_MAX;
+		uint8_t prefix_length_code;
+		uint32_t mask_a1, mask_a2;
+
+		switch (iface->pref64_length) {
+		case 96:
+			prefix_length_code = 0;
+			mask_a1 = 0xffffffff;
+			mask_a2 = 0xffffffff;
+			break;
+		case 64:
+			prefix_length_code = 1;
+			mask_a1 = 0xffffffff;
+			mask_a2 = 0x00000000;
+			break;
+		case 56:
+			prefix_length_code = 2;
+			mask_a1 = 0xffffff00;
+			mask_a2 = 0x00000000;
+			break;
+		case 48:
+			prefix_length_code = 3;
+			mask_a1 = 0xffff0000;
+			mask_a2 = 0x00000000;
+			break;
+		case 40:
+			prefix_length_code = 4;
+			mask_a1 = 0xff000000;
+			mask_a2 = 0x00000000;
+			break;
+		case 32:
+			prefix_length_code = 5;
+			mask_a1 = 0x00000000;
+			mask_a2 = 0x00000000;
+			break;
+		default:
+			syslog(LOG_WARNING, "Invalid PREF64 prefix size (%d), "
+					"ignoring ra_pref64 option!", iface->pref64_length);
+			goto pref64_out;
+			break;
+		}
+
+		pref64_sz = sizeof(*pref64);
+		pref64 = alloca(pref64_sz);
+		memset(pref64, 0, pref64_sz);
+		pref64->type = ND_OPT_PREF64;
+		pref64->len = 2;
+		pref64->lifetime_plc = htons((0xfff8 & pref64_lifetime) |
+						(0x7 & prefix_length_code));
+		pref64->addr[0] = iface->pref64_addr.s6_addr32[0];
+		pref64->addr[1] = iface->pref64_addr.s6_addr32[1] & htonl(mask_a1);
+		pref64->addr[2] = iface->pref64_addr.s6_addr32[2] & htonl(mask_a2);
+	}
+pref64_out:
+	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
+	iov[IOV_RA_PREF64].iov_len = pref64_sz;
 
 	/*
 	 * RFC7084 § 4.3 :

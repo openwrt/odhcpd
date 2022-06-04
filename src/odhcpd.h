@@ -34,6 +34,9 @@
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNS_SEARCH 31
 
+// RFC 8781 defines PREF64 option
+#define ND_OPT_PREF64 38
+
 #define INFINITE_VALID(x) ((x) == 0)
 
 #define _unused __attribute__((unused))
@@ -300,6 +303,8 @@ struct interface {
 	bool ra_advrouter;
 	bool ra_useleasetime;
 	bool ra_dns;
+	uint8_t pref64_length;
+	struct in6_addr pref64_addr;
 	bool no_dynamic_dhcp;
 	bool have_link_local;
 	uint8_t pio_filter_length;

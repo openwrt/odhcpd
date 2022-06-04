@@ -142,6 +142,8 @@ ra_mtu			integer -			MTU to be advertised in
 							RA messages
 ra_dns			bool	1			Announce DNS configuration in
 							RA messages (RFC8106)
+ra_pref64		string				Announce PREF64 option
+			[IPv6 prefix]			for NAT64 prefix (RFC8781)
 ndproxy_routing		bool	1			Learn routes from NDP
 ndproxy_slave		bool	0			NDProxy external slave
 prefix_filter		string	::/0			Only advertise on-link prefixes within

@@ -89,6 +89,8 @@ enum {
 	IFACE_ATTR_PREFIX_FILTER,
 	IFACE_ATTR_PREFERRED_LIFETIME,
 	IFACE_ATTR_NTP,
+	IFACE_ATTR_DHCPV4_VENDOR_INFO,
+	IFACE_ATTR_DHCPV6_VENDOR_INFO,
 	IFACE_ATTR_MAX
 };
 
@@ -140,6 +142,8 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PREFERRED_LIFETIME] = { .name = "preferred_lifetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DHCPV4_VENDOR_INFO] = { .name = "vendor_info", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_DHCPV6_VENDOR_INFO] = { .name = "vendor_info6", .type = BLOBMSG_TYPE_STRING },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
@@ -235,6 +239,8 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
 	free(iface->dhcpv6_sntp);
+	free(iface->dhcpv4_vi);
+	free(iface->dhcpv6_vi);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -512,6 +518,114 @@ static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6
 	memcpy(ntp + pos, buf, len);
 
 	*dhcpv6_ntp_len += ntp_len;
+
+	return 0;
+}
+
+/* Parse Vendor-Specific Information Options */
+static int parse_vi_options(char *str, struct interface *iface, bool isDhcpv6)
+{
+	size_t length = 0, data_len = 0, bytes = 1, pr = 0;
+	uint8_t subOptHdr[4];
+	uint32_t enterprise_id = 0;
+	uint8_t *vendor_buf = NULL;
+	char *opt_left, *opt = str;
+	uint8_t opt_len = 0;
+	int subOpt = 0;
+	bool hexStr = false;
+
+	/* Enterprise Number */
+	if (sscanf(opt, "%" SCNu32, &enterprise_id) != 1) {
+		syslog(LOG_ERR, "Unable to read Enterprise ID");
+		return -1;
+	}
+
+	enterprise_id = htonl(enterprise_id);
+
+	/* DHCPv6 - 2 bytes format */
+	if (isDhcpv6) {
+		data_len = sizeof(enterprise_id);
+		bytes = 2;
+	} else
+		data_len = sizeof(enterprise_id) + bytes;
+
+	vendor_buf = malloc(data_len);
+	if (!vendor_buf)
+		return -1;
+
+	memset(vendor_buf, 0, data_len);
+	memcpy(vendor_buf + pr, &enterprise_id, sizeof(enterprise_id));
+	pr += data_len;
+
+	opt_left = strchr(opt, ',');
+	while (opt_left) {
+		opt = opt_left + 1;
+		opt_left = strchr(opt, ',');
+
+		if (!opt_left || strlen(opt_left) == 0 || sscanf(opt, "%i", &subOpt) != 1) {
+			syslog(LOG_ERR, "Invalid Sub-Options Input Format");
+			free(vendor_buf);
+			return -1;
+		}
+
+		opt = opt_left + 1;
+		opt_left = strchr(opt, ',');
+
+		if (opt_left)
+			length = opt_left - opt;
+		else
+			length = strlen(opt);
+
+		/* Hex String Format */
+		if ((length % 2) == 0 && opt[0] == '0' && opt[1] == 'x') {
+			hexStr = true;
+			opt += 2;
+			length = (length - 2)/2;
+		}
+
+		if (length > (isDhcpv6 ? 0xFFFF : 0xFF)) {
+			syslog(LOG_ERR, "Sub-Option too long");
+			free(vendor_buf);
+			return -1;
+		}
+
+		vendor_buf = realloc(vendor_buf, (data_len + length + (bytes * 2)));
+		if (!vendor_buf)
+			return -1;
+
+		/* Sub-Option & Sub-Option Length */
+		if (isDhcpv6) {
+			subOptHdr[0] = (uint8_t)(subOpt >> 8);
+			subOptHdr[1] = (uint8_t)subOpt;
+			subOptHdr[2] = (uint8_t)(length >> 8);
+			subOptHdr[3] = (uint8_t)length;
+		} else {
+			subOptHdr[0] = subOpt;
+			subOptHdr[1] = length;
+		}
+
+		memcpy((vendor_buf + pr), &subOptHdr, bytes * 2);
+		pr += bytes * 2;
+
+		/* Sub-Option Data */
+		if (hexStr)
+			odhcpd_unhexlify((vendor_buf + pr), length, opt);
+		else
+			memcpy((vendor_buf + pr), opt, length);
+
+		pr += length;
+		data_len += length + (bytes * 2);
+	}
+
+	if(isDhcpv6) {
+		iface->dhcpv6_vi_len = data_len;
+		iface->dhcpv6_vi = vendor_buf;
+	} else {
+		opt_len = data_len - (sizeof(enterprise_id) + bytes);
+		memcpy(vendor_buf + sizeof(enterprise_id), &opt_len, bytes);
+		iface->dhcpv4_vi_len = data_len;
+		iface->dhcpv4_vi = vendor_buf;
+	}
 
 	return 0;
 }
@@ -1028,6 +1142,18 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					iface->dhcpv6_ntp_cnt++;
 			}
 		}
+	}
+
+	if (overwrite && (c = tb[IFACE_ATTR_DHCPV4_VENDOR_INFO])) {
+		char *str = blobmsg_get_string(c);
+		if (parse_vi_options(str, iface, false) < 0)
+			goto err;
+	}
+
+	if (overwrite && (c = tb[IFACE_ATTR_DHCPV6_VENDOR_INFO])) {
+		char *str = blobmsg_get_string(c);
+		if (parse_vi_options(str, iface, true) < 0)
+			goto err;
 	}
 
 	return 0;

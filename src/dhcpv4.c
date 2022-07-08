@@ -858,6 +858,11 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
+	if (iface->dhcpv4_vi != NULL) {
+		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_VENDOR_INFO,
+				iface->dhcpv4_vi_len, iface->dhcpv4_vi);
+	}
+
 	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_END, 0, NULL);
 
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);

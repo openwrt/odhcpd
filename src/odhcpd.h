@@ -358,6 +358,13 @@ struct interface {
 	// SNTP
 	struct in6_addr *dhcpv6_sntp;
 	size_t dhcpv6_sntp_cnt;
+
+	// Vendor Info
+	uint8_t dhcpv4_vi_len;
+	uint8_t *dhcpv4_vi;
+
+	uint16_t dhcpv6_vi_len;
+	uint8_t *dhcpv6_vi;
 };
 
 extern struct avl_tree interfaces;

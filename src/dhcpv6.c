@@ -180,6 +180,8 @@ enum {
 	IOV_NTP_ADDR,
 	IOV_SNTP,
 	IOV_SNTP_ADDR,
+	IOV_VENDOR,
+	IOV_VENDOR_PTR,
 	IOV_RELAY_MSG,
 	IOV_DHCPV4O6_SERVER,
 	IOV_TOTAL
@@ -399,6 +401,22 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t len;
 	} ntp;
 
+	/* Vendor-Specific Information */
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} ven_info = {0};
+
+	uint16_t vendor_len = 0;
+	uint8_t *vendor_ptr = NULL;
+
+	if (iface->dhcpv6_vi != NULL) {
+		ven_info.type = htons(DHCPV6_OPT_VENDOR_OPTS);
+		ven_info.len = htons(iface->dhcpv6_vi_len);
+		vendor_ptr = iface->dhcpv6_vi;
+		vendor_len = iface->dhcpv6_vi_len;
+	}
+
 	uint16_t otype, olen;
 	uint16_t *reqopts = NULL;
 	uint8_t *odata;
@@ -477,6 +495,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_NTP_ADDR] = {ntp_ptr, (ntp_cnt) ? ntp_len : 0},
 		[IOV_SNTP] = {&dhcpv6_sntp, (sntp_cnt) ? sizeof(dhcpv6_sntp) : 0},
 		[IOV_SNTP_ADDR] = {sntp_addr_ptr, sntp_cnt * sizeof(*sntp_addr_ptr)},
+		[IOV_VENDOR] = {&ven_info, (vendor_len) ? sizeof(ven_info) : 0},
+		[IOV_VENDOR_PTR] = {vendor_ptr, vendor_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 	};
@@ -651,7 +671,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DHCPV4O6_SERVER].iov_len +
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
 				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
-				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len -
+				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
+				      iov[IOV_VENDOR].iov_len + iov[IOV_VENDOR_PTR].iov_len -
 				      (4 + opts_end - opts));
 
 	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

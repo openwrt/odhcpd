@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <libgen.h>
 #include <stdbool.h>
 #include <arpa/inet.h>
 #include <sys/timerfd.h>
@@ -320,13 +321,29 @@ void dhcpv6_ia_write_statefile(void)
 	md5_begin(&ctxt.md5);
 
 	if (config.dhcp_statefile) {
-		unsigned tmp_statefile_strlen = strlen(config.dhcp_statefile) + strlen(".tmp") + 1;
+		unsigned statefile_strlen = strlen(config.dhcp_statefile) + 1;
+		unsigned tmp_statefile_strlen = statefile_strlen + 1; /* space for . */
 		char *tmp_statefile = alloca(tmp_statefile_strlen);
+
+		char *dir_statefile;
+		char *base_statefile;
+		char *pdir_statefile;
+		char *pbase_statefile;
+
 		time_t now = odhcpd_time(), wall_time = time(NULL);
 		int fd, ret;
 		char leasebuf[512];
 
-		snprintf(tmp_statefile, tmp_statefile_strlen, "%s.tmp", config.dhcp_statefile);
+		dir_statefile = strndup(config.dhcp_statefile, statefile_strlen);
+		base_statefile = strndup(config.dhcp_statefile, statefile_strlen);
+
+		pdir_statefile = dirname(dir_statefile);
+		pbase_statefile = basename(base_statefile);
+
+		snprintf(tmp_statefile, tmp_statefile_strlen, "%s/.%s", pdir_statefile, pbase_statefile);
+
+		free(dir_statefile);
+		free(base_statefile);
 
 		fd = open(tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
 		if (fd < 0)
@@ -437,18 +454,22 @@ void dhcpv6_ia_write_statefile(void)
 
 		fclose(ctxt.fp);
 
-		rename(tmp_statefile, config.dhcp_statefile);
-	}
+		uint8_t newmd5[16];
+		md5_end(newmd5, &ctxt.md5);
 
-	uint8_t newmd5[16];
-	md5_end(newmd5, &ctxt.md5);
+		if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
+			memcpy(statemd5, newmd5, sizeof(statemd5));
+			rename(tmp_statefile, config.dhcp_statefile);
 
-	if (config.dhcp_cb && memcmp(newmd5, statemd5, sizeof(newmd5))) {
-		memcpy(statemd5, newmd5, sizeof(statemd5));
-		char *argv[2] = {config.dhcp_cb, NULL};
-		if (!vfork()) {
-			execv(argv[0], argv);
-			_exit(128);
+			if (config.dhcp_cb) {
+				char *argv[2] = {config.dhcp_cb, NULL};
+				if (!vfork()) {
+					execv(argv[0], argv);
+					_exit(128);
+				}
+			}
+		} else {
+			unlink(tmp_statefile);
 		}
 	}
 }

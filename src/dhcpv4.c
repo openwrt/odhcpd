@@ -37,6 +37,7 @@
 
 #define PACKET_SIZE(start, end) (((uint8_t *)end - (uint8_t *)start) < DHCPV4_MIN_PACKET_SIZE ? \
 				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
+#define MAX_PREFIX_LEN 28
 
 static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static int setup_dhcpv4_addresses(struct interface *iface);
@@ -248,9 +249,9 @@ static int setup_dhcpv4_addresses(struct interface *iface)
 		}
 	}
 
-	/* Don't allocate IP range for subnets bigger than 28 */
-	if (iface->addr4[0].prefix > 28) {
-		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s", iface->name);
+	/* Don't allocate IP range for subnets smaller than /28 */
+	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
+		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s (prefix length must be < %d).", iface->name, MAX_PREFIX_LEN + 1);
 		return -1;
 	}
 

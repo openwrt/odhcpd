@@ -238,6 +238,7 @@ struct dhcp_assignment {
 struct interface {
 	struct avl_node avl;
 
+	int ifflags;
 	int ifindex;
 	char *ifname;
 	const char *name;
@@ -401,6 +402,7 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface,
 		struct in6_addr *addr);
 int odhcpd_get_interface_config(const char *ifname, const char *what);
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);
+int odhcpd_get_flags(const struct interface *iface);
 struct interface* odhcpd_get_interface_by_index(int ifindex);
 int odhcpd_urandom(void *data, size_t len);
 

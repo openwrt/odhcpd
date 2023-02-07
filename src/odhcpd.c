@@ -171,6 +171,18 @@ int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6])
 	return 0;
 }
 
+int odhcpd_get_flags(const struct interface *iface)
+{
+	struct ifreq ifr;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
+	if (ioctl(ioctl_sock, SIOCGIFFLAGS, &ifr) < 0)
+		return -1;
+
+	return ifr.ifr_flags;
+}
+
 
 /* Forwards a packet on a specific interface */
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,

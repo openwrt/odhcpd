@@ -582,6 +582,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (!iface->ifindex &&
 		    (iface->ifindex = if_nametoindex(iface->ifname)) <= 0)
 			goto err;
+
+		if ((iface->ifflags = odhcpd_get_flags(iface)) < 0)
+			goto err;
 	}
 
 	if (get_addrs) {

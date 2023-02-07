@@ -308,7 +308,12 @@ static int handle_rtm_link(struct nlmsghdr *hdr)
 	ifname = nla_get_string(nla[IFLA_IFNAME]);
 
 	avl_for_each_element(&interfaces, iface, avl) {
-		if (strcmp(iface->ifname, ifname) || iface->ifindex == ifi->ifi_index)
+		if (strcmp(iface->ifname, ifname))
+			continue;
+
+		iface->ifflags = ifi->ifi_flags;
+
+		if (iface->ifindex == ifi->ifi_index)
 			continue;
 
 		iface->ifindex = ifi->ifi_index;

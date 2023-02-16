@@ -618,16 +618,18 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	msecs = calc_adv_interval(iface, minvalid, &maxival);
 	lifetime = calc_ra_lifetime(iface, maxival);
 
-	if (default_route) {
-		if (!valid_prefix) {
-			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-					"on %s thus we don't announce a default route!", iface->name);
-			adv.h.nd_ra_router_lifetime = 0;
-		} else
-			adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
-
-	} else
+	if (default_route && valid_prefix) {
+		adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
+	} else {
 		adv.h.nd_ra_router_lifetime = 0;
+
+		if (default_route) {
+			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
+					    "on %s thus we don't announce a default route by overriding ra_lifetime!", iface->name);
+		} else {
+			syslog(LOG_WARNING, "No default route present, overriding ra_lifetime!");
+		}
+	}
 
 	syslog(LOG_DEBUG, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 

@@ -488,6 +488,14 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	valid_addr_cnt = (iface->timer_rs.cb /* if not shutdown */ ? iface->addr6_len : 0);
 	invalid_addr_cnt = iface->invalid_addr6_len;
 
+	// check ra_default
+	if (iface->default_router) {
+		default_route = true;
+
+		if (iface->default_router > 1)
+			valid_prefix = true;
+	}
+
 	if (valid_addr_cnt + invalid_addr_cnt) {
 		addrs = alloca(sizeof(*addrs) * (valid_addr_cnt + invalid_addr_cnt));
 
@@ -495,12 +503,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(addrs, iface->addr6, sizeof(*addrs) * valid_addr_cnt);
 
 			/* Check default route */
-			if (iface->default_router) {
-				default_route = true;
-
-				if (iface->default_router > 1)
-					valid_prefix = true;
-			} else if (parse_routes(addrs, valid_addr_cnt))
+			if (!default_route && parse_routes(addrs, valid_addr_cnt))
 				default_route = true;
 		}
 

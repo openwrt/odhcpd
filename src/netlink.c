@@ -386,7 +386,7 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 
 		nla_memcpy(&event_info.addr, nla[IFA_ADDRESS], sizeof(event_info.addr));
 
-		if (IN6_IS_ADDR_LINKLOCAL(&event_info.addr) || IN6_IS_ADDR_MULTICAST(&event_info.addr))
+		if (IN6_IS_ADDR_MULTICAST(&event_info.addr))
 			return NL_SKIP;
 
 		inet_ntop(AF_INET6, &event_info.addr, buf, sizeof(buf));
@@ -394,6 +394,11 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 		avl_for_each_element(&interfaces, iface, avl) {
 			if (iface->ifindex != (int)ifa->ifa_index)
 				continue;
+
+			if (add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr)) {
+				iface->have_link_local = true;
+				return NL_SKIP;
+			}
 
 			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
 					buf, iface->name);
@@ -624,6 +629,10 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 
 	if (ifa->ifa_flags & IFA_F_DEPRECATED)
 		addrs[ctxt->ret].preferred = 0;
+
+	if (ifa->ifa_family == AF_INET6 &&
+	    ifa->ifa_flags & IFA_F_TENTATIVE)
+		addrs[ctxt->ret].tentative = true;
 
 	ctxt->ret++;
 	*(ctxt->addrs) = addrs;

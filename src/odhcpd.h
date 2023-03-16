@@ -131,6 +131,7 @@ struct odhcpd_ipaddr {
 		struct {
 			uint8_t dprefix;
 			uint8_t invalid_advertisements;
+			bool tentative;
 		};
 
 		/* ipv4 only */
@@ -300,6 +301,7 @@ struct interface {
 	bool ra_useleasetime;
 	bool ra_dns;
 	bool no_dynamic_dhcp;
+	bool have_link_local;
 	uint8_t pio_filter_length;
 	struct in6_addr pio_filter_addr;
 	int default_router;

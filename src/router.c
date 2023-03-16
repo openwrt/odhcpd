@@ -621,6 +621,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	msecs = calc_adv_interval(iface, minvalid, &maxival);
 	lifetime = calc_ra_lifetime(iface, maxival);
 
+	if (!iface->have_link_local) {
+		syslog(LOG_NOTICE, "Skip sending a RA on %s as no link local address is available", iface->name);
+		goto out;
+	}
+
 	if (default_route && valid_prefix) {
 		adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
 	} else {
@@ -782,6 +787,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0)
 		iface->ra_sent++;
 
+out:
 	free(pfxs);
 	free(routes);
 

@@ -475,5 +475,6 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 int ndp_setup_interface(struct interface *iface, bool enable);
+void reload_services(struct interface *iface);
 
 void odhcpd_reload(void);

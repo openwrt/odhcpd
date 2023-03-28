@@ -313,8 +313,15 @@ static int handle_rtm_link(struct nlmsghdr *hdr)
 
 		iface->ifflags = ifi->ifi_flags;
 
-		if (iface->ifindex == ifi->ifi_index)
+		/*
+		 * Assume for link event of the same index, that link changed
+		 * and reload services to enable or disable them based on the
+		 * RUNNING state of the interface.
+		 */
+		if (iface->ifindex == ifi->ifi_index) {
+			reload_services(iface);
 			continue;
+		}
 
 		iface->ifindex = ifi->ifi_index;
 		event_info.iface = iface;

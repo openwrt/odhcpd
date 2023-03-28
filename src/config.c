@@ -1209,6 +1209,27 @@ struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr)
 	return NULL;
 }
 
+void reload_services(struct interface *iface)
+{
+	if (iface->ifflags & IFF_RUNNING) {
+		syslog(LOG_DEBUG, "Enabling services with %s running", iface->ifname);
+		router_setup_interface(iface, iface->ra != MODE_DISABLED);
+		dhcpv6_setup_interface(iface, iface->dhcpv6 != MODE_DISABLED);
+		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
+#ifdef DHCPV4_SUPPORT
+		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
+#endif
+	} else {
+		syslog(LOG_DEBUG, "Disabling services with %s not running", iface->ifname);
+		router_setup_interface(iface, false);
+		dhcpv6_setup_interface(iface, false);
+		ndp_setup_interface(iface, false);
+#ifdef DHCPV4_SUPPORT
+		dhcpv4_setup_interface(iface, false);
+#endif
+	}
+}
+
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
@@ -1326,12 +1347,7 @@ void odhcpd_reload(void)
 				i->ndp = (master && master->ndp == MODE_RELAY) ?
 						MODE_RELAY : MODE_DISABLED;
 
-			router_setup_interface(i, i->ra != MODE_DISABLED);
-			dhcpv6_setup_interface(i, i->dhcpv6 != MODE_DISABLED);
-			ndp_setup_interface(i, i->ndp != MODE_DISABLED);
-#ifdef DHCPV4_SUPPORT
-			dhcpv4_setup_interface(i, i->dhcpv4 != MODE_DISABLED);
-#endif
+			reload_services(i);
 		} else
 			close_interface(i);
 	}

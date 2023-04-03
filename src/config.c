@@ -518,8 +518,10 @@ static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
+	struct odhcpd_ipaddr *addrs = NULL;
 	struct interface *iface;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
+	ssize_t addrs_len;
 	bool get_addrs = false;
 	int mode;
 	const char *ifname = NULL;
@@ -588,25 +590,28 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if (get_addrs) {
-		ssize_t len = netlink_get_interface_addrs(iface->ifindex,
+		addrs_len = netlink_get_interface_addrs(iface->ifindex,
 						true, &iface->addr6);
 
-		if (len > 0)
-			iface->addr6_len = len;
+		if (addrs_len > 0)
+			iface->addr6_len = addrs_len;
 
-		for (size_t i = 0; i < iface->addr6_len; i++) {
-			struct odhcpd_ipaddr *addr = &iface->addr6[i];
+		addrs_len = netlink_get_interface_addrs(iface->ifindex,
+						false, &iface->addr4);
+		if (addrs_len > 0)
+			iface->addr4_len = addrs_len;
+	}
+
+	addrs_len = netlink_get_interface_linklocal(iface->ifindex, &addrs);
+	if (addrs_len > 0) {
+		for (ssize_t i = 0; i < addrs_len; i++) {
+			struct odhcpd_ipaddr *addr = &addrs[i];
 
 			if (!addr->tentative) {
 				iface->have_link_local = true;
 				break;
 			}
 		}
-
-		len = netlink_get_interface_addrs(iface->ifindex,
-						false, &iface->addr4);
-		if (len > 0)
-			iface->addr4_len = len;
 	}
 
 	iface->inuse = true;

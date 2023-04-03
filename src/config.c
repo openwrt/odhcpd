@@ -594,19 +594,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (len > 0)
 			iface->addr6_len = len;
 
+		for (size_t i = 0; i < iface->addr6_len; i++) {
+			struct odhcpd_ipaddr *addr = &iface->addr6[i];
+
+			if (!addr->tentative) {
+				iface->have_link_local = true;
+				break;
+			}
+		}
+
 		len = netlink_get_interface_addrs(iface->ifindex,
 						false, &iface->addr4);
 		if (len > 0)
 			iface->addr4_len = len;
-	}
-
-	for (size_t i = 0; i < iface->addr6_len; i++) {
-		struct odhcpd_ipaddr *addr = &iface->addr6[i];
-
-		if (!addr->tentative) {
-			iface->have_link_local = true;
-			break;
-		}
 	}
 
 	iface->inuse = true;

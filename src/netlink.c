@@ -765,6 +765,145 @@ out:
 }
 
 
+static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
+	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	struct ifaddrmsg *ifa;
+	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
+	struct in6_addr addr;
+
+	if (hdr->nlmsg_type != RTM_NEWADDR)
+		return NL_SKIP;
+
+	ifa = NLMSG_DATA(hdr);
+	if (ifa->ifa_scope != RT_SCOPE_LINK ||
+			(ctxt->af != ifa->ifa_family) ||
+			(ctxt->ifindex && ifa->ifa_index != (unsigned)ctxt->ifindex))
+		return NL_SKIP;
+
+	nlmsg_parse(hdr, sizeof(*ifa), nla, __IFA_MAX - 1, NULL);
+
+	switch (ifa->ifa_family) {
+	case AF_INET6:
+		if (nla[IFA_ADDRESS])
+			nla_addr = nla[IFA_ADDRESS];
+		break;
+
+	default:
+		break;
+	}
+	if (!nla_addr)
+		return NL_SKIP;
+
+	nla_memcpy(&addr, nla_addr, sizeof(addr));
+
+	if (!IN6_IS_ADDR_LINKLOCAL(&addr))
+		return NL_SKIP;
+
+	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
+	if (!addrs)
+		return NL_SKIP;
+
+	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
+
+	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
+	if (!addrs)
+		return NL_SKIP;
+
+
+	memcpy(&addrs[ctxt->ret].addr, &addr, sizeof(addrs[ctxt->ret].addr));
+
+	if (ifa->ifa_flags & IFA_F_TENTATIVE)
+		addrs[ctxt->ret].tentative = true;
+
+	ctxt->ret++;
+	*(ctxt->addrs) = addrs;
+
+	return NL_OK;
+}
+
+
+static int cb_linklocal_finish(_unused struct nl_msg *msg, void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+
+	ctxt->pending = 0;
+
+	return NL_STOP;
+}
+
+
+static int cb_linklocal_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+		void *arg)
+{
+	struct addr_info *ctxt = (struct addr_info *)arg;
+
+	ctxt->pending = 0;
+	ctxt->ret = err->error;
+
+	return NL_STOP;
+}
+
+
+/* Detect a link local IPV6-address currently assigned to the given interface */
+ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **addrs)
+{
+	struct nl_msg *msg;
+	struct ifaddrmsg ifa = {
+		.ifa_family = AF_INET6,
+		.ifa_prefixlen = 0,
+		.ifa_flags = 0,
+		.ifa_scope = 0,
+		.ifa_index = ifindex, };
+	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
+	struct addr_info ctxt = {
+		.ifindex = ifindex,
+		.af = AF_INET6,
+		.addrs = addrs,
+		.ret = 0,
+		.pending = 1,
+	};
+
+	if (!cb) {
+		ctxt.ret = -1;
+		goto out;
+	}
+
+	msg = nlmsg_alloc_simple(RTM_GETADDR, NLM_F_REQUEST | NLM_F_DUMP);
+
+	if (!msg) {
+		ctxt.ret = - 1;
+		goto out;
+	}
+
+	nlmsg_append(msg, &ifa, sizeof(ifa), 0);
+
+	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_linklocal_valid, &ctxt);
+	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_linklocal_finish, &ctxt);
+	nl_cb_err(cb, NL_CB_CUSTOM, cb_linklocal_error, &ctxt);
+
+	ctxt.ret = nl_send_auto_complete(rtnl_socket, msg);
+	if (ctxt.ret < 0)
+		goto free;
+
+	ctxt.ret = 0;
+	while (ctxt.pending > 0)
+		nl_recvmsgs(rtnl_socket, cb);
+
+	if (ctxt.ret <= 0)
+		goto free;
+
+free:
+	nlmsg_free(msg);
+out:
+	nl_cb_put(cb);
+
+	return ctxt.ret;
+}
+
+
 struct neigh_info {
 	int ifindex;
 	int pending;

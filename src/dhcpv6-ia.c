@@ -53,6 +53,25 @@ static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
 
+static inline uint32_t mask_low_for_hostid(uint8_t dhcpv6_hostid_len)
+{
+	if (dhcpv6_hostid_len >= 32)
+		return UINT32_MAX;
+
+	return (1 << dhcpv6_hostid_len) - 1;
+}
+
+static inline uint32_t mask_high_for_hostid(uint8_t dhcpv6_hostid_len)
+{
+	if (dhcpv6_hostid_len >= 64)
+		return UINT32_MAX;
+
+	if (dhcpv6_hostid_len >= 32)
+		return (1 << (dhcpv6_hostid_len - 32)) - 1;
+
+	return 0;
+}
+
 int dhcpv6_ia_init(void)
 {
 	uloop_timeout_set(&valid_until_timeout, 1000);
@@ -223,6 +242,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
 	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
 	size_t m = get_preferred_addr(addrs, addrlen);
+	uint32_t mask_high, mask_low;
 
 	for (size_t i = 0; i < addrlen; ++i) {
 		struct in6_addr addr;
@@ -249,8 +269,16 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			addr.s6_addr32[2] = htonl(c->assigned_host_id >> 32);
-			addr.s6_addr32[3] = htonl(c->assigned_host_id & UINT32_MAX);
+			mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
+			mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
+			addr.s6_addr32[2] = htonl(
+				((c->assigned_host_id >> 32) & mask_high)
+				& (~mask_high & ntohl(addrs[i].addr.in6.s6_addr32[2]))
+			);
+			addr.s6_addr32[3] = htonl(
+				((c->assigned_host_id & UINT32_MAX) & mask_low)
+				& (~mask_low & ntohl(addrs[i].addr.in6.s6_addr32[3]))
+			);
 		} else {
 			if (!valid_prefix_length(c, addrs[i].prefix))
 				continue;
@@ -860,26 +888,21 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 		uint64_t try;
 
 		if (iface->dhcpv6_hostid_len > 32) {
-			uint32_t mask_high;
-
-			if (iface->dhcpv6_hostid_len >= 64)
-				mask_high = UINT32_MAX;
-			else
-				mask_high = (1 << (iface->dhcpv6_hostid_len - 32)) - 1;
+			uint32_t mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
 
 			do {
 				try = (uint32_t)random();
 				try |= (uint64_t)((uint32_t)random() & mask_high) << 32;
 			} while (try < 0x100);
-		} else {
-			uint32_t mask_low;
 
-			if (iface->dhcpv6_hostid_len == 32)
-				mask_low = UINT32_MAX;
-			else
-				mask_low = (1 << iface->dhcpv6_hostid_len) - 1;
+		} else {
+			uint32_t mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
 			do try = ((uint32_t)random()) & mask_low; while (try < 0x100);
 		}
+
+		/* If prefix is < 64 bits, we need to shift the interface ID to the left */
+		if (iface->addr6_len < 64)
+			try <<= (64 - iface->addr6_len);
 
 		if (is_reserved_ipv6_iid(try))
 			continue;

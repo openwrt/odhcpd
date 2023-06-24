@@ -1332,6 +1332,31 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			if (reqlen > 64)
 				reqlen = 64;
+
+			/*
+			 * A requesting router can include a desired prefix length for its
+			 * delegation.  The delegating router (us) is not required to honor
+			 * the hint (RFC3633, section 11.2, we MAY choose to use the
+			 * information in the option; RFC8168, section 3.2 has several SHOULDs
+			 * about desired choices for selecting a prefix to delegate).
+			 *
+			 * We support a policy setting to conserve prefix space, which purposely
+			 * assigns prefixes that might not match the requesting router's hint.
+			 *
+			 * If the minimum prefix length is set in this interface's
+			 * configuration, we use it as a floor for the requested (hinted)
+			 * prefix length.  This allows us to conserve prefix space so that
+			 * any single router can't grab too much of it.  Consider if we have
+			 * an interface with a /56 prefix.  A requesting router could ask for
+			 * a /58 and take 1/4 of our total address space.  But if we set a
+			 * minimum of /60, we can limit each requesting router to get only
+			 * 1/16 of our total address space.
+			 */
+			if (iface->dhcpv6_pd_min_len && reqlen < iface->dhcpv6_pd_min_len) {
+			    syslog(LOG_INFO, "clamping requested PD from %d to %d",
+				   reqlen, iface->dhcpv6_pd_min_len);
+			    reqlen = iface->dhcpv6_pd_min_len;
+			}
 		} else if (is_na) {
 			uint8_t *sdata;
 			uint16_t stype, slen;

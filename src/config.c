@@ -39,6 +39,8 @@ struct config config = {.legacy = false, .main_dhcpv4 = false,
 #define HOSTID_LEN_MAX	64
 #define HOSTID_LEN_DEFAULT HOSTID_LEN_MIN
 
+#define PD_MIN_LEN_MAX (64-2) // must delegate at least 2 bits of prefix
+
 #define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
 
 enum {
@@ -64,6 +66,7 @@ enum {
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
 	IFACE_ATTR_DHCPV6_PD,
+	IFACE_ATTR_DHCPV6_PD_MIN_LEN,
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_DHCPV6_HOSTID_LEN,
 	IFACE_ATTR_RA_DEFAULT,
@@ -116,6 +119,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_PD] = { .name = "dhcpv6_pd", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_DHCPV6_PD_MIN_LEN] = { .name = "dhcpv6_pd_min_len", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
@@ -214,6 +218,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
+	iface->dhcpv6_pd_min_len = 0;
 	iface->dhcpv6_na = true;
 	iface->dhcpv6_hostid_len = HOSTID_LEN_DEFAULT;
 	iface->dns_service = true;
@@ -850,6 +855,15 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_PD]))
 		iface->dhcpv6_pd = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_PD_MIN_LEN])) {
+		uint32_t pd_min_len = blobmsg_get_u32(c);
+		if (pd_min_len != 0 && pd_min_len <= PD_MIN_LEN_MAX)
+			iface->dhcpv6_pd_min_len = pd_min_len;
+		else
+			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+			       iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name);
+	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
 		iface->dhcpv6_na = blobmsg_get_bool(c);

@@ -101,6 +101,9 @@ dhcpv6_na		bool	1			DHCPv6 stateful addressing hands out IA_NA -
 								Internet Address - Network Address
 dhcpv6_pd		bool	1			DHCPv6 stateful addressing hands out IA_PD -
 								Internet Address - Prefix Delegation
+dhcpv6_pd_min_len	integer	-			Minimum prefix length to delegate with IA_PD
+							(value is adjusted if needed to be greater
+							than the interface prefix length).  Range [1,62]
 router			list    <local address>		Routers to announce
 							accepts IPv4 only
 dns			list	<local address>		DNS servers to announce

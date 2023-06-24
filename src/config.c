@@ -257,6 +257,9 @@ static void close_interface(struct interface *iface)
 	dhcpv4_setup_interface(iface, false);
 #endif
 
+	/* make sure timer is not on the timeouts list before freeing */
+	uloop_timeout_cancel(&iface->timer_rs);
+
 	clean_interface(iface);
 	free(iface->addr4);
 	free(iface->addr6);

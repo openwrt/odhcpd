@@ -120,7 +120,7 @@ static inline bool valid_prefix_length(const struct dhcp_assignment *a, const ui
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
 {
-	return (addr->prefix <= 96 && addr->preferred_lt > (uint32_t)now);
+	return (addr->prefix <= 96 && addr->valid_lt > (uint32_t)now && addr->preferred_lt > (uint32_t)now);
 }
 
 static size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen)
@@ -1039,17 +1039,27 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 	}
 
 	if (a) {
-		uint32_t leasetime, preferred_lt;
+		uint32_t leasetime;
 
 		if (a->leasetime) {
 			leasetime = a->leasetime;
-			preferred_lt = a->leasetime;
 		} else {
 			leasetime = iface->dhcp_leasetime;
-			preferred_lt = iface->preferred_lifetime;
 		}
 
-		uint32_t valid_lt = leasetime;
+		uint32_t floor_preferred_lifetime, floor_valid_lifetime; /* For calculating T1 / T2 */
+
+		if (iface->max_preferred_lifetime && iface->max_preferred_lifetime < leasetime) {
+			floor_preferred_lifetime = iface->max_preferred_lifetime;
+		} else {
+			floor_preferred_lifetime = leasetime;
+		}
+
+		if (iface->max_valid_lifetime && iface->max_valid_lifetime < leasetime) {
+			floor_valid_lifetime = iface->max_valid_lifetime;
+		} else {
+			floor_valid_lifetime = leasetime;
+		}
 
 		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
 		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
@@ -1073,14 +1083,19 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			prefix_preferred_lt = addrs[i].preferred_lt;
 			prefix_valid_lt = addrs[i].valid_lt;
 
-			if (prefix_preferred_lt != UINT32_MAX)
+			if (prefix_preferred_lt != UINT32_MAX) {
 				prefix_preferred_lt -= now;
 
-			if (prefix_preferred_lt > preferred_lt)
-				prefix_preferred_lt = preferred_lt;
+				if (iface->max_preferred_lifetime && prefix_preferred_lt > iface->max_preferred_lifetime)
+					prefix_preferred_lt = iface->max_preferred_lifetime;
+			}
 
-			if (prefix_valid_lt != UINT32_MAX)
+			if (prefix_valid_lt != UINT32_MAX) {
 				prefix_valid_lt -= now;
+
+				if (iface->max_valid_lifetime && prefix_valid_lt > iface->max_valid_lifetime)
+					prefix_valid_lt = iface->max_valid_lifetime;
+			}
 
 			if (prefix_valid_lt > leasetime)
 				prefix_valid_lt = leasetime;
@@ -1135,24 +1150,24 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 			/* Calculate T1 / T2 based on non-deprecated addresses */
 			if (prefix_preferred_lt > 0) {
-				if (prefix_preferred_lt < preferred_lt)
-					preferred_lt = prefix_preferred_lt;
+				if (floor_preferred_lifetime > prefix_preferred_lt)
+					floor_preferred_lifetime = prefix_preferred_lt;
 
-				if (prefix_valid_lt < valid_lt)
-					valid_lt = prefix_valid_lt;
+				if (floor_valid_lifetime > prefix_valid_lt)
+					floor_valid_lifetime = prefix_valid_lt;
 			}
 		}
 
 		if (!INFINITE_VALID(a->valid_until))
 			/* UINT32_MAX is RFC defined as infinite lease-time */
-			a->valid_until = (valid_lt == UINT32_MAX) ? 0 : valid_lt + now;
+			a->valid_until = (floor_valid_lifetime == UINT32_MAX) ? 0 : floor_valid_lifetime + now;
 
 		if (!INFINITE_VALID(a->preferred_until))
 			/* UINT32_MAX is RFC defined as infinite lease-time */
-			a->preferred_until = (preferred_lt == UINT32_MAX) ? 0 : preferred_lt + now;
+			a->preferred_until = (floor_preferred_lifetime == UINT32_MAX) ? 0 : floor_preferred_lifetime + now;
 
-		o_ia.t1 = htonl((preferred_lt == UINT32_MAX) ? preferred_lt : preferred_lt * 5 / 10);
-		o_ia.t2 = htonl((preferred_lt == UINT32_MAX) ? preferred_lt : preferred_lt * 8 / 10);
+		o_ia.t1 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_lifetime : floor_preferred_lifetime * 5 / 10);
+		o_ia.t2 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_lifetime : floor_preferred_lifetime * 8 / 10);
 
 		if (!o_ia.t1)
 			o_ia.t1 = htonl(1);

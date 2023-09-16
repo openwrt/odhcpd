@@ -342,13 +342,8 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 
 	*maxival = iface->ra_maxinterval;
 
-	/* 
-	 * rfc4861#section-6.2.1 : AdvDefaultLifetime Default: 3 * MaxRtrAdvInterval
-	 * therefore max interval shall be no greater than 1/3 of the lowest valid
-	 * lease time of all known prefixes.
-	 */
-	if (*maxival > lowest_found_lifetime/3)
-		*maxival = lowest_found_lifetime/3;
+	if (*maxival > lowest_found_lifetime)
+		*maxival = lowest_found_lifetime;
 
 	if (*maxival > MaxRtrAdvInterval)
 		*maxival = MaxRtrAdvInterval;
@@ -376,15 +371,16 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 
 static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 {
-	uint32_t lifetime = 3*maxival;
+	uint32_t lifetime = iface->max_preferred_lifetime;
 
 	if (iface->ra_lifetime >= 0) {
 		lifetime = iface->ra_lifetime;
-		if (lifetime > 0 && lifetime < maxival)
-			lifetime = maxival;
-		else if (lifetime > 9000)
-			lifetime = 9000;
 	}
+
+	if (lifetime > 0 && lifetime < maxival)
+		lifetime = maxival;
+	else if (lifetime > 9000)
+		lifetime = 9000;
 
 	return lifetime;
 }
@@ -470,10 +466,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	size_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
 	/* 
 	 * lowest_found_lifetime stores the lowest lifetime of all prefixes;
-	 * necessary to find shortest adv interval necessary
+	 * necessary to find longest adv interval necessary
 	 * for shortest lived prefix
 	 */
-	uint32_t lowest_found_lifetime = UINT32_MAX, maxival, lifetime;
+	uint32_t lowest_found_lifetime = UINT32_MAX, highest_found_lifetime = 0, maxival, ra_lifetime;
 	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
 	bool default_route = false;
 	bool valid_prefix = false;
@@ -611,17 +607,16 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
 
-			if (preferred_lt > iface->preferred_lifetime) {
-				/* set to possibly user mandated preferred_lt */
-				preferred_lt = iface->preferred_lifetime;
+			if (iface->max_preferred_lifetime && preferred_lt > iface->max_preferred_lifetime) {
+				preferred_lt = iface->max_preferred_lifetime;
 			}
 		}
 
 		if (addr->valid_lt > (uint32_t)now) {
 			valid_lt = TIME_LEFT(addr->valid_lt, now);
 
-			if (iface->ra_useleasetime && valid_lt > iface->dhcp_leasetime)
-				valid_lt = iface->dhcp_leasetime;
+			if (iface->max_valid_lifetime && valid_lt > iface->max_valid_lifetime)
+				valid_lt = iface->max_valid_lifetime;
 		}
 
 		if (preferred_lt > valid_lt) {
@@ -638,6 +633,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 		if ((!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router) && valid_lt)
 			valid_prefix = true;
+
+		if (!IN6_IS_ADDR_ULA(&addr->addr.in6) && valid_lt) {
+			if (highest_found_lifetime < valid_lt)
+				highest_found_lifetime = valid_lt;
+		}
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
 				(iface->ra_advrouter) ? 128 : addr->prefix);
@@ -660,7 +660,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	/* Calculate periodic transmit */
 	msecs = calc_adv_interval(iface, lowest_found_lifetime, &maxival);
-	lifetime = calc_ra_lifetime(iface, maxival);
+	ra_lifetime = calc_ra_lifetime(iface, maxival);
+	if (!highest_found_lifetime)
+		highest_found_lifetime = ra_lifetime;
 
 	if (!iface->have_link_local) {
 		syslog(LOG_NOTICE, "Skip sending a RA on %s as no link local address is available", iface->name);
@@ -668,15 +670,15 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 	if (default_route && valid_prefix) {
-		adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
+		adv.h.nd_ra_router_lifetime = htons(ra_lifetime < UINT16_MAX ? ra_lifetime : UINT16_MAX);
 	} else {
 		adv.h.nd_ra_router_lifetime = 0;
 
 		if (default_route) {
 			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-						"on %s thus we announce no default route by overriding ra_lifetime to 0!", iface->name);
+						"on %s thus we announce no default route by setting ra_lifetime to 0!", iface->name);
 		} else {
-			syslog(LOG_WARNING, "No default route present, overriding ra_lifetime to 0!");
+			syslog(LOG_WARNING, "No default route present, setting ra_lifetime to 0!");
 		}
 	}
 
@@ -705,7 +707,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memset(dns, 0, dns_sz);
 			dns->type = ND_OPT_RECURSIVE_DNS;
 			dns->len = 1 + (2 * dns_cnt);
-			dns->lifetime = htonl(lifetime);
+			dns->lifetime = htonl(highest_found_lifetime);
 			memcpy(dns->addr, dns_addr, sizeof(struct in6_addr)*dns_cnt);
 		}
 
@@ -728,7 +730,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memset(search, 0, search_sz);
 			search->type = ND_OPT_DNS_SEARCH;
 			search->len = search_len ? ((sizeof(*search) + search_padded) / 8) : 0;
-			search->lifetime = htonl(lifetime);
+			search->lifetime = htonl(highest_found_lifetime);
 			memcpy(search->name, search_domain, search_len);
 			memset(&search->name[search_len], 0, search_padded - search_len);
 		}
@@ -741,7 +743,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	if (iface->pref64_length) {
 		/* RFC 8781 § 4.1 rounding up lifetime to multiple of 8 */
-		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : UINT16_MAX;
+		uint16_t pref64_lifetime = ra_lifetime < (UINT16_MAX - 7) ? ra_lifetime + 7 : (UINT16_MAX - 7);
 
 		pref64_sz = sizeof(*pref64);
 		pref64 = alloca(pref64_sz);
@@ -783,7 +785,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			if (iface->dnr[i].lifetime_set)
 				dnr->lifetime = htonl(iface->dnr[i].lifetime);
 			else
-				dnr->lifetime = htonl(lifetime);
+				dnr->lifetime = htonl(highest_found_lifetime);
 
 			dnr->adn_len = htons(iface->dnr[i].adn_len);
 			memcpy(tmp, iface->dnr[i].adn, iface->dnr[i].adn_len);
@@ -858,7 +860,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
 
 		valid_lt = TIME_LEFT(addr->valid_lt, now);
-		routes[routes_cnt].lifetime = htonl(valid_lt < lifetime ? valid_lt : lifetime);
+		if (iface->max_valid_lifetime && valid_lt > iface->max_valid_lifetime)
+			valid_lt = iface->max_valid_lifetime;
+		routes[routes_cnt].lifetime = htonl(valid_lt);
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
 		routes[routes_cnt].addr[2] = 0;

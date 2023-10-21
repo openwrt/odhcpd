@@ -64,6 +64,7 @@ maindhcp	bool	0			Use odhcpd as the main DHCPv4
 						service
 leasefile	string				DHCP/v6 lease/hostfile
 leasetrigger	string				Lease trigger script
+hostsfile	string				DHCP/v6 hostfile
 loglevel	integer 6			Syslog level priority (0-7)
 
 

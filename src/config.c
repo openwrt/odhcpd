@@ -29,7 +29,7 @@ static void lease_update(struct vlist_tree *tree, struct vlist_node *node_new,
 struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true, false);
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {.legacy = false, .main_dhcpv4 = false,
-			.dhcp_cb = NULL, .dhcp_statefile = NULL,
+			.dhcp_cb = NULL, .dhcp_statefile = NULL, .dhcp_hostsfile = NULL,
 			.log_level = LOG_WARNING};
 
 #define START_DEFAULT	100
@@ -180,6 +180,7 @@ enum {
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_LOGLEVEL,
+	ODHCPD_ATTR_HOSTSFILE,
 	ODHCPD_ATTR_MAX
 };
 
@@ -189,6 +190,7 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
+	[ODHCPD_ATTR_HOSTSFILE] = { .name = "hostsfile", .type = BLOBMSG_TYPE_STRING },
 };
 
 const struct uci_blob_param_list odhcpd_attr_list = {
@@ -324,6 +326,11 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_LEASEFILE])) {
 		free(config.dhcp_statefile);
 		config.dhcp_statefile = strdup(blobmsg_get_string(c));
+	}
+
+	if ((c = tb[ODHCPD_ATTR_HOSTSFILE])) {
+		free(config.dhcp_hostsfile);
+		config.dhcp_hostsfile = strdup(blobmsg_get_string(c));
 	}
 
 	if ((c = tb[ODHCPD_ATTR_LEASETRIGGER])) {

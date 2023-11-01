@@ -666,7 +666,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint8_t *search_domain = iface->search;
 		uint8_t search_buf[256];
 
-		/* DNS Recursive DNS */
+		/* DNS Recursive DNS aka RDNSS Type 25; RFC8106 */
 		if (iface->dns_cnt > 0) {
 			dns_addr = iface->dns;
 			dns_cnt = iface->dns_cnt;
@@ -686,7 +686,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(dns->addr, dns_addr, sizeof(struct in6_addr)*dns_cnt);
 		}
 
-		/* DNS Search options */
+		/* DNS Search options aka DNSSL Type 31; RFC8106 */
 		if (!search_domain && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
 			int len = dn_comp(_res.dnsrch[0], search_buf,
 					sizeof(search_buf), NULL, NULL);

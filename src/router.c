@@ -301,7 +301,7 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
 	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
-					.dprefix = 0, .preferred = 0, .valid = 0};
+					.dprefix = 0, .preferred_lt = 0, .valid = 0};
 	bool found_default = false;
 	char line[512], ifname[16];
 
@@ -549,7 +549,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	for (ssize_t i = 0; i < valid_addr_cnt + invalid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
-		uint32_t preferred = 0;
+		uint32_t preferred_lt = 0;
 		uint32_t valid = 0;
 
 		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid <= (uint32_t)now)) {
@@ -587,12 +587,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memset(p, 0, sizeof(*p));
 		}
 
-		if (addr->preferred > (uint32_t)now) {
-			preferred = TIME_LEFT(addr->preferred, now);
+		if (addr->preferred_lt > (uint32_t)now) {
+			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
 
 			if (iface->ra_useleasetime &&
-			    preferred > iface->preferred_lifetime)
-				preferred = iface->preferred_lifetime;
+			    preferred_lt > iface->preferred_lifetime)
+				preferred_lt = iface->preferred_lifetime;
 		}
 
 		if (addr->valid > (uint32_t)now) {
@@ -620,7 +620,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
-		p->nd_opt_pi_preferred_time = htonl(preferred);
+		p->nd_opt_pi_preferred_time = htonl(preferred_lt);
 		p->nd_opt_pi_valid_time = htonl(valid);
 	}
 

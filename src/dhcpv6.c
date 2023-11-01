@@ -773,7 +773,7 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 		if (iface->addr6[i].valid <= (uint32_t)now)
 			continue;
 
-		if (iface->addr6[i].preferred > (uint32_t)now) {
+		if (iface->addr6[i].preferred_lt > (uint32_t)now) {
 			addr = &iface->addr6[i];
 			break;
 		}

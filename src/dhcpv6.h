@@ -130,7 +130,7 @@ struct dhcpv6_ia_hdr {
 struct dhcpv6_ia_prefix {
 	uint16_t type;
 	uint16_t len;
-	uint32_t preferred;
+	uint32_t preferred_lt;
 	uint32_t valid;
 	uint8_t prefix;
 	struct in6_addr addr;
@@ -140,7 +140,7 @@ struct dhcpv6_ia_addr {
 	uint16_t type;
 	uint16_t len;
 	struct in6_addr addr;
-	uint32_t preferred;
+	uint32_t preferred_lt;
 	uint32_t valid;
 } _packed;
 

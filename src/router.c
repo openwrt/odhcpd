@@ -301,7 +301,7 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
 	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
-					.dprefix = 0, .preferred_lt = 0, .valid = 0};
+					.dprefix = 0, .preferred_lt = 0, .valid_lt = 0};
 	bool found_default = false;
 	char line[512], ifname[16];
 
@@ -550,12 +550,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
 		uint32_t preferred_lt = 0;
-		uint32_t valid = 0;
+		uint32_t valid_lt = 0;
 
-		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid <= (uint32_t)now)) {
-			syslog(LOG_INFO, "Address %s (prefix %d, valid %u) not suitable as RA prefix on %s",
+		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
+			syslog(LOG_INFO, "Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
-				addr->valid, iface->name);
+				addr->valid_lt, iface->name);
 			continue;
 		}
 
@@ -595,17 +595,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				preferred_lt = iface->preferred_lifetime;
 		}
 
-		if (addr->valid > (uint32_t)now) {
-			valid = TIME_LEFT(addr->valid, now);
+		if (addr->valid_lt > (uint32_t)now) {
+			valid_lt = TIME_LEFT(addr->valid_lt, now);
 
-			if (iface->ra_useleasetime && valid > iface->dhcp_leasetime)
-				valid = iface->dhcp_leasetime;
+			if (iface->ra_useleasetime && valid_lt > iface->dhcp_leasetime)
+				valid_lt = iface->dhcp_leasetime;
 		}
 
-		if (minvalid > valid)
-			minvalid = valid;
+		if (minvalid > valid_lt)
+			minvalid = valid_lt;
 
-		if ((!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router) && valid)
+		if ((!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router) && valid_lt)
 			valid_prefix = true;
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
@@ -621,7 +621,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (iface->ra_advrouter)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
 		p->nd_opt_pi_preferred_time = htonl(preferred_lt);
-		p->nd_opt_pi_valid_time = htonl(valid);
+		p->nd_opt_pi_valid_time = htonl(valid_lt);
 	}
 
 	iov[IOV_RA_PFXS].iov_base = (char *)pfxs;
@@ -780,12 +780,12 @@ pref64_out:
 	for (ssize_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
-		uint32_t valid;
+		uint32_t valid_lt;
 
-		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid <= (uint32_t)now) {
-			syslog(LOG_INFO, "Address %s (dprefix %d, valid %u) not suitable as RA route on %s",
+		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
+			syslog(LOG_INFO, "Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-				addr->dprefix, addr->valid, iface->name);
+				addr->dprefix, addr->valid_lt, iface->name);
 
 			continue; /* Address not suitable */
 		}
@@ -822,8 +822,8 @@ pref64_out:
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
 
-		valid = TIME_LEFT(addr->valid, now);
-		routes[routes_cnt].lifetime = htonl(valid < lifetime ? valid : lifetime);
+		valid_lt = TIME_LEFT(addr->valid_lt, now);
+		routes[routes_cnt].lifetime = htonl(valid_lt < lifetime ? valid_lt : lifetime);
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
 		routes[routes_cnt].addr[2] = 0;

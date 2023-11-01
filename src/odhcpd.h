@@ -127,7 +127,7 @@ struct odhcpd_ipaddr {
 	union if_addr addr;
 	uint8_t prefix;
 	uint32_t preferred_lt;
-	uint32_t valid;
+	uint32_t valid_lt;
 
 	union {
 		/* ipv6 only */

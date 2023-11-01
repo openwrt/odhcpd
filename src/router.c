@@ -603,6 +603,13 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				valid_lt = iface->dhcp_leasetime;
 		}
 
+		if (preferred_lt > valid_lt) {
+			/* RFC4861 § 6.2.1
+			This value [AdvPreferredLifetime] MUST NOT be larger than AdvValidLifetime.
+			*/
+			preferred_lt = valid_lt;
+		}
+
 		if (minvalid > valid_lt)
 			minvalid = valid_lt;
 

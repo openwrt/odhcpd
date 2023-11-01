@@ -590,9 +590,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
 
-			if (iface->ra_useleasetime &&
-			    preferred_lt > iface->preferred_lifetime)
+			if (preferred_lt > iface->preferred_lifetime) {
+				// set to possibly user mandated preferred_lt
 				preferred_lt = iface->preferred_lifetime;
+			}
 		}
 
 		if (addr->valid_lt > (uint32_t)now) {

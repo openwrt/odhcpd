@@ -709,7 +709,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
 
 	if (iface->pref64_length) {
-		/* RFC 8781 § 4.1 rounding up lifetime to multiply of 8 */
+		/* RFC 8781 § 4.1 rounding up lifetime to multiple of 8 */
 		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : UINT16_MAX;
 		uint8_t prefix_length_code;
 		uint32_t mask_a1, mask_a2;

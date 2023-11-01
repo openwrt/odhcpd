@@ -1142,11 +1142,11 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		}
 
 		if (!INFINITE_VALID(a->valid_until))
-			/* UINT32_MAX is considered as infinite leasetime */
+			/* UINT32_MAX is RFC defined as infinite lease-time */
 			a->valid_until = (valid_lt == UINT32_MAX) ? 0 : valid_lt + now;
 
 		if (!INFINITE_VALID(a->preferred_until))
-			/* UINT32_MAX is considered as infinite leasetime */
+			/* UINT32_MAX is RFC defined as infinite lease-time */
 			a->preferred_until = (preferred_lt == UINT32_MAX) ? 0 : preferred_lt + now;
 
 		o_ia.t1 = htonl((preferred_lt == UINT32_MAX) ? preferred_lt : preferred_lt * 5 / 10);
@@ -1570,7 +1570,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				/* Set error status */
 				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
 			else if (hdr->msg_type == DHCPV6_MSG_REQUEST && !dhcpv6_ia_on_link(ia, a, iface)) {
-				/* Send NOTONLINK staus for the IA */
+				/* Send NOTONLINK status for the IA */
 				status = DHCPV6_STATUS_NOTONLINK;
 				assigned = false;
 			} else if (accept_reconf && assigned && !first &&

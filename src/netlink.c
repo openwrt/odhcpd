@@ -213,7 +213,7 @@ static void refresh_iface_addr6(int ifindex)
 
 			if (change) {
 				/*
-				 * Keep track on removed prefixes, so we could advertise them as invalid
+				 * Keep track of removed prefixes, so we could advertise them as invalid
 				 * for at least a couple of times.
 				 *
 				 * RFC7084 § 4.3 :

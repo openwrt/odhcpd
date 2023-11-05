@@ -1149,8 +1149,11 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			/* UINT32_MAX is considered as infinite leasetime */
 			a->preferred_until = (pref == UINT32_MAX) ? 0 : pref + now;
 
-		o_ia.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
-		o_ia.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
+		/* if there's sufficient time left, subtract a pseudo random 127 seconds from the refresh timers */
+		o_ia.t1 = htonl((pref == UINT32_MAX) ? pref : (pref > 256) ?
+				pref * 5 / 10 - ((rand() >> 8) & 0x7f) : pref * 5 / 10);
+		o_ia.t2 = htonl((pref == UINT32_MAX) ? pref : (pref > 256) ?
+				pref * 8 / 10 - ((rand() >> 8) & 0x7f) : pref * 8 / 10);
 
 		if (!o_ia.t1)
 			o_ia.t1 = htonl(1);

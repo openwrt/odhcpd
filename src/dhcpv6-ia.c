@@ -721,8 +721,11 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			/* UINT32_MAX is RFC defined as infinite lease-time */
 			a->preferred_until = (floor_preferred_lifetime == UINT32_MAX) ? 0 : floor_preferred_lifetime + now;
 
-		o_ia.t1 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_lifetime : floor_preferred_lifetime * 5 / 10);
-		o_ia.t2 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_lifetime : floor_preferred_lifetime * 8 / 10);
+		/* if there's sufficient time left, subtract a pseudo random 127 seconds from the refresh timers */
+		o_ia.t1 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_liftime : (floor_preferred_liftime > 256) ?
+				floor_preferred_lifetime * 5 / 10 - ((rand() >> 8) & 0x7f) : floor_preferred_lifetime * 5 / 10);
+		o_ia.t2 = htonl((floor_preferred_lifetime == UINT32_MAX) ? floor_preferred_lifetime : (floor_preferred_lifetime > 256) ?
+				floor_preferred_lifetime * 8 / 10 - ((rand() >> 8) & 0x7f) : floor_preferred_lifetime * 8 / 10);
 
 		if (!o_ia.t1)
 			o_ia.t1 = htonl(1);

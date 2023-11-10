@@ -120,7 +120,7 @@ static inline bool valid_prefix_length(const struct dhcp_assignment *a, const ui
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
 {
-	return (addr->prefix <= 96 && addr->preferred > (uint32_t)now);
+	return (addr->prefix <= 96 && addr->preferred_lt > (uint32_t)now);
 }
 
 static size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen)
@@ -128,8 +128,8 @@ static size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t
 	size_t i, m;
 
 	for (i = 0, m = 0; i < addrlen; ++i) {
-		if (addrs[i].preferred > addrs[m].preferred ||
-				(addrs[i].preferred == addrs[m].preferred &&
+		if (addrs[i].preferred_lt > addrs[m].preferred_lt ||
+				(addrs[i].preferred_lt == addrs[m].preferred_lt &&
 				memcmp(&addrs[i].addr, &addrs[m].addr, 16) > 0))
 			m = i;
 	}
@@ -226,7 +226,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 
 	for (size_t i = 0; i < addrlen; ++i) {
 		struct in6_addr addr;
-		uint32_t pref, valid;
+		uint32_t preferred_lt, valid_lt;
 		int prefix = c->managed ? addrs[i].prefix : c->length;
 
 		if (!valid_addr(&addrs[i], now))
@@ -242,8 +242,8 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		}
 
 		addr = addrs[i].addr.in6;
-		pref = addrs[i].preferred;
-		valid = addrs[i].valid;
+		preferred_lt = addrs[i].preferred_lt;
+		valid_lt = addrs[i].valid_lt;
 
 		if (c->flags & OAF_DHCPV6_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
@@ -259,22 +259,22 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 
-		if (pref > (uint32_t)c->preferred_until)
-			pref = c->preferred_until;
+		if (preferred_lt > (uint32_t)c->preferred_until)
+			preferred_lt = c->preferred_until;
 
-		if (pref > (uint32_t)c->valid_until)
-			pref = c->valid_until;
+		if (preferred_lt > (uint32_t)c->valid_until)
+			preferred_lt = c->valid_until;
 
-		if (pref != UINT32_MAX)
-			pref -= now;
+		if (preferred_lt != UINT32_MAX)
+			preferred_lt -= now;
 
-		if (valid > (uint32_t)c->valid_until)
-			valid = c->valid_until;
+		if (valid_lt > (uint32_t)c->valid_until)
+			valid_lt = c->valid_until;
 
-		if (valid != UINT32_MAX)
-			valid -= now;
+		if (valid_lt != UINT32_MAX)
+			valid_lt -= now;
 
-		func(&addr, prefix, pref, valid, arg);
+		func(&addr, prefix, preferred_lt, valid_lt, arg);
 	}
 }
 
@@ -288,8 +288,8 @@ struct write_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_write_ia_addrhosts(struct in6_addr *addr, int prefix, _unused uint32_t pref,
-				_unused uint32_t valid, void *arg)
+static void dhcpv6_write_ia_addrhosts(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -308,8 +308,8 @@ static void dhcpv6_write_ia_addrhosts(struct in6_addr *addr, int prefix, _unused
 	}
 }
 
-static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref,
-				_unused uint32_t valid, void *arg)
+static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -629,7 +629,7 @@ static void set_border_assignment_size(struct interface *iface, struct dhcp_assi
 		if (ADDR_MATCH_PIO_FILTER(addr, iface))
 			continue;
 
-		if (addr->preferred > (uint32_t)now &&
+		if (addr->preferred_lt > (uint32_t)now &&
 		    addr->prefix < 64 &&
 		    addr->prefix > minprefix)
 			minprefix = addr->prefix;
@@ -678,25 +678,25 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 				continue;
 
 			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%u", &n->preferred) < 1)
+			if (sscanf(x, "%u", &n->preferred_lt) < 1)
 				continue;
 
 			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%u", &n->valid) < 1)
+			if (sscanf(x, "%u", &n->valid_lt) < 1)
 				continue;
 
-			if (n->preferred > n->valid)
+			if (n->preferred_lt > n->valid_lt)
 				continue;
 
-			if (UINT32_MAX - now < n->preferred)
-				n->preferred = UINT32_MAX;
+			if (UINT32_MAX - now < n->preferred_lt)
+				n->preferred_lt = UINT32_MAX;
 			else
-				n->preferred += now;
+				n->preferred_lt += now;
 
-			if (UINT32_MAX - now < n->valid)
-				n->valid = UINT32_MAX;
+			if (UINT32_MAX - now < n->valid_lt)
+				n->valid_lt = UINT32_MAX;
 			else
-				n->valid += now;
+				n->valid_lt += now;
 
 			n->dprefix = 0;
 
@@ -1037,24 +1037,24 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 	}
 
 	if (a) {
-		uint32_t leasetime, pref;
+		uint32_t leasetime, preferred_lt;
 
 		if (a->leasetime) {
 			leasetime = a->leasetime;
-			pref = a->leasetime;
+			preferred_lt = a->leasetime;
 		} else {
 			leasetime = iface->dhcp_leasetime;
-			pref = iface->preferred_lifetime;
+			preferred_lt = iface->preferred_lifetime;
 		}
 
-		uint32_t valid = leasetime;
+		uint32_t valid_lt = leasetime;
 
 		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
 		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 		size_t m = get_preferred_addr(addrs, addrlen);
 
 		for (size_t i = 0; i < addrlen; ++i) {
-			uint32_t prefix_pref, prefix_valid;
+			uint32_t prefix_preferred_lt, prefix_valid_lt;
 
 			if (!valid_addr(&addrs[i], now))
 				continue;
@@ -1068,30 +1068,30 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				continue;
 			}
 
-			prefix_pref = addrs[i].preferred;
-			prefix_valid = addrs[i].valid;
+			prefix_preferred_lt = addrs[i].preferred_lt;
+			prefix_valid_lt = addrs[i].valid_lt;
 
-			if (prefix_pref != UINT32_MAX)
-				prefix_pref -= now;
+			if (prefix_preferred_lt != UINT32_MAX)
+				prefix_preferred_lt -= now;
 
-			if (prefix_pref > pref)
-				prefix_pref = pref;
+			if (prefix_preferred_lt > preferred_lt)
+				prefix_preferred_lt = preferred_lt;
 
-			if (prefix_valid != UINT32_MAX)
-				prefix_valid -= now;
+			if (prefix_valid_lt != UINT32_MAX)
+				prefix_valid_lt -= now;
 
-			if (prefix_valid > leasetime)
-				prefix_valid = leasetime;
+			if (prefix_valid_lt > leasetime)
+				prefix_valid_lt = leasetime;
 
-			if (prefix_pref > prefix_valid)
-				prefix_pref = prefix_valid;
+			if (prefix_preferred_lt > prefix_valid_lt)
+				prefix_preferred_lt = prefix_valid_lt;
 
 			if (a->flags & OAF_DHCPV6_PD) {
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
 					.len = htons(sizeof(o_ia_p) - 4),
-					.preferred = htonl(prefix_pref),
-					.valid = htonl(prefix_valid),
+					.preferred_lt = htonl(prefix_preferred_lt),
+					.valid_lt = htonl(prefix_valid_lt),
 					.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
 					.addr = addrs[i].addr.in6,
 				};
@@ -1114,8 +1114,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.type = htons(DHCPV6_OPT_IA_ADDR),
 					.len = htons(sizeof(o_ia_a) - 4),
 					.addr = addrs[i].addr.in6,
-					.preferred = htonl(prefix_pref),
-					.valid = htonl(prefix_valid)
+					.preferred_lt = htonl(prefix_preferred_lt),
+					.valid_lt = htonl(prefix_valid_lt)
 				};
 
 				o_ia_a.addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
@@ -1132,25 +1132,25 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			}
 
 			/* Calculate T1 / T2 based on non-deprecated addresses */
-			if (prefix_pref > 0) {
-				if (prefix_pref < pref)
-					pref = prefix_pref;
+			if (prefix_preferred_lt > 0) {
+				if (prefix_preferred_lt < preferred_lt)
+					preferred_lt = prefix_preferred_lt;
 
-				if (prefix_valid < valid)
-					valid = prefix_valid;
+				if (prefix_valid_lt < valid_lt)
+					valid_lt = prefix_valid_lt;
 			}
 		}
 
 		if (!INFINITE_VALID(a->valid_until))
-			/* UINT32_MAX is considered as infinite leasetime */
-			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+			/* UINT32_MAX is RFC defined as infinite lease-time */
+			a->valid_until = (valid_lt == UINT32_MAX) ? 0 : valid_lt + now;
 
 		if (!INFINITE_VALID(a->preferred_until))
-			/* UINT32_MAX is considered as infinite leasetime */
-			a->preferred_until = (pref == UINT32_MAX) ? 0 : pref + now;
+			/* UINT32_MAX is RFC defined as infinite lease-time */
+			a->preferred_until = (preferred_lt == UINT32_MAX) ? 0 : preferred_lt + now;
 
-		o_ia.t1 = htonl((pref == UINT32_MAX) ? pref : pref * 5 / 10);
-		o_ia.t2 = htonl((pref == UINT32_MAX) ? pref : pref * 8 / 10);
+		o_ia.t1 = htonl((preferred_lt == UINT32_MAX) ? preferred_lt : preferred_lt * 5 / 10);
+		o_ia.t2 = htonl((preferred_lt == UINT32_MAX) ? preferred_lt : preferred_lt * 8 / 10);
 
 		if (!o_ia.t1)
 			o_ia.t1 = htonl(1);
@@ -1211,8 +1211,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					struct dhcpv6_ia_prefix o_ia_p = {
 						.type = htons(DHCPV6_OPT_IA_PREFIX),
 						.len = htons(sizeof(o_ia_p) - 4),
-						.preferred = 0,
-						.valid = 0,
+						.preferred_lt = 0,
+						.valid_lt = 0,
 						.prefix = ia_p->prefix,
 						.addr = ia_p->addr,
 					};
@@ -1227,8 +1227,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						.type = htons(DHCPV6_OPT_IA_ADDR),
 						.len = htons(sizeof(o_ia_a) - 4),
 						.addr = ia_a->addr,
-						.preferred = 0,
-						.valid = 0,
+						.preferred_lt = 0,
+						.valid_lt = 0,
 					};
 
 					if (buflen < ia_len + sizeof(o_ia_a))
@@ -1252,8 +1252,8 @@ struct log_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_log_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref,
-				_unused uint32_t valid, void *arg)
+static void dhcpv6_log_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
 	char addrbuf[INET6_ADDRSTRLEN];
@@ -1570,7 +1570,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				/* Set error status */
 				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
 			else if (hdr->msg_type == DHCPV6_MSG_REQUEST && !dhcpv6_ia_on_link(ia, a, iface)) {
-				/* Send NOTONLINK staus for the IA */
+				/* Send NOTONLINK status for the IA */
 				status = DHCPV6_STATUS_NOTONLINK;
 				assigned = false;
 			} else if (accept_reconf && assigned && !first &&

@@ -39,7 +39,7 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 
-/* Filter ICMPv6 messages of type neighbor soliciation */
+/* Filter ICMPv6 messages of type neighbor solicitation */
 static struct sock_filter bpf[] = {
 	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, offsetof(struct ip6_hdr, ip6_nxt)),
 	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_ICMPV6, 0, 3),
@@ -343,7 +343,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		return;
 
 	if (len < sizeof(*ip6) + sizeof(*req))
-		return; // Invalid reqicitation
+		return; // Invalid total length
 
 	if (IN6_IS_ADDR_LINKLOCAL(&req->nd_ns_target) ||
 			IN6_IS_ADDR_LOOPBACK(&req->nd_ns_target) ||

@@ -893,7 +893,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		struct arpreq arp = {.arp_flags = ATF_COM};
 
 		/*
-		 * send reply to the newly (in this proccess) allocated IP
+		 * send reply to the newly (in this process) allocated IP
 		 */
 		dest.sin_addr = reply.yiaddr;
 		dest.sin_port = htons(DHCPV4_CLIENT_PORT);

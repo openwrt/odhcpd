@@ -206,14 +206,14 @@ static void refresh_iface_addr6(int ifindex)
 			for (ssize_t i = 0; !change && i < len; ++i) {
 				if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
 				    addr[i].prefix != iface->addr6[i].prefix ||
-				    (addr[i].preferred > (uint32_t)now) != (iface->addr6[i].preferred > (uint32_t)now) ||
-				    addr[i].valid < iface->addr6[i].valid || addr[i].preferred < iface->addr6[i].preferred)
+				    (addr[i].preferred_lt > (uint32_t)now) != (iface->addr6[i].preferred_lt > (uint32_t)now) ||
+				    addr[i].valid_lt < iface->addr6[i].valid_lt || addr[i].preferred_lt < iface->addr6[i].preferred_lt)
 					change = true;
 			}
 
 			if (change) {
 				/*
-				 * Keep track on removed prefixes, so we could advertise them as invalid
+				 * Keep track of removed prefixes, so we could advertise them as invalid
 				 * for at least a couple of times.
 				 *
 				 * RFC7084 § 4.3 :
@@ -230,7 +230,7 @@ static void refresh_iface_addr6(int ifindex)
 				for (size_t i = 0; i < iface->addr6_len; ++i) {
 					bool removed = true;
 
-					if (iface->addr6[i].valid <= (uint32_t)now)
+					if (iface->addr6[i].valid_lt <= (uint32_t)now)
 						continue;
 
 					for (ssize_t j = 0; removed && j < len; ++j) {
@@ -258,7 +258,7 @@ static void refresh_iface_addr6(int ifindex)
 						iface->invalid_addr6 = new_invalid_addr6;
 						iface->invalid_addr6_len++;
 						memcpy(&iface->invalid_addr6[pos], &iface->addr6[i], sizeof(*iface->invalid_addr6));
-						iface->invalid_addr6[pos].valid = iface->invalid_addr6[pos].preferred = (uint32_t)now;
+						iface->invalid_addr6[pos].valid_lt = iface->invalid_addr6[pos].preferred_lt = (uint32_t)now;
 
 						if (iface->invalid_addr6[pos].prefix < 64)
 							iface->invalid_addr6[pos].prefix = 64;
@@ -630,12 +630,12 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 	if (nla[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ifc = nla_data(nla[IFA_CACHEINFO]);
 
-		addrs[ctxt->ret].preferred = ifc->ifa_prefered;
-		addrs[ctxt->ret].valid = ifc->ifa_valid;
+		addrs[ctxt->ret].preferred_lt = ifc->ifa_prefered;
+		addrs[ctxt->ret].valid_lt = ifc->ifa_valid;
 	}
 
 	if (ifa->ifa_flags & IFA_F_DEPRECATED)
-		addrs[ctxt->ret].preferred = 0;
+		addrs[ctxt->ret].preferred_lt = 0;
 
 	if (ifa->ifa_family == AF_INET6 &&
 	    ifa->ifa_flags & IFA_F_TENTATIVE)
@@ -689,9 +689,9 @@ static int prefix_cmp(const void *va, const void *vb)
 static int prefix6_cmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
-	uint32_t a_pref = IN6_IS_ADDR_ULA(&a->addr.in6) ? 1 : a->preferred;
-	uint32_t b_pref = IN6_IS_ADDR_ULA(&b->addr.in6) ? 1 : b->preferred;
-	return (a_pref < b_pref) ? 1 : (a_pref > b_pref) ? -1 : 0;
+	uint32_t a_pref_lt = IN6_IS_ADDR_ULA(&a->addr.in6) ? 1 : a->preferred_lt;
+	uint32_t b_pref_lt = IN6_IS_ADDR_ULA(&b->addr.in6) ? 1 : b->preferred_lt;
+	return (a_pref_lt < b_pref_lt) ? 1 : (a_pref_lt > b_pref_lt) ? -1 : 0;
 }
 
 
@@ -749,11 +749,11 @@ ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr *
 	qsort(addr, ctxt.ret, sizeof(*addr), v6 ? prefix6_cmp : prefix_cmp);
 
 	for (ssize_t i = 0; i < ctxt.ret; ++i) {
-		if (addr[i].preferred < UINT32_MAX - now)
-			addr[i].preferred += now;
+		if (addr[i].preferred_lt < UINT32_MAX - now)
+			addr[i].preferred_lt += now;
 
-		if (addr[i].valid < UINT32_MAX - now)
-			addr[i].valid += now;
+		if (addr[i].valid_lt < UINT32_MAX - now)
+			addr[i].valid_lt += now;
 	}
 
 free:
@@ -1114,26 +1114,26 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 						.tstamp = 0 };
 		time_t now = odhcpd_time();
 
-		if (addr->preferred) {
-			int64_t preferred = addr->preferred - now;
-			if (preferred < 0)
-				preferred = 0;
-			else if (preferred > UINT32_MAX)
-				preferred = UINT32_MAX;
+		if (addr->preferred_lt) {
+			int64_t preferred_lt = addr->preferred_lt - now;
+			if (preferred_lt < 0)
+				preferred_lt = 0;
+			else if (preferred_lt > UINT32_MAX)
+				preferred_lt = UINT32_MAX;
 
-			cinfo.ifa_prefered = preferred;
+			cinfo.ifa_prefered = preferred_lt;
 		}
 
-		if (addr->valid) {
-			int64_t valid = addr->valid - now;
-			if (valid <= 0) {
+		if (addr->valid_lt) {
+			int64_t valid_lt = addr->valid_lt - now;
+			if (valid_lt <= 0) {
 				nlmsg_free(msg);
 				return -1;
 			}
-			else if (valid > UINT32_MAX)
-				valid = UINT32_MAX;
+			else if (valid_lt > UINT32_MAX)
+				valid_lt = UINT32_MAX;
 
-			cinfo.ifa_valid = valid;
+			cinfo.ifa_valid = valid_lt;
 		}
 
 		nla_put(msg, IFA_CACHEINFO, sizeof(cinfo), &cinfo);

@@ -770,15 +770,15 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 	time_t now = odhcpd_time();
 
 	for (size_t i = 0; i < iface->addr6_len; i++) {
-		if (iface->addr6[i].valid <= (uint32_t)now)
+		if (iface->addr6[i].valid_lt <= (uint32_t)now)
 			continue;
 
-		if (iface->addr6[i].preferred > (uint32_t)now) {
+		if (iface->addr6[i].preferred_lt > (uint32_t)now) {
 			addr = &iface->addr6[i];
 			break;
 		}
 
-		if (!addr || (iface->addr6[i].valid > addr->valid))
+		if (!addr || (iface->addr6[i].valid_lt > addr->valid_lt))
 			addr = &iface->addr6[i];
 	}
 

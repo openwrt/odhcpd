@@ -638,7 +638,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	if (default_route && valid_prefix) {
 		adv.h.nd_ra_router_lifetime = htons(lifetime < UINT16_MAX ? lifetime : UINT16_MAX);
-	} else {
+	} else if (lifetime) {
 		adv.h.nd_ra_router_lifetime = 0;
 
 		if (default_route) {

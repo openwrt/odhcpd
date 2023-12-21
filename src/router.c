@@ -817,7 +817,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;
 
-		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
+		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 				addr->dprefix, addr->valid_lt, iface->name);
@@ -837,6 +837,21 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		} else if (addr->dprefix <= 32) {
 			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix)) - 1));
 			addr->addr.in6.s6_addr32[1] = 0;
+		}
+
+		if (!iface->ra_not_onlink) {
+			bool fully_used_in_pio = false;
+			for (size_t i = 0; i < pfxs_cnt; ++i) {
+				if (addr->dprefix == pfxs[i].nd_opt_pi_prefix_len &&
+						!odhcpd_bmemcmp(&pfxs[i].nd_opt_pi_prefix,
+							&addr->addr.in6, addr->dprefix)) {
+					fully_used_in_pio = true;
+					break;
+				}
+			}
+
+			if (fully_used_in_pio)
+				continue; /* correspondent PIO use the entire prefix delegation (see RFC 7084 errata 7699) */
 		}
 
 		tmp = realloc(routes, sizeof(*routes) * (routes_cnt + 1));

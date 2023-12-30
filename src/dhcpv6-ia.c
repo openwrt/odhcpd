@@ -674,6 +674,12 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
 
+				/* Awful hack: Do NOT delegate local ULA prefixes.
+				They confuse my Sky VOIP box. Should be able to do this
+				on a per interface or even per client basis. */
+				if (o_ia_p.addr.s6_addr[0] == 0xFD)
+					continue;
+
 				if (!valid_prefix_length(a, addrs[i].prefix_len))
 					continue;
 

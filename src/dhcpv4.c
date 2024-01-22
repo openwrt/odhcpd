@@ -1102,7 +1102,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			if (a->leasetime)
 				my_leasetime = a->leasetime;
 			else
-				my_leasetime = iface->dhcp_leasetime;
+				my_leasetime = iface->dhcpv4_leasetime;
 
 			if ((*leasetime == 0) || (my_leasetime < *leasetime))
 				*leasetime = my_leasetime;

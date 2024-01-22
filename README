@@ -116,7 +116,9 @@ domain			list	<local search domain>	Search domains to announce
 leasetime		string	12h			DHCPv4 address leasetime
 start			integer	100			DHCPv4 pool start
 limit			integer	150			DHCPv4 pool size
-preferred_lifetime	string	12h			Value for the preferred lifetime
+max_preferred_lifetime	string	45m			Upper limit for the preferred lifetime
+							for a prefix
+max_valid_lifetime	string	90m			Upper limit for the valid lifetime
 							for a prefix
 ra_default		integer	0			Override default route
 			0: default, 1: ignore no public address, 2: ignore all
@@ -131,11 +133,9 @@ ra_maxinterval		integer	600			Maximum time allowed between
 							sending unsolicited RA
 ra_mininterval		integer	200			Minimum time allowed between
 							sending unsolicited RA
-ra_lifetime		integer	1800			Value to be placed in Router
-							Lifetime field of RA
-ra_useleasetime		bool	0			Use configured leasetime as
-							limit for the preferred and
-							valid lifetime of a prefix
+ra_lifetime		integer	2700			Value to be placed in Router
+							Lifetime field of RA. Not recommended to be
+							more than 2700 (RFC9096).
 ra_reachabletime	integer	0			Reachable Time in milliseconds to be
 							advertised in RA messages
 ra_retranstime		integer	0			Retransmit Time in milliseconds to be

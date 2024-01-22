@@ -371,7 +371,7 @@ static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
 
 static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 {
-	uint32_t lifetime = 3*maxival;
+	uint32_t lifetime = maxival * 3;
 
 	if (iface->ra_lifetime >= 0) {
 		lifetime = iface->ra_lifetime;
@@ -590,16 +590,15 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (addr->preferred > (uint32_t)now) {
 			preferred = TIME_LEFT(addr->preferred, now);
 
-			if (iface->ra_useleasetime &&
-			    preferred > iface->preferred_lifetime)
-				preferred = iface->preferred_lifetime;
+			if (iface->max_preferred_lifetime && preferred > iface->max_preferred_lifetime)
+				preferred = iface->max_preferred_lifetime;
 		}
 
 		if (addr->valid > (uint32_t)now) {
 			valid = TIME_LEFT(addr->valid, now);
 
-			if (iface->ra_useleasetime && valid > iface->dhcp_leasetime)
-				valid = iface->dhcp_leasetime;
+			if (iface->max_valid_lifetime && valid > iface->max_valid_lifetime)
+				valid = iface->max_valid_lifetime;
 		}
 
 		if (minvalid > valid)
@@ -643,9 +642,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 		if (default_route) {
 			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-					    "on %s thus we don't announce a default route by overriding ra_lifetime!", iface->name);
+					    "on %s thus we don't announce a default route by setting ra_lifetime to zero!", iface->name);
 		} else {
-			syslog(LOG_WARNING, "No default route present, overriding ra_lifetime!");
+			syslog(LOG_WARNING, "No default route present, setting ra_lifetime to zero!");
 		}
 	}
 
@@ -710,7 +709,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	if (iface->pref64_length) {
 		/* RFC 8781 § 4.1 rounding up lifetime to multiply of 8 */
-		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : UINT16_MAX;
+		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : (UINT16_MAX - 7);
 		uint8_t prefix_length_code;
 		uint32_t mask_a1, mask_a2;
 

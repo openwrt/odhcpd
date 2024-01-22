@@ -37,6 +37,10 @@
 // RFC 8781 defines PREF64 option
 #define ND_OPT_PREF64 38
 
+// RFC 9096 defines recommended option lifetimes configuration values
+#define ND_PREFERRED_LIMIT 2700
+#define ND_VALID_LIMIT 5400
+
 #define INFINITE_VALID(x) ((x) == 0)
 
 #define _unused __attribute__((unused))
@@ -302,7 +306,6 @@ struct interface {
 	bool ra_slaac;
 	bool ra_not_onlink;
 	bool ra_advrouter;
-	bool ra_useleasetime;
 	bool ra_dns;
 	uint8_t pref64_length;
 	struct in6_addr pref64_addr;
@@ -319,10 +322,8 @@ struct interface {
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
 	int ra_mtu;
-	uint32_t preferred_lifetime;
-
-	// DHCP
-	uint32_t dhcp_leasetime;
+	uint32_t max_preferred_lifetime;
+	uint32_t max_valid_lifetime;
 
 	// DHCPv4
 	struct in_addr dhcpv4_start;
@@ -336,6 +337,7 @@ struct interface {
 	size_t dhcpv4_router_cnt;
 	struct in_addr *dhcpv4_dns;
 	size_t dhcpv4_dns_cnt;
+	uint32_t dhcpv4_leasetime;
 	bool dhcpv4_forcereconf;
 
 	// DNS

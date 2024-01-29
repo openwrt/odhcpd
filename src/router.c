@@ -22,7 +22,6 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <arpa/inet.h>
-#include <net/route.h>
 
 #include <libubox/utils.h>
 
@@ -40,8 +39,6 @@ static void router_netevent_cb(unsigned long event, struct netevent_handler_info
 
 static struct netevent_handler router_netevent_handler = { .cb = router_netevent_cb, };
 
-static FILE *fp_route = NULL;
-
 
 #define TIME_LEFT(t1, now) ((t1) != UINT32_MAX ? (t1) - (now) : UINT32_MAX)
 
@@ -49,21 +46,9 @@ int router_init(void)
 {
 	int ret = 0;
 
-	if (!(fp_route = fopen("/proc/net/ipv6_route", "r"))) {
-		syslog(LOG_ERR, "fopen(/proc/net/ipv6_route): %m");
-		ret = -1;
-		goto out;
-	}
-
 	if (netlink_add_netevent_handler(&router_netevent_handler) < 0) {
 		syslog(LOG_ERR, "Failed to add netevent handler");
 		ret = -1;
-	}
-
-out:
-	if (ret < 0 && fp_route) {
-		fclose(fp_route);
-		fp_route = NULL;
 	}
 
 	return ret;
@@ -75,12 +60,6 @@ int router_setup_interface(struct interface *iface, bool enable)
 	int ret = 0;
 
 	enable = enable && (iface->ra != MODE_DISABLED);
-
-	if (!fp_route) {
-		ret = -1;
-		goto out;
-	}
-
 
 	if (!enable && iface->router_event.uloop.fd >= 0) {
 		if (!iface->master) {
@@ -297,43 +276,6 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 }
 
 
-/* Detect whether a default route exists, also find the source prefixes */
-static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
-{
-	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
-					.dprefix = 0, .preferred_lt = 0, .valid_lt = 0};
-	bool found_default = false;
-	char line[512], ifname[16];
-
-	rewind(fp_route);
-
-	while (fgets(line, sizeof(line), fp_route)) {
-		uint32_t rflags;
-		if (sscanf(line, "00000000000000000000000000000000 00 "
-				"%*s %*s %*s %*s %*s %*s %*s %15s", ifname) &&
-				strcmp(ifname, "lo")) {
-			found_default = true;
-		} else if (sscanf(line, "%8" SCNx32 "%8" SCNx32 "%*8" SCNx32 "%*8" SCNx32 " %hhx %*s "
-				"%*s 00000000000000000000000000000000 %*s %*s %*s %" SCNx32 " lo",
-				&p.addr.in6.s6_addr32[0], &p.addr.in6.s6_addr32[1], &p.prefix, &rflags) &&
-				p.prefix > 0 && (rflags & RTF_NONEXTHOP) && (rflags & RTF_REJECT)) {
-			// Find source prefixes by scanning through unreachable-routes
-			p.addr.in6.s6_addr32[0] = htonl(p.addr.in6.s6_addr32[0]);
-			p.addr.in6.s6_addr32[1] = htonl(p.addr.in6.s6_addr32[1]);
-
-			for (ssize_t i = 0; i < len; ++i) {
-				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
-						!odhcpd_bmemcmp(&p.addr.in6, &n[i].addr.in6, p.prefix)) {
-					n[i].dprefix = p.prefix;
-					break;
-				}
-			}
-		}
-	}
-
-	return found_default;
-}
-
 static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_lifetime,
 				uint32_t *maxival)
 {
@@ -516,7 +458,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_ADV].iov_base = (char *)&adv;
 	iov[IOV_RA_ADV].iov_len = sizeof(adv);
 
-	valid_addr_cnt = (iface->timer_rs.cb /* if not shutdown */ ? iface->addr6_len : 0);
+	valid_addr_cnt = iface->addr6_len;
 	invalid_addr_cnt = iface->invalid_addr6_len;
 
 	// check ra_default
@@ -534,7 +476,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(addrs, iface->addr6, sizeof(*addrs) * valid_addr_cnt);
 
 			/* Check default route */
-			if (!default_route && parse_routes(addrs, valid_addr_cnt))
+			if (!default_route && netlink_default_ipv6_route_exists())
 				default_route = true;
 		}
 
@@ -545,24 +487,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 			/* Remove invalid prefixes that were advertised 3 times */
 			while (i < iface->invalid_addr6_len) {
-				if (++iface->invalid_addr6[i].invalid_advertisements >= 3) {
-					if (i + 1 < iface->invalid_addr6_len)
-						memmove(&iface->invalid_addr6[i], &iface->invalid_addr6[i + 1], sizeof(*addrs) * (iface->invalid_addr6_len - i - 1));
-
-					iface->invalid_addr6_len--;
-
-					if (iface->invalid_addr6_len) {
-						struct odhcpd_ipaddr *new_invalid_addr6 = realloc(iface->invalid_addr6, sizeof(*addrs) * iface->invalid_addr6_len);
-
-						if (new_invalid_addr6)
-							iface->invalid_addr6 = new_invalid_addr6;
-					} else {
-						free(iface->invalid_addr6);
-						iface->invalid_addr6 = NULL;
-					}
-				} else
+				if (++iface->invalid_addr6[i].invalid_advertisements >= 3)
+					odhcpd_del_intf_invalid_addr6(iface, i);
+				else
 					++i;
 			}
+		}
+
+		/* Advertise all prefixes as invalid on shutdown */
+		if (iface->timer_rs.cb == NULL) {
+			invalid_addr_cnt += valid_addr_cnt;
+			valid_addr_cnt = 0;
 		}
 	}
 
@@ -608,7 +543,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memset(p, 0, sizeof(*p));
 		}
 
-		if (addr->preferred_lt > (uint32_t)now) {
+		if (i < valid_addr_cnt && addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
 
 			if (preferred_lt > iface->preferred_lifetime) {
@@ -617,7 +552,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			}
 		}
 
-		if (addr->valid_lt > (uint32_t)now) {
+		if (i < valid_addr_cnt && addr->valid_lt > (uint32_t)now) {
 			valid_lt = TIME_LEFT(addr->valid_lt, now);
 
 			if (iface->ra_useleasetime && valid_lt > iface->dhcp_leasetime)
@@ -810,14 +745,20 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           in Section 2.3 of [RFC4191].  This advertisement is
 	 *           independent of having or not having IPv6 connectivity on the
 	 *           WAN interface.
+	 *
+	 * RFC4191 § 4 also says that
+	 *    When ceasing to be an advertising
+	 *    interface and sending Router Advertisements with a Router Lifetime of
+	 *    zero, the Router Advertisement SHOULD also set the Route Lifetime to
+	 *    zero in all Route Information Options.
 	 */
 
-	for (ssize_t i = 0; i < valid_addr_cnt; ++i) {
+	for (ssize_t i = 0; i < valid_addr_cnt + invalid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;
 
-		if (addr->dprefix > 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
+		if (addr->dprefix > 64 || addr->dprefix == 0 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
 			syslog(LOG_INFO, "Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
 				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 				addr->dprefix, addr->valid_lt, iface->name);
@@ -838,6 +779,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix)) - 1));
 			addr->addr.in6.s6_addr32[1] = 0;
 		}
+
+		tmp = NULL;
+		for (size_t i = 0; i < routes_cnt; ++i) {
+			if (addr->dprefix == routes[i].prefix &&
+					!odhcpd_bmemcmp(&routes[i].addr, &addr->addr.in6, addr->dprefix)) {
+				tmp = &routes[i];
+				break;
+			}
+		}
+		if (tmp)
+			continue; /* RIO already inserted */
 
 		if (!iface->ra_not_onlink) {
 			bool fully_used_in_pio = false;
@@ -872,7 +824,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		else if (iface->route_preference > 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
 
-		valid_lt = TIME_LEFT(addr->valid_lt, now);
+		valid_lt = (i < valid_addr_cnt && addr->valid_lt > (uint32_t)now ? TIME_LEFT(addr->valid_lt, now) : 0);
 		routes[routes_cnt].lifetime = htonl(valid_lt < lifetime ? valid_lt : lifetime);
 		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
 		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];

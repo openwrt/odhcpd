@@ -429,6 +429,26 @@ inline static struct dhcp_assignment *alloc_assignment(size_t extra_len)
 	return a;
 }
 
+inline static void odhcpd_del_intf_invalid_addr6(struct interface *iface, size_t idx)
+{
+	if (idx + 1 < iface->invalid_addr6_len)
+		memmove(&iface->invalid_addr6[idx], &iface->invalid_addr6[idx + 1],
+				sizeof(*iface->invalid_addr6) * (iface->invalid_addr6_len - idx - 1));
+
+	iface->invalid_addr6_len--;
+
+	if (iface->invalid_addr6_len) {
+		struct odhcpd_ipaddr *new_invalid_addr6 = realloc(iface->invalid_addr6,
+				sizeof(*iface->invalid_addr6) * iface->invalid_addr6_len);
+
+		if (new_invalid_addr6)
+			iface->invalid_addr6 = new_invalid_addr6;
+	} else {
+		free(iface->invalid_addr6);
+		iface->invalid_addr6 = NULL;
+	}
+}
+
 // Exported main functions
 int odhcpd_register(struct odhcpd_event *event);
 int odhcpd_deregister(struct odhcpd_event *event);
@@ -483,6 +503,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c, ti
 				dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_ia_write_statefile(void);
 
+bool netlink_default_ipv6_route_exists();
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
 		struct odhcpd_ipaddr **addrs);
@@ -499,7 +520,7 @@ void netlink_dump_neigh_table(const bool proxy);
 void netlink_dump_addr_table(const bool v6);
 
 // Exported module initializers
-int netlink_init(void);
+int netlink_init(bool ipv6);
 int router_init(void);
 int dhcpv6_init(void);
 int ndp_init(void);

@@ -26,6 +26,7 @@
 #include <netlink/attr.h>
 
 #include <arpa/inet.h>
+#include <net/route.h>
 #include <libubox/list.h>
 
 #include "odhcpd.h"
@@ -54,8 +55,15 @@ static struct event_socket rtnl_event = {
 	.sock_bufsize = 133120,
 };
 
-int netlink_init(void)
+static FILE *fp_ipv6_route = NULL;
+
+int netlink_init(bool ipv6)
 {
+	if (ipv6 && !(fp_ipv6_route = fopen("/proc/net/ipv6_route", "r"))) {
+		syslog(LOG_ERR, "fopen(/proc/net/ipv6_route): %m");
+		goto err;
+	}
+
 	rtnl_socket = create_socket(NETLINK_ROUTE);
 	if (!rtnl_socket) {
 		syslog(LOG_ERR, "Unable to open nl socket: %m");
@@ -100,9 +108,67 @@ err:
 		rtnl_event.ev.uloop.fd = -1;
 	}
 
+	if (fp_ipv6_route) {
+		fclose(fp_ipv6_route);
+		fp_ipv6_route = NULL;
+	}
+
 	return -1;
 }
 
+/* Detect whether a default IPv6 route exists */
+bool netlink_default_ipv6_route_exists()
+{
+	bool found_default = false;
+	char line[512], ifname[16];
+
+	if (!fp_ipv6_route)
+		return false;
+	rewind(fp_ipv6_route);
+
+	while (fgets(line, sizeof(line), fp_ipv6_route)) {
+		if (sscanf(line, "00000000000000000000000000000000 00 "
+					"%*s %*s %*s %*s %*s %*s %*s %15s", ifname) &&
+				strcmp(ifname, "lo")) {
+			found_default = true;
+			break;
+		}
+	}
+
+	return found_default;
+}
+
+/* Find the source prefixes of all IPv6 addresses */
+static void find_addr6_dprefix(struct odhcpd_ipaddr *n, ssize_t len)
+{
+	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
+					.dprefix = 0, .preferred = 0, .valid = 0};
+	char line[512];
+	uint32_t rflags;
+
+	if (!fp_ipv6_route || len <= 0)
+		return;
+	rewind(fp_ipv6_route);
+
+	while (fgets(line, sizeof(line), fp_ipv6_route)) {
+		if (sscanf(line, "%8" SCNx32 "%8" SCNx32 "%*8" SCNx32 "%*8" SCNx32 " %hhx %*s "
+				"%*s 00000000000000000000000000000000 %*s %*s %*s %" SCNx32 " lo",
+				&p.addr.in6.s6_addr32[0], &p.addr.in6.s6_addr32[1], &p.prefix, &rflags) &&
+				p.prefix > 0 && (rflags & RTF_NONEXTHOP) && (rflags & RTF_REJECT)) {
+			// Find source prefixes by scanning through unreachable-routes
+			p.addr.in6.s6_addr32[0] = htonl(p.addr.in6.s6_addr32[0]);
+			p.addr.in6.s6_addr32[1] = htonl(p.addr.in6.s6_addr32[1]);
+
+			for (ssize_t i = 0; i < len; ++i) {
+				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
+						!odhcpd_bmemcmp(&p.addr.in6, &n[i].addr.in6, p.prefix)) {
+					n[i].dprefix = p.prefix;
+					break;
+				}
+			}
+		}
+	}
+}
 
 int netlink_add_netevent_handler(struct netevent_handler *handler)
 {
@@ -213,7 +279,28 @@ static void refresh_iface_addr6(int ifindex)
 
 			if (change) {
 				/*
-				 * Keep track of removed prefixes, so we could advertise them as invalid
+				 * Remove invalid prefixes that were reinstated. New prefixes might coincide
+				 * with entries listed as invalid, so precaution must be taken to avoid such
+				 * case. 
+				 *
+				 * Scenario which could lead to this state:
+				 * a) prefix X is added to the interface
+				 * b) prefix X gets deprecated and Y takes its place
+				 * c) prefix Y is deprecated and prefix X is reinstated as preferred prefix
+				 */
+				for (ssize_t i = 0; i < len; ++i) {
+					size_t j = 0;
+					while (j < iface->invalid_addr6_len) {
+						if (addr[i].prefix <= iface->invalid_addr6[j].prefix &&
+						    odhcpd_bmemcmp(&addr[i].addr.in6, &iface->invalid_addr6[j].addr.in6, iface->invalid_addr6[j].prefix) == 0)
+							odhcpd_del_intf_invalid_addr6(iface, j);
+						else
+							++j;
+					}
+				}
+
+				/*
+				 * Keep track on removed prefixes, so we could advertise them as invalid
 				 * for at least a couple of times.
 				 *
 				 * RFC7084 § 4.3 :
@@ -755,6 +842,9 @@ ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr *
 		if (addr[i].valid_lt < UINT32_MAX - now)
 			addr[i].valid_lt += now;
 	}
+
+	if (v6)
+		find_addr6_dprefix(addr, ctxt.ret);
 
 free:
 	nlmsg_free(msg);

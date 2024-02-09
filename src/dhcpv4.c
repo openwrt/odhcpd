@@ -608,6 +608,14 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
 }
 
+/* DNR */
+struct dhcpv4_dnr {
+	uint16_t len;
+	uint16_t priority;
+	uint8_t adn_len;
+	uint8_t body[];
+};
+
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
@@ -851,12 +859,73 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	if (a && iface->dhcpv4_ntp_cnt != 0) {
-		for (size_t opts = 0; opts < a->reqopts_len; opts++) {
-			if (a->reqopts[opts] == DHCPV4_OPT_NTPSERVER) {
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
-						4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
+		switch (a->reqopts[opt]) {
+		case DHCPV4_OPT_NTPSERVER:
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
+				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+			break;
+
+		case DHCPV4_OPT_DNR:
+			struct dhcpv4_dnr *dnrs;
+			size_t dnrs_len = 0;
+
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+
+				if (dnr->addr4_cnt == 0 && dnr->addr6_cnt > 0)
+					continue;
+
+				dnrs_len += sizeof(struct dhcpv4_dnr);
+				dnrs_len += dnr->adn_len;
+
+				if (dnr->addr4_cnt > 0 || dnr->svc_len > 0) {
+					dnrs_len += sizeof(uint8_t);
+					dnrs_len += dnr->addr4_cnt * sizeof(*dnr->addr4);
+					dnrs_len += dnr->svc_len;
+				}
 			}
+
+			dnrs = alloca(dnrs_len);
+			uint8_t *pos = (uint8_t *)dnrs;
+
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+				struct dhcpv4_dnr *d4dnr = (struct dhcpv4_dnr *)pos;
+				uint16_t d4dnr_len = sizeof(uint16_t) + sizeof(uint8_t) + dnr->adn_len;
+				uint16_t d4dnr_priority_be = htons(dnr->priority);
+				uint16_t d4dnr_len_be;
+
+				if (dnr->addr4_cnt == 0 && dnr->addr6_cnt > 0)
+					continue;
+
+				/* memcpy as the struct is unaligned */
+				memcpy(&d4dnr->priority, &d4dnr_priority_be, sizeof(d4dnr_priority_be));
+
+				d4dnr->adn_len = dnr->adn_len;
+				pos = d4dnr->body;
+				memcpy(pos, dnr->adn, dnr->adn_len);
+				pos += dnr->adn_len;
+
+				if (dnr->addr4_cnt > 0 || dnr->svc_len > 0) {
+					uint8_t addr4_len = dnr->addr4_cnt * sizeof(*dnr->addr4);
+
+					*(pos++) = addr4_len;
+					memcpy(pos, dnr->addr4, addr4_len);
+					pos += addr4_len;
+					memcpy(pos, dnr->svc, dnr->svc_len);
+					pos += dnr->svc_len;
+
+					d4dnr_len += sizeof(addr4_len) + addr4_len + dnr->svc_len;
+				}
+
+				d4dnr_len_be = htons(d4dnr_len);
+				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
+			}
+
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
+				   dnrs_len, dnrs);
+			break;
 		}
 	}
 

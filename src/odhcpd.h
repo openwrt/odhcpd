@@ -37,6 +37,9 @@
 // RFC 8781 defines PREF64 option
 #define ND_OPT_PREF64 38
 
+// RFC 9463 - Discovery of Network-designated Resolvers (DNR)
+#define ND_OPT_DNR 144
+
 #define INFINITE_VALID(x) ((x) == 0)
 
 #define _unused __attribute__((unused))
@@ -242,6 +245,23 @@ struct dhcp_assignment {
 };
 
 
+// DNR - RFC9463
+struct dnr_options {
+	uint16_t priority;
+
+	uint8_t *adn;
+	uint16_t adn_len;
+
+	struct in_addr *addr4;
+	size_t addr4_cnt;
+	struct in6_addr *addr6;
+	size_t addr6_cnt;
+
+	uint8_t *svc;
+	uint16_t svc_len;
+};
+
+
 struct interface {
 	struct avl_node avl;
 
@@ -370,6 +390,10 @@ struct interface {
 	// SNTP
 	struct in6_addr *dhcpv6_sntp;
 	size_t dhcpv6_sntp_cnt;
+
+	// DNR
+	struct dnr_options *dnr;
+	size_t dnr_cnt;
 };
 
 extern struct avl_tree interfaces;

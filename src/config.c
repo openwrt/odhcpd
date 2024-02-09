@@ -59,6 +59,7 @@ enum {
 	IFACE_ATTR_NDP,
 	IFACE_ATTR_ROUTER,
 	IFACE_ATTR_DNS,
+	IFACE_ATTR_DNR,
 	IFACE_ATTR_DNS_SERVICE,
 	IFACE_ATTR_DOMAIN,
 	IFACE_ATTR_FILTER_CLASS,
@@ -112,6 +113,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NDP] = { .name = "ndp", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_ROUTER] = { .name = "router", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DNR] = { .name = "dnr", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_FILTER_CLASS] = { .name = "filter_class", .type = BLOBMSG_TYPE_STRING },
@@ -206,6 +208,32 @@ static const struct { const char *name; uint8_t flag; } ra_flags[] = {
 	{ .name = NULL, },
 };
 
+// https://www.iana.org/assignments/dns-svcb/dns-svcb.xhtml
+enum svc_param_keys {
+	DNR_SVC_MANDATORY,
+	DNR_SVC_ALPN,
+	DNR_SVC_NO_DEFAULT_ALPN,
+	DNR_SVC_PORT,
+	DNR_SVC_IPV4HINT,
+	DNR_SVC_ECH,
+	DNR_SVC_IPV6HINT,
+	DNR_SVC_DOHPATH,
+	DNR_SVC_OHTTP,
+	DNR_SVC_MAX,
+};
+
+static const char *svc_param_key_names[DNR_SVC_MAX] = {
+	[DNR_SVC_MANDATORY] = "mandatory",
+	[DNR_SVC_ALPN] = "alpn",
+	[DNR_SVC_NO_DEFAULT_ALPN] = "no-default-alpn",
+	[DNR_SVC_PORT] = "port",
+	[DNR_SVC_IPV4HINT] = "ipv4hint",
+	[DNR_SVC_ECH] = "ech",
+	[DNR_SVC_IPV6HINT] = "ipv6hint",
+	[DNR_SVC_DOHPATH] = "dohpath",
+	[DNR_SVC_OHTTP] = "ohttp",
+};
+
 static void set_interface_defaults(struct interface *iface)
 {
 	iface->ignore = true;
@@ -244,6 +272,13 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
 	free(iface->dhcpv6_sntp);
+	for (unsigned i = 0; i < iface->dnr_cnt; i++) {
+		free(iface->dnr[i].adn);
+		free(iface->dnr[i].addr4);
+		free(iface->dnr[i].addr6);
+		free(iface->dnr[i].svc);
+	}
+	free(iface->dnr);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -531,6 +566,274 @@ static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6
 	*dhcpv6_ntp_len += ntp_len;
 
 	return 0;
+}
+
+/* Parse DNR Options */
+static int parse_dnr_str(char *str, struct interface *iface)
+{
+	struct dnr_options dnr = {0};
+	size_t adn_len;
+	uint8_t adn_buf[256] = {0};
+	char *saveptr1, *saveptr2;
+
+	char *priority;
+	priority = strtok_r(str, " \f\n\r\t\v", &saveptr1);
+	if (!priority) {
+		goto err;
+	} else if (sscanf(priority, "%" SCNu16, &dnr.priority) != 1) {
+		syslog(LOG_ERR, "Unable to parse priority '%s'", priority);
+		goto err;
+	} else if (dnr.priority == 0) {
+		syslog(LOG_ERR, "Invalid priority '%s'", priority);
+		goto err;
+	}
+
+	char *adn;
+	adn = strtok_r(NULL, " \f\n\r\t\v", &saveptr1);
+	if (!adn)
+		goto err;
+
+	adn_len = strlen(adn);
+	if (adn_len > 0 && adn[adn_len - 1] == '.')
+		adn[adn_len - 1] = '\0';
+
+	if (adn_len >= sizeof(adn_buf)) {
+		syslog(LOG_ERR, "Hostname '%s' too long", adn);
+		goto err;
+	}
+
+	adn_len = dn_comp(adn, adn_buf, sizeof(adn_buf), NULL, NULL);
+	if (adn_len <= 0) {
+		syslog(LOG_ERR, "Unable to parse hostname '%s'", adn);
+		goto err;
+	}
+
+	dnr.adn = malloc(adn_len);
+	if (!dnr.adn)
+		goto err;
+	memcpy(dnr.adn, adn_buf, adn_len);
+	dnr.adn_len = adn_len;
+
+	char *addrs;
+	addrs = strtok_r(NULL, " \f\n\r\t\v", &saveptr1);
+	if (!addrs)
+		// ADN-Only mode
+		goto done;
+
+	for (char *addr = strtok_r(addrs, ",", &saveptr2); addr; addr = strtok_r(NULL, ",", &saveptr2)) {
+		struct in6_addr addr6, *tmp6;
+		struct in_addr addr4, *tmp4;
+		size_t new_sz;
+
+		if (inet_pton(AF_INET6, addr, &addr6) == 1) {
+			new_sz = (dnr.addr6_cnt + 1) * sizeof(*dnr.addr6);
+			if (new_sz > UINT16_MAX)
+				continue;
+			tmp6 = realloc(dnr.addr6, new_sz);
+			if (!tmp6)
+				goto err;
+			dnr.addr6 = tmp6;
+			memcpy(&dnr.addr6[dnr.addr6_cnt], &addr6, sizeof(*dnr.addr6));
+			dnr.addr6_cnt++;
+
+		} else if (inet_pton(AF_INET, addr, &addr4) == 1) {
+			new_sz = (dnr.addr4_cnt + 1) * sizeof(*dnr.addr4);
+			if (new_sz > UINT8_MAX)
+				continue;
+			tmp4 = realloc(dnr.addr4, new_sz);
+			if (!tmp4)
+				goto err;
+			dnr.addr4 = tmp4;
+			memcpy(&dnr.addr4[dnr.addr4_cnt], &addr4, sizeof(*dnr.addr4));
+			dnr.addr4_cnt++;
+
+		} else {
+			syslog(LOG_ERR, "Unable to parse IP address '%s'", addr);
+			goto err;
+		}
+	}
+
+	char *svc_vals[DNR_SVC_MAX] = { NULL, };
+	for (char *svc_tok = strtok_r(NULL, " \f\n\r\t\v", &saveptr1); svc_tok; svc_tok = strtok_r(NULL, " \f\n\r\t\v", &saveptr1)) {
+		uint16_t svc_id;
+		char *svc_key, *svc_val;
+
+		svc_key = strtok_r(svc_tok, "=", &saveptr2);
+		svc_val = strtok_r(NULL, "=", &saveptr2);
+
+		for (svc_id = 0; svc_id < DNR_SVC_MAX; svc_id++)
+			if (!strcmp(svc_key, svc_param_key_names[svc_id]))
+				break;
+
+		if (svc_id >= DNR_SVC_MAX) {
+			syslog(LOG_ERR, "Invalid SvcParam '%s'", svc_key);
+			goto err;
+		}
+
+		svc_vals[svc_id] = svc_val ? svc_val : "";
+	}
+
+	/* SvcParamKeys must be in increasing order, RFC9460 §2.2 */
+	for (uint16_t svc_key = 0; svc_key < DNR_SVC_MAX; svc_key++) {
+		uint16_t svc_key_be = ntohs(svc_key);
+		uint16_t svc_val_len, svc_val_len_be;
+		char *svc_val_str = svc_vals[svc_key];
+		uint8_t *tmp;
+
+		if (!svc_val_str)
+			continue;
+
+		switch (svc_key) {
+		case DNR_SVC_MANDATORY:
+			uint16_t mkeys[DNR_SVC_MAX];
+
+			svc_val_len = 0;
+			for (char *mkey_str = strtok_r(svc_val_str, ",", &saveptr2); mkey_str; mkey_str = strtok_r(NULL, ",", &saveptr2)) {
+				uint16_t mkey;
+
+				for (mkey = 0; mkey < DNR_SVC_MAX; mkey++)
+					if (!strcmp(mkey_str, svc_param_key_names[mkey]))
+						break;
+
+				if (mkey >= DNR_SVC_MAX || !svc_vals[mkey]) {
+					syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'mandatory'", mkey_str);
+					goto err;
+				}
+
+				mkeys[svc_val_len++] = ntohs(mkey);
+			}
+
+			svc_val_len *= sizeof(uint16_t);
+			svc_val_len_be = ntohs(svc_val_len);
+
+			tmp = realloc(dnr.svc, dnr.svc_len + 4 + svc_val_len);
+			if (!tmp)
+				goto err;
+
+			dnr.svc = tmp;
+			memcpy(dnr.svc + dnr.svc_len, &svc_key_be, sizeof(svc_key_be));
+			memcpy(dnr.svc + dnr.svc_len + 2, &svc_val_len_be, sizeof(svc_val_len_be));
+			memcpy(dnr.svc + dnr.svc_len + 4, mkeys, svc_val_len);
+			dnr.svc_len += 4 + svc_val_len;
+			break;
+
+		case DNR_SVC_ALPN:
+			size_t len_off;
+
+			tmp = realloc(dnr.svc, dnr.svc_len + 4);
+			if (!tmp)
+				goto err;
+
+			dnr.svc = tmp;
+			memcpy(dnr.svc + dnr.svc_len, &svc_key_be, sizeof(svc_key_be));
+			/* the length is not known yet */
+			len_off = dnr.svc_len + sizeof(svc_key_be);
+			dnr.svc_len += 4;
+
+			svc_val_len = 0;
+			for (char *alpn_id_str = strtok_r(svc_val_str, ",", &saveptr2); alpn_id_str; alpn_id_str = strtok_r(NULL, ",", &saveptr2)) {
+				size_t alpn_id_len;
+
+				alpn_id_len = strlen(alpn_id_str);
+				if (alpn_id_len > UINT8_MAX) {
+					syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'alpn'", alpn_id_str);
+					goto err;
+				}
+
+				tmp = realloc(dnr.svc, dnr.svc_len + 1 + alpn_id_len);
+				if (!tmp)
+					goto err;
+				dnr.svc = tmp;
+
+				dnr.svc[dnr.svc_len] = alpn_id_len;
+				memcpy(dnr.svc + dnr.svc_len + 1, alpn_id_str, alpn_id_len);
+				dnr.svc_len += 1 + alpn_id_len;
+				svc_val_len += 1 + alpn_id_len;
+			}
+
+			svc_val_len_be = ntohs(svc_val_len);
+			memcpy(dnr.svc + len_off, &svc_val_len_be, sizeof(svc_val_len_be));
+			break;
+
+		case DNR_SVC_PORT:
+			uint16_t port;
+
+			if (sscanf(svc_val_str, "%" SCNu16, &port) != 1) {
+				syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'port'", svc_val_str);
+				goto err;
+			}
+
+			port = ntohs(port);
+			svc_val_len_be = ntohs(2);
+
+			tmp = realloc(dnr.svc, dnr.svc_len + 6);
+			if (!tmp)
+				goto err;
+
+			dnr.svc = tmp;
+			memcpy(dnr.svc + dnr.svc_len, &svc_key_be, sizeof(svc_key_be));
+			memcpy(dnr.svc + dnr.svc_len + 2, &svc_val_len_be, sizeof(svc_val_len_be));
+			memcpy(dnr.svc + dnr.svc_len + 4, &port, sizeof(port));
+			dnr.svc_len += 6;
+			break;
+
+		case DNR_SVC_NO_DEFAULT_ALPN:
+			/* fall through */
+
+		case DNR_SVC_OHTTP:
+			if (strlen(svc_val_str) > 0) {
+				syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'port'", svc_val_str);
+				goto err;
+			}
+			/* fall through */
+
+		case DNR_SVC_DOHPATH:
+			/* plain string */
+			svc_val_len = strlen(svc_val_str);
+			svc_val_len_be = ntohs(svc_val_len);
+			tmp = realloc(dnr.svc, dnr.svc_len + 4 + svc_val_len);
+			if (!tmp)
+				goto err;
+
+			dnr.svc = tmp;
+			memcpy(dnr.svc + dnr.svc_len, &svc_key_be, sizeof(svc_key_be));
+			dnr.svc_len += sizeof(svc_key_be);
+			memcpy(dnr.svc + dnr.svc_len, &svc_val_len_be, sizeof(svc_val_len_be));
+			dnr.svc_len += sizeof(svc_val_len_be);
+			memcpy(dnr.svc + dnr.svc_len, svc_val_str, svc_val_len);
+			dnr.svc_len += svc_val_len;
+			break;
+
+		case DNR_SVC_ECH:
+			syslog(LOG_ERR, "SvcParam 'ech' is not implemented");
+			goto err;
+
+		case DNR_SVC_IPV4HINT:
+			/* fall through */
+
+		case DNR_SVC_IPV6HINT:
+			syslog(LOG_ERR, "SvcParam '%s' is not allowed", svc_param_key_names[svc_key]);
+			goto err;
+		}
+	}
+
+done:
+	struct dnr_options *tmp;
+	tmp = realloc(iface->dnr, (iface->dnr_cnt + 1) * sizeof(dnr));
+	if (!tmp)
+		goto err;
+
+	iface->dnr = tmp;
+	memcpy(iface->dnr + iface->dnr_cnt, &dnr, sizeof(dnr));
+	iface->dnr_cnt++;
+	return 0;
+
+err:
+	free(dnr.adn);
+	free(dnr.addr4);
+	free(dnr.addr6);
+	free(dnr.svc);
+	return -1;
 }
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
@@ -984,6 +1287,20 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_DNS]))
 		iface->ra_dns = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_DNR])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
+				continue;
+
+			if (parse_dnr_str(blobmsg_get_string(cur), iface))
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_DNR].name, iface->name);
+		}
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREF64])) {
 		const char *str = blobmsg_get_string(c);

@@ -182,6 +182,7 @@ enum {
 	IOV_SNTP_ADDR,
 	IOV_RELAY_MSG,
 	IOV_DHCPV4O6_SERVER,
+	IOV_DNR,
 	IOV_TOTAL
 };
 
@@ -383,7 +384,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	/* SNTP */
 	struct in6_addr *sntp_addr_ptr = iface->dhcpv6_sntp;
 	size_t sntp_cnt = 0;
-
 	struct {
 		uint16_t type;
 		uint16_t len;
@@ -393,35 +393,113 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	uint8_t *ntp_ptr = iface->dhcpv6_ntp;
 	uint16_t ntp_len = iface->dhcpv6_ntp_len;
 	size_t ntp_cnt = 0;
-
 	struct {
 		uint16_t type;
 		uint16_t len;
 	} ntp;
 
-	uint16_t otype, olen;
-	uint16_t *reqopts = NULL;
-	uint8_t *odata;
-	size_t reqopts_len = 0;
+	/* DNR */
+	struct dhcpv6_dnr {
+		uint16_t type;
+		uint16_t len;
+		uint16_t priority;
+		uint16_t adn_len;
+		uint8_t body[];
+	};
+	struct dhcpv6_dnr *dnrs = NULL;
+	size_t dnrs_len = 0;
 
+	uint16_t otype, olen;
+	uint8_t *odata;
+	uint16_t *reqopts = NULL;
+	size_t reqopts_cnt = 0;
+
+	/* FIXME: this should be merged with the second loop further down */
 	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
+		/* Requested options, array of uint16_t, RFC 8415 §21.7 */
 		if (otype == DHCPV6_OPT_ORO) {
-			reqopts_len = olen;
+			reqopts_cnt = olen / sizeof(uint16_t);
 			reqopts = (uint16_t *)odata;
+			break;
 		}
 	}
 
-	for(size_t opt = 0; opt < reqopts_len/2; opt++) {
-		if (iface->dhcpv6_sntp_cnt != 0 &&
-			DHCPV6_OPT_SNTP_SERVERS == ntohs(reqopts[opt])) {
+	/* Requested options */
+	for (size_t i = 0; i < reqopts_cnt; i++) {
+		uint16_t opt = ntohs(reqopts[i]);
+
+		switch (opt) {
+		case DHCPV6_OPT_SNTP_SERVERS:
 			sntp_cnt = iface->dhcpv6_sntp_cnt;
 			dhcpv6_sntp.type = htons(DHCPV6_OPT_SNTP_SERVERS);
 			dhcpv6_sntp.len = htons(sntp_cnt * sizeof(*sntp_addr_ptr));
-		} else if (iface->dhcpv6_ntp_cnt != 0 &&
-			DHCPV6_OPT_NTP_SERVERS == ntohs(reqopts[opt])) {
+			break;
+
+		case DHCPV6_OPT_NTP_SERVERS:
 			ntp_cnt = iface->dhcpv6_ntp_cnt;
 			ntp.type = htons(DHCPV6_OPT_NTP_SERVERS);
 			ntp.len = htons(ntp_len);
+			break;
+
+		case DHCPV6_OPT_DNR:
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+
+				if (dnr->addr6_cnt == 0 && dnr->addr4_cnt > 0)
+					continue;
+
+				dnrs_len += sizeof(struct dhcpv6_dnr);
+				dnrs_len += dnr->adn_len;
+
+				if (dnr->addr6_cnt > 0 || dnr->svc_len > 0) {
+					dnrs_len += sizeof(uint16_t);
+					dnrs_len += dnr->addr6_cnt * sizeof(*dnr->addr6);
+					dnrs_len += dnr->svc_len;
+				}
+			}
+
+			dnrs = alloca(dnrs_len);
+			uint8_t *pos = (uint8_t *)dnrs;
+
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+				struct dhcpv6_dnr *d6dnr = (struct dhcpv6_dnr *)pos;
+				uint16_t d6dnr_type_be = htons(DHCPV6_OPT_DNR);
+				uint16_t d6dnr_len = 2 * sizeof(uint16_t) + dnr->adn_len;
+				uint16_t d6dnr_len_be;
+				uint16_t d6dnr_priority_be = htons(dnr->priority);
+				uint16_t d6dnr_adn_len_be = htons(dnr->adn_len);
+
+				if (dnr->addr6_cnt == 0 && dnr->addr4_cnt > 0)
+					continue;
+
+				/* memcpy as the struct is unaligned */
+				memcpy(&d6dnr->type, &d6dnr_type_be, sizeof(d6dnr_type_be));
+				memcpy(&d6dnr->priority, &d6dnr_priority_be, sizeof(d6dnr_priority_be));
+				memcpy(&d6dnr->adn_len, &d6dnr_adn_len_be, sizeof(d6dnr_adn_len_be));
+
+				pos = d6dnr->body;
+				memcpy(pos, dnr->adn, dnr->adn_len);
+				pos += dnr->adn_len;
+
+				if (dnr->addr6_cnt > 0 || dnr->svc_len > 0) {
+					uint16_t addr6_len = dnr->addr6_cnt * sizeof(*dnr->addr6);
+					uint16_t addr6_len_be = htons(addr6_len);
+
+					memcpy(pos, &addr6_len_be, sizeof(addr6_len_be));
+					pos += sizeof(addr6_len_be);
+					memcpy(pos, dnr->addr6, addr6_len);
+					pos += addr6_len;
+					memcpy(pos, dnr->svc, dnr->svc_len);
+					pos += dnr->svc_len;
+
+					d6dnr_len += sizeof(addr6_len_be) + addr6_len + dnr->svc_len;
+				}
+
+				d6dnr_len_be = htons(d6dnr_len);
+				memcpy(&d6dnr->len, &d6dnr_len_be, sizeof(d6dnr_len_be));
+			}
+			break;
 		}
 	}
 
@@ -477,6 +555,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_NTP_ADDR] = {ntp_ptr, (ntp_cnt) ? ntp_len : 0},
 		[IOV_SNTP] = {&dhcpv6_sntp, (sntp_cnt) ? sizeof(dhcpv6_sntp) : 0},
 		[IOV_SNTP_ADDR] = {sntp_addr_ptr, sntp_cnt * sizeof(*sntp_addr_ptr)},
+		[IOV_DNR] = {dnrs, dnrs_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 	};
@@ -634,6 +713,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		dest.msg_type = DHCPV6_MSG_DHCPV4_RESPONSE;
 	} else
 #endif	/* DHCPV4_SUPPORT */
+
 	if (hdr->msg_type != DHCPV6_MSG_INFORMATION_REQUEST) {
 		ssize_t ialen = dhcpv6_ia_handle_IAs(pdbuf, sizeof(pdbuf), iface, addr, (const void *)hdr, opts_end);
 
@@ -651,7 +731,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DHCPV4O6_SERVER].iov_len +
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
 				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
-				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len -
+				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
+				      iov[IOV_DNR].iov_len -
 				      (4 + opts_end - opts));
 
 	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

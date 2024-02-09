@@ -396,6 +396,7 @@ enum {
 	IOV_RA_DNS,
 	IOV_RA_SEARCH,
 	IOV_RA_PREF64,
+	IOV_RA_DNR,
 	IOV_RA_ADV_INTERVAL,
 	IOV_RA_TOTAL,
 };
@@ -440,6 +441,15 @@ struct nd_opt_pref64_info {
 	uint32_t addr[3];
 };
 
+struct nd_opt_dnr_info {
+	uint8_t type;
+	uint8_t len;
+	uint16_t priority;
+	uint32_t lifetime;
+	uint16_t adn_len;
+	uint8_t body[];
+};
+
 /* Router Advert server mode */
 static int send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
@@ -451,10 +461,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
 	struct nd_opt_pref64_info *pref64 = NULL;
+	struct nd_opt_dnr_info *dnrs = NULL;
 	struct nd_opt_adv_interval adv_interval;
 	struct iovec iov[IOV_RA_TOTAL];
 	struct sockaddr_in6 dest;
-	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0;
+	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0, dnrs_sz = 0;
 	size_t pfxs_cnt = 0, routes_cnt = 0;
 	ssize_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
 	/* 
@@ -786,6 +797,51 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 pref64_out:
 	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
 	iov[IOV_RA_PREF64].iov_len = pref64_sz;
+
+	if (iface->dnr_cnt) {
+		size_t dnr_sz[iface->dnr_cnt];
+
+		for (unsigned i = 0; i < iface->dnr_cnt; i++) {
+			dnr_sz[i] = sizeof(struct nd_opt_dnr_info) + iface->dnr[i].adn_len;
+			if (iface->dnr[i].addr6_cnt > 0 || iface->dnr[i].svc_len > 0) {
+				dnr_sz[i] += 2 + iface->dnr[i].addr6_cnt * sizeof(struct in6_addr);
+				dnr_sz[i] += 2 + iface->dnr[i].svc_len;
+			}
+			dnr_sz[i] = (dnr_sz[i] + 7) & ~7;
+			dnrs_sz += dnr_sz[i];
+		}
+
+		/* dnrs are sized in multiples of 8, so each dnr should be aligned */
+		dnrs = alloca(dnrs_sz);
+		memset(dnrs, 0, dnrs_sz);
+
+		uint8_t *pos = (uint8_t *)dnrs;
+		for (unsigned i = 0; i < iface->dnr_cnt; pos += dnr_sz[i], i++) {
+			struct nd_opt_dnr_info *dnr = (struct nd_opt_dnr_info *)pos;
+			size_t dnr_addr6_sz = iface->dnr[i].addr6_cnt * sizeof(struct in6_addr);
+			uint8_t *tmp = dnr->body;
+
+			dnr->type = ND_OPT_DNR;
+			dnr->len = dnr_sz[i] / 8;
+			dnr->priority = htons(iface->dnr[i].priority);
+			dnr->lifetime = htonl(lifetime);
+
+			dnr->adn_len = htons(iface->dnr[i].adn_len);
+			memcpy(tmp, iface->dnr[i].adn, iface->dnr[i].adn_len);
+			tmp += iface->dnr[i].adn_len;
+
+			*(tmp++) = dnr_addr6_sz >> 8;
+			*(tmp++) = dnr_addr6_sz & 0xff;
+			memcpy(tmp, iface->dnr[i].addr6, dnr_addr6_sz);
+			tmp += dnr_addr6_sz;
+
+			*(tmp++) = iface->dnr[i].svc_len >> 8;
+			*(tmp++) = iface->dnr[i].svc_len & 0xff;
+			memcpy(tmp, iface->dnr[i].svc, iface->dnr[i].svc_len);
+		}
+	}
+	iov[IOV_RA_DNR].iov_base = (char *)dnrs;
+	iov[IOV_RA_DNR].iov_len = dnrs_sz;
 
 	/*
 	 * RFC7084 § 4.3 :

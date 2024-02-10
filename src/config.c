@@ -1314,10 +1314,50 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	if ((c = tb[IFACE_ATTR_RA_PREF64]))
+	if ((c = tb[IFACE_ATTR_RA_PREF64])) {
+		struct in6_addr addr;
+
 		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),
-					  &iface->pref64_addr,
-					  &iface->pref64_length);
+					  &addr, &iface->pref64_length);
+
+		iface->pref64_prefix[0] = addr.s6_addr32[0];
+		switch (iface->pref64_length) {
+		case 96:
+			iface->pref64_plc = 0;
+			iface->pref64_prefix[1] = addr.s6_addr32[1];
+			iface->pref64_prefix[2] = addr.s6_addr32[2];
+			break;
+		case 64:
+			iface->pref64_plc = 1;
+			iface->pref64_prefix[1] = addr.s6_addr32[1];
+			iface->pref64_prefix[2] = 0;
+			break;
+		case 56:
+			iface->pref64_plc = 2;
+			iface->pref64_prefix[1] = addr.s6_addr32[1] & htonl(0xffffff00);
+			iface->pref64_prefix[2] = 0;
+			break;
+		case 48:
+			iface->pref64_plc = 3;
+			iface->pref64_prefix[1] = addr.s6_addr32[1] & htonl(0xffff0000);
+			iface->pref64_prefix[2] = 0;
+			break;
+		case 40:
+			iface->pref64_plc = 4;
+			iface->pref64_prefix[1] = addr.s6_addr32[1] & htonl(0xff000000);
+			iface->pref64_prefix[2] = 0;
+			break;
+		case 32:
+			iface->pref64_plc = 5;
+			iface->pref64_prefix[1] = 0;
+			iface->pref64_prefix[2] = 0;
+			break;
+		default:
+			syslog(LOG_WARNING, "Invalid PREF64 prefix size (%d), "
+			       "ignoring ra_pref64 option!", iface->pref64_length);
+			iface->pref64_length = 0;
+		}
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
 		const char *prio = blobmsg_get_string(c);

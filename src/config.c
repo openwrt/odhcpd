@@ -1314,23 +1314,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	if ((c = tb[IFACE_ATTR_RA_PREF64])) {
-		const char *str = blobmsg_get_string(c);
-		char *astr = malloc(strlen(str) + 1);
-		char *delim;
-		int l;
-
-		if (!astr || !strcpy(astr, str) ||
-				(delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
-				sscanf(delim, "%i", &l) == 0 || l > 128 ||
-				inet_pton(AF_INET6, astr, &iface->pref64_addr) == 0)
-			iface->pref64_length = 0;
-		else
-			iface->pref64_length = l;
-
-		if (astr)
-			free(astr);
-	}
+	if ((c = tb[IFACE_ATTR_RA_PREF64]))
+		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),
+					  &iface->pref64_addr,
+					  &iface->pref64_length);
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
 		const char *prio = blobmsg_get_string(c);
@@ -1361,23 +1348,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);
 
-	if ((c = tb[IFACE_ATTR_PREFIX_FILTER])) {
-		const char *str = blobmsg_get_string(c);
-		char *astr = malloc(strlen(str) + 1);
-		char *delim;
-		int l;
-
-		if (!astr || !strcpy(astr, str) ||
-				(delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
-				sscanf(delim, "%i", &l) == 0 || l > 128 ||
-				inet_pton(AF_INET6, astr, &iface->pio_filter_addr) == 0)
-			iface->pio_filter_length = 0;
-		else
-			iface->pio_filter_length = l;
-
-		if (astr)
-			free(astr);
-	}
+	if ((c = tb[IFACE_ATTR_PREFIX_FILTER]))
+		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),
+					  &iface->pio_filter_addr,
+					  &iface->pio_filter_length);
 
 	if (overwrite && (c = tb[IFACE_ATTR_NTP])) {
 		struct blob_attr *cur;

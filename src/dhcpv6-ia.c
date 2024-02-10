@@ -666,15 +666,17 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 
 		char *saveptr;
 		for (char *line = strtok_r(data, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
-			c->managed = realloc(c->managed, (c->managed_size + 1) * sizeof(*c->managed));
-			struct odhcpd_ipaddr *n = &c->managed[c->managed_size];
+			struct odhcpd_ipaddr *n;
+			char *saveptr2, *x;
 
-			char *saveptr2, *x = strtok_r(line, "/", &saveptr2);
-			if (!x || inet_pton(AF_INET6, x, &n->addr) < 1)
+			n = realloc(c->managed, (c->managed_size + 1) * sizeof(*c->managed));
+			if (!n)
 				continue;
+			c->managed = n;
+			n = &c->managed[c->managed_size];
 
-			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%hhu", &n->prefix) < 1)
+			x = strtok_r(line, ",", &saveptr2);
+			if (odhcpd_parse_addr6_prefix(x, &n->addr.in6, &n->prefix))
 				continue;
 
 			x = strtok_r(NULL, ",", &saveptr2);

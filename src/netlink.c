@@ -807,12 +807,6 @@ static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 		return NL_SKIP;
 
 	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
-
-	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
-	if (!addrs)
-		return NL_SKIP;
-
-
 	memcpy(&addrs[ctxt->ret].addr, &addr, sizeof(addrs[ctxt->ret].addr));
 
 	if (ifa->ifa_flags & IFA_F_TENTATIVE)

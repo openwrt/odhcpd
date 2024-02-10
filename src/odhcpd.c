@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <syslog.h>
 #include <alloca.h>
+#include <inttypes.h>
 
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -536,6 +537,39 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits)
 		uint8_t mask = (1 << (8 - bits)) - 1;
 		a[bytes] = (a[bytes] & mask) | ((~mask) & b[bytes]);
 	}
+}
+
+
+int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix)
+{
+	size_t len;
+	char *delim;
+
+	*prefix = 0;
+	if (!str)
+		return -1;
+
+	len = strlen(str);
+
+	char buf[len + 1];
+	memcpy(buf, str, len);
+	buf[len] = '\0';
+
+	delim = memchr(buf, '/', len);
+	if (!delim)
+		return -1;
+
+	*(delim++) = '\0';
+
+	if (inet_pton(AF_INET6, buf, addr) != 1)
+		return -1;
+
+	if (sscanf(delim, "%" SCNu8, prefix) != 1 || *prefix > 128) {
+		*prefix = 0;
+		return -1;
+	}
+
+	return 0;
 }
 
 

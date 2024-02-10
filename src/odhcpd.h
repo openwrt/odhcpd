@@ -453,6 +453,7 @@ const char *odhcpd_print_mac(const uint8_t *mac, const size_t len);
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
+int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 int odhcpd_netmask2bitlen(bool v6, void *mask);
 bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
 bool odhcpd_valid_hostname(const char *name);

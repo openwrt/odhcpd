@@ -330,7 +330,8 @@ struct interface {
 	bool ra_useleasetime;
 	bool ra_dns;
 	uint8_t pref64_length;
-	struct in6_addr pref64_addr;
+	uint8_t pref64_plc;
+	uint32_t pref64_prefix[3];
 	bool no_dynamic_dhcp;
 	bool have_link_local;
 	uint8_t pio_filter_length;

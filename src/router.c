@@ -438,7 +438,7 @@ struct nd_opt_pref64_info {
 	uint8_t type;
 	uint8_t len;
 	uint16_t lifetime_plc;
-	uint32_t addr[3];
+	uint32_t prefix[3];
 };
 
 struct nd_opt_dnr_info {
@@ -742,59 +742,15 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (iface->pref64_length) {
 		/* RFC 8781 § 4.1 rounding up lifetime to multiple of 8 */
 		uint16_t pref64_lifetime = lifetime < (UINT16_MAX - 7) ? lifetime + 7 : UINT16_MAX;
-		uint8_t prefix_length_code;
-		uint32_t mask_a1, mask_a2;
-
-		switch (iface->pref64_length) {
-		case 96:
-			prefix_length_code = 0;
-			mask_a1 = 0xffffffff;
-			mask_a2 = 0xffffffff;
-			break;
-		case 64:
-			prefix_length_code = 1;
-			mask_a1 = 0xffffffff;
-			mask_a2 = 0x00000000;
-			break;
-		case 56:
-			prefix_length_code = 2;
-			mask_a1 = 0xffffff00;
-			mask_a2 = 0x00000000;
-			break;
-		case 48:
-			prefix_length_code = 3;
-			mask_a1 = 0xffff0000;
-			mask_a2 = 0x00000000;
-			break;
-		case 40:
-			prefix_length_code = 4;
-			mask_a1 = 0xff000000;
-			mask_a2 = 0x00000000;
-			break;
-		case 32:
-			prefix_length_code = 5;
-			mask_a1 = 0x00000000;
-			mask_a2 = 0x00000000;
-			break;
-		default:
-			syslog(LOG_WARNING, "Invalid PREF64 prefix size (%d), "
-					"ignoring ra_pref64 option!", iface->pref64_length);
-			goto pref64_out;
-			break;
-		}
 
 		pref64_sz = sizeof(*pref64);
 		pref64 = alloca(pref64_sz);
-		memset(pref64, 0, pref64_sz);
 		pref64->type = ND_OPT_PREF64;
 		pref64->len = 2;
 		pref64->lifetime_plc = htons((0xfff8 & pref64_lifetime) |
-						(0x7 & prefix_length_code));
-		pref64->addr[0] = iface->pref64_addr.s6_addr32[0];
-		pref64->addr[1] = iface->pref64_addr.s6_addr32[1] & htonl(mask_a1);
-		pref64->addr[2] = iface->pref64_addr.s6_addr32[2] & htonl(mask_a2);
+					        (0x7 & iface->pref64_plc));
+		memcpy(pref64->prefix, iface->pref64_prefix, sizeof(pref64->prefix));
 	}
-pref64_out:
 	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
 	iov[IOV_RA_PREF64].iov_len = pref64_sz;
 

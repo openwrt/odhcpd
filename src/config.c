@@ -938,13 +938,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	addrs_len = netlink_get_interface_linklocal(iface->ifindex, &addrs);
 	if (addrs_len > 0) {
 		for (ssize_t i = 0; i < addrs_len; i++) {
-			struct odhcpd_ipaddr *addr = &addrs[i];
-
-			if (!addr->tentative) {
+			if (!addrs[i].tentative) {
 				iface->have_link_local = true;
 				break;
 			}
 		}
+		free(addrs);
 	}
 
 	iface->inuse = true;

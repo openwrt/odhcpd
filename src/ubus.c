@@ -3,6 +3,7 @@
 #include <libubox/uloop.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <inttypes.h>
 
 #include <libubox/utils.h>
 
@@ -49,13 +50,11 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
 			blobmsg_add_u8(&b, "accept-reconf-nonce", c->accept_fr_nonce);
 
-			if (c->reqopts) {
-				int opt = 0;
-				int chars = 0;
-				buf = blobmsg_alloc_string_buffer(&b, "reqopts", strlen(c->reqopts) * 4 + 1);
-				for(; c->reqopts[opt]; opt++)
-					chars += snprintf(buf + chars, 6, "%u,", (uint8_t)c->reqopts[opt]);
-				buf[chars - 1] = '\0';
+			if (c->reqopts_len > 0) {
+				buf = blobmsg_alloc_string_buffer(&b, "reqopts", c->reqopts_len * 4 + 1);
+				for (size_t i = 0; i < c->reqopts_len; i++)
+					buf += snprintf(buf, 5, "%" PRIu8 ",", c->reqopts[i]);
+				buf[-1] = '\0';
 				blobmsg_add_string_buffer(&b);
 			}
 

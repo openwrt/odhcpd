@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <resolv.h>
 #include <limits.h>
+#include <alloca.h>
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/ip.h>
@@ -53,7 +54,7 @@ static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid,
-		const char *reqopts, const size_t reqopts_len);
+		const uint8_t *reqopts, const size_t reqopts_len);
 
 static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
@@ -654,10 +655,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	uint32_t reqaddr = INADDR_ANY;
 	uint32_t leasetime = 0;
-	size_t hostname_len = 0;
-	size_t reqopts_len = 0;
 	char hostname[256];
-	char reqopts[256];
+	size_t hostname_len = 0;
+	uint8_t *reqopts = NULL;
+	size_t reqopts_len = 0;
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
@@ -669,8 +670,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			reqmsg = opt->data[0];
 		else if (opt->type == DHCPV4_OPT_REQOPTS && opt->len > 0) {
 			reqopts_len = opt->len;
+			reqopts = alloca(reqopts_len);
 			memcpy(reqopts, opt->data, reqopts_len);
-			reqopts[reqopts_len] = 0;
 		} else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
 			hostname_len = opt->len;
 			memcpy(hostname, opt->data, hostname_len);
@@ -850,8 +851,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	if (a && a->reqopts && iface->dhcpv4_ntp_cnt != 0) {
-		for(size_t opts = 0; a->reqopts[opts]; opts++) {
+	if (a && iface->dhcpv4_ntp_cnt != 0) {
+		for (size_t opts = 0; opts < a->reqopts_len; opts++) {
 			if (a->reqopts[opts] == DHCPV4_OPT_NTPSERVER) {
 				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
 						4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
@@ -1035,7 +1036,7 @@ static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
 	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid, const char* reqopts, const size_t reqopts_len)
+	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
@@ -1127,10 +1128,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				}
 
 				if (reqopts_len > 0) {
-					a->reqopts = realloc(a->reqopts, reqopts_len + 1);
+					a->reqopts = realloc(a->reqopts, reqopts_len);
 					if (a->reqopts) {
 						memcpy(a->reqopts, reqopts, reqopts_len);
-						a->reqopts[reqopts_len] = 0;
+						a->reqopts_len = reqopts_len;
 					}
 				}
 

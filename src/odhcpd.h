@@ -231,7 +231,9 @@ struct dhcp_assignment {
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
-	char *reqopts;
+	uint8_t *reqopts;
+	size_t reqopts_len;
+
 #define hwaddr		mac
 	uint8_t mac[6];
 

@@ -356,18 +356,14 @@ static double parse_leasetime(struct blob_attr *c) {
 	double time = strcmp(val, "infinite") ? strtod(val, &endptr) : UINT32_MAX;
 
 	if (time && endptr && endptr[0]) {
-		if (endptr[0] == 's')
-			time *= 1;
-		else if (endptr[0] == 'm')
-			time *= 60;
-		else if (endptr[0] == 'h')
-			time *= 3600;
-		else if (endptr[0] == 'd')
-			time *= 24 * 3600;
-		else if (endptr[0] == 'w')
-			time *= 7 * 24 * 3600;
-		else
-			goto err;
+		switch(endptr[0]) {
+			case 's': break;
+			case 'm': time *= 60; break;
+			case 'h': time *= 3600; break;
+			case 'd': time *= 24 * 3600; break;
+			case 'w': time *= 7 * 24 * 3600; break;
+			default: goto err;
+		}
 	}
 
 	if (time < 60)

@@ -656,9 +656,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 		if (default_route) {
 			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-					    "on %s thus we don't announce a default route by overriding ra_lifetime!", iface->name);
+					    "on %s thus we announce no default route by overriding ra_lifetime to 0!", iface->name);
 		} else {
-			syslog(LOG_WARNING, "No default route present, overriding ra_lifetime!");
+			syslog(LOG_WARNING, "No default route present, overriding ra_lifetime to 0!");
 		}
 	}
 

@@ -116,7 +116,7 @@ domain			list	<local search domain>	Search domains to announce
 leasetime		string	12h			DHCPv4 address leasetime
 start			integer	100			DHCPv4 pool start
 limit			integer	150			DHCPv4 pool size
-preferred_lifetime	string	12h			Value for the preferred lifetime
+preferred_lifetime	string	7d			Value for the preferred lifetime
 							for a prefix
 ra_default		integer	0			Override default route
 			0: default, 1: ignore no public address, 2: ignore all

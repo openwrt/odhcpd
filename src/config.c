@@ -215,7 +215,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ndp = MODE_DISABLED;
 	iface->learn_routes = 1;
 	iface->dhcp_leasetime = 43200;
-	iface->preferred_lifetime = 43200;
+	iface->preferred_lifetime = 604800; /* rfc4861#section-6.2.1: AdvPreferredLifetime 7 days */
 	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
 	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
 	iface->dhcpv6_assignall = true;

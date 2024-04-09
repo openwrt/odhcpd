@@ -892,6 +892,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);
 
+	/* IFACE_ATTR_RA_MANAGEMENT aka ra_management is deprecated since 2019 */
 	if (!tb[IFACE_ATTR_RA_FLAGS] && !tb[IFACE_ATTR_RA_SLAAC] &&
 	    (c = tb[IFACE_ATTR_RA_MANAGEMENT])) {
 		switch (blobmsg_get_u32(c)) {

@@ -126,7 +126,7 @@ struct netevent_handler {
 struct odhcpd_ipaddr {
 	union if_addr addr;
 	uint8_t prefix;
-	uint32_t preferred;
+	uint32_t preferred_lt;
 	uint32_t valid;
 
 	union {

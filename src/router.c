@@ -334,7 +334,7 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 	return found_default;
 }
 
-static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
+static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_lifetime,
 			     uint32_t *maxival)
 {
 	uint32_t minival = iface->ra_mininterval;
@@ -342,8 +342,11 @@ static int calc_adv_interval(struct interface *iface, uint32_t minvalid,
 
 	*maxival = iface->ra_maxinterval;
 
-	if (*maxival > minvalid/3)
-		*maxival = minvalid/3;
+	/* rfc4861#section-6.2.1 : AdvDefaultLifetime Default: 3 * MaxRtrAdvInterval 
+	therefore max interval shall be no greater than 1/3 of the lowest valid lease
+	time of all known prefixes */
+	if (*maxival > lowest_found_lifetime/3)
+		*maxival = lowest_found_lifetime/3;
 
 	if (*maxival > MaxRtrAdvInterval)
 		*maxival = MaxRtrAdvInterval;
@@ -452,7 +455,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0;
 	size_t pfxs_cnt = 0, routes_cnt = 0;
 	ssize_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
-	uint32_t minvalid = UINT32_MAX, maxival, lifetime;
+	/* lowest_found_lifetime stores the lowest lifetime of all prefixes;
+	necessary to find shortest adv interval necessary for shortest lived prefix */
+	uint32_t lowest_found_lifetime = UINT32_MAX, maxival, lifetime;
 	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
 	bool default_route = false;
 	bool valid_prefix = false;
@@ -610,8 +615,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			preferred_lt = valid_lt;
 		}
 
-		if (minvalid > valid_lt)
-			minvalid = valid_lt;
+		if (lowest_found_lifetime > valid_lt)
+			lowest_found_lifetime = valid_lt;
 
 		if ((!IN6_IS_ADDR_ULA(&addr->addr.in6) || iface->default_router) && valid_lt)
 			valid_prefix = true;
@@ -636,7 +641,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_PFXS].iov_len = pfxs_cnt * sizeof(*pfxs);
 
 	/* Calculate periodic transmit */
-	msecs = calc_adv_interval(iface, minvalid, &maxival);
+	msecs = calc_adv_interval(iface, lowest_found_lifetime, &maxival);
 	lifetime = calc_ra_lifetime(iface, maxival);
 
 	if (!iface->have_link_local) {

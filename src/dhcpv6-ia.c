@@ -226,7 +226,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 
 	for (size_t i = 0; i < addrlen; ++i) {
 		struct in6_addr addr;
-		uint32_t preferred_lt, valid;
+		uint32_t preferred_lt, valid_lt;
 		int prefix = c->managed ? addrs[i].prefix : c->length;
 
 		if (!valid_addr(&addrs[i], now))
@@ -243,7 +243,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 
 		addr = addrs[i].addr.in6;
 		preferred_lt = addrs[i].preferred_lt;
-		valid = addrs[i].valid;
+		valid_lt = addrs[i].valid_lt;
 
 		if (c->flags & OAF_DHCPV6_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
@@ -268,13 +268,13 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		if (preferred_lt != UINT32_MAX)
 			preferred_lt -= now;
 
-		if (valid > (uint32_t)c->valid_until)
-			valid = c->valid_until;
+		if (valid_lt > (uint32_t)c->valid_until)
+			valid_lt = c->valid_until;
 
-		if (valid != UINT32_MAX)
-			valid -= now;
+		if (valid_lt != UINT32_MAX)
+			valid_lt -= now;
 
-		func(&addr, prefix, preferred_lt, valid, arg);
+		func(&addr, prefix, preferred_lt, valid_lt, arg);
 	}
 }
 
@@ -289,7 +289,7 @@ struct write_ctxt {
 };
 
 static void dhcpv6_write_ia_addrhosts(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
-				_unused uint32_t valid, void *arg)
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -309,7 +309,7 @@ static void dhcpv6_write_ia_addrhosts(struct in6_addr *addr, int prefix, _unused
 }
 
 static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
-				_unused uint32_t valid, void *arg)
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
@@ -682,10 +682,10 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 				continue;
 
 			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%u", &n->valid) < 1)
+			if (sscanf(x, "%u", &n->valid_lt) < 1)
 				continue;
 
-			if (n->preferred_lt > n->valid)
+			if (n->preferred_lt > n->valid_lt)
 				continue;
 
 			if (UINT32_MAX - now < n->preferred_lt)
@@ -693,10 +693,10 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 			else
 				n->preferred_lt += now;
 
-			if (UINT32_MAX - now < n->valid)
-				n->valid = UINT32_MAX;
+			if (UINT32_MAX - now < n->valid_lt)
+				n->valid_lt = UINT32_MAX;
 			else
-				n->valid += now;
+				n->valid_lt += now;
 
 			n->dprefix = 0;
 
@@ -1047,14 +1047,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			preferred_lt = iface->preferred_lifetime;
 		}
 
-		uint32_t valid = leasetime;
+		uint32_t valid_lt = leasetime;
 
 		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
 		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
 		size_t m = get_preferred_addr(addrs, addrlen);
 
 		for (size_t i = 0; i < addrlen; ++i) {
-			uint32_t prefix_preferred_lt, prefix_valid;
+			uint32_t prefix_preferred_lt, prefix_valid_lt;
 
 			if (!valid_addr(&addrs[i], now))
 				continue;
@@ -1069,7 +1069,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			}
 
 			prefix_preferred_lt = addrs[i].preferred_lt;
-			prefix_valid = addrs[i].valid;
+			prefix_valid_lt = addrs[i].valid_lt;
 
 			if (prefix_preferred_lt != UINT32_MAX)
 				prefix_preferred_lt -= now;
@@ -1077,21 +1077,21 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (prefix_preferred_lt > preferred_lt)
 				prefix_preferred_lt = preferred_lt;
 
-			if (prefix_valid != UINT32_MAX)
-				prefix_valid -= now;
+			if (prefix_valid_lt != UINT32_MAX)
+				prefix_valid_lt -= now;
 
-			if (prefix_valid > leasetime)
-				prefix_valid = leasetime;
+			if (prefix_valid_lt > leasetime)
+				prefix_valid_lt = leasetime;
 
-			if (prefix_preferred_lt > prefix_valid)
-				prefix_preferred_lt = prefix_valid;
+			if (prefix_preferred_lt > prefix_valid_lt)
+				prefix_preferred_lt = prefix_valid_lt;
 
 			if (a->flags & OAF_DHCPV6_PD) {
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
 					.len = htons(sizeof(o_ia_p) - 4),
 					.preferred_lt = htonl(prefix_preferred_lt),
-					.valid = htonl(prefix_valid),
+					.valid_lt = htonl(prefix_valid_lt),
 					.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
 					.addr = addrs[i].addr.in6,
 				};
@@ -1115,7 +1115,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.len = htons(sizeof(o_ia_a) - 4),
 					.addr = addrs[i].addr.in6,
 					.preferred_lt = htonl(prefix_preferred_lt),
-					.valid = htonl(prefix_valid)
+					.valid_lt = htonl(prefix_valid_lt)
 				};
 
 				o_ia_a.addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
@@ -1136,14 +1136,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				if (prefix_preferred_lt < preferred_lt)
 					preferred_lt = prefix_preferred_lt;
 
-				if (prefix_valid < valid)
-					valid = prefix_valid;
+				if (prefix_valid_lt < valid_lt)
+					valid_lt = prefix_valid_lt;
 			}
 		}
 
 		if (!INFINITE_VALID(a->valid_until))
 			/* UINT32_MAX is considered as infinite leasetime */
-			a->valid_until = (valid == UINT32_MAX) ? 0 : valid + now;
+			a->valid_until = (valid_lt == UINT32_MAX) ? 0 : valid_lt + now;
 
 		if (!INFINITE_VALID(a->preferred_until))
 			/* UINT32_MAX is considered as infinite leasetime */
@@ -1212,7 +1212,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						.type = htons(DHCPV6_OPT_IA_PREFIX),
 						.len = htons(sizeof(o_ia_p) - 4),
 						.preferred_lt = 0,
-						.valid = 0,
+						.valid_lt = 0,
 						.prefix = ia_p->prefix,
 						.addr = ia_p->addr,
 					};
@@ -1228,7 +1228,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						.len = htons(sizeof(o_ia_a) - 4),
 						.addr = ia_a->addr,
 						.preferred_lt = 0,
-						.valid = 0,
+						.valid_lt = 0,
 					};
 
 					if (buflen < ia_len + sizeof(o_ia_a))
@@ -1253,7 +1253,7 @@ struct log_ctxt {
 };
 
 static void dhcpv6_log_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
-				_unused uint32_t valid, void *arg)
+				_unused uint32_t valid_lt, void *arg)
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
 	char addrbuf[INET6_ADDRSTRLEN];

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <resolv.h>
 #include <limits.h>
+#include <alloca.h>
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/ip.h>
@@ -53,7 +54,7 @@ static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid,
-		const char *reqopts, const size_t reqopts_len);
+		const uint8_t *reqopts, const size_t reqopts_len);
 
 static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
@@ -607,6 +608,14 @@ static void handle_dhcpv4(void *addr, void *data, size_t len,
 	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
 }
 
+/* DNR */
+struct dhcpv4_dnr {
+	uint16_t len;
+	uint16_t priority;
+	uint8_t adn_len;
+	uint8_t body[];
+};
+
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
@@ -654,10 +663,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	uint32_t reqaddr = INADDR_ANY;
 	uint32_t leasetime = 0;
-	size_t hostname_len = 0;
-	size_t reqopts_len = 0;
 	char hostname[256];
-	char reqopts[256];
+	size_t hostname_len = 0;
+	uint8_t *reqopts = NULL;
+	size_t reqopts_len = 0;
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
@@ -669,8 +678,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			reqmsg = opt->data[0];
 		else if (opt->type == DHCPV4_OPT_REQOPTS && opt->len > 0) {
 			reqopts_len = opt->len;
+			reqopts = alloca(reqopts_len);
 			memcpy(reqopts, opt->data, reqopts_len);
-			reqopts[reqopts_len] = 0;
 		} else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
 			hostname_len = opt->len;
 			memcpy(hostname, opt->data, hostname_len);
@@ -850,12 +859,73 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	if (a && a->reqopts && iface->dhcpv4_ntp_cnt != 0) {
-		for(size_t opts = 0; a->reqopts[opts]; opts++) {
-			if (a->reqopts[opts] == DHCPV4_OPT_NTPSERVER) {
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
-						4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
+		switch (a->reqopts[opt]) {
+		case DHCPV4_OPT_NTPSERVER:
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
+				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+			break;
+
+		case DHCPV4_OPT_DNR:
+			struct dhcpv4_dnr *dnrs;
+			size_t dnrs_len = 0;
+
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+
+				if (dnr->addr4_cnt == 0 && dnr->addr6_cnt > 0)
+					continue;
+
+				dnrs_len += sizeof(struct dhcpv4_dnr);
+				dnrs_len += dnr->adn_len;
+
+				if (dnr->addr4_cnt > 0 || dnr->svc_len > 0) {
+					dnrs_len += sizeof(uint8_t);
+					dnrs_len += dnr->addr4_cnt * sizeof(*dnr->addr4);
+					dnrs_len += dnr->svc_len;
+				}
 			}
+
+			dnrs = alloca(dnrs_len);
+			uint8_t *pos = (uint8_t *)dnrs;
+
+			for (size_t i = 0; i < iface->dnr_cnt; i++) {
+				struct dnr_options *dnr = &iface->dnr[i];
+				struct dhcpv4_dnr *d4dnr = (struct dhcpv4_dnr *)pos;
+				uint16_t d4dnr_len = sizeof(uint16_t) + sizeof(uint8_t) + dnr->adn_len;
+				uint16_t d4dnr_priority_be = htons(dnr->priority);
+				uint16_t d4dnr_len_be;
+
+				if (dnr->addr4_cnt == 0 && dnr->addr6_cnt > 0)
+					continue;
+
+				/* memcpy as the struct is unaligned */
+				memcpy(&d4dnr->priority, &d4dnr_priority_be, sizeof(d4dnr_priority_be));
+
+				d4dnr->adn_len = dnr->adn_len;
+				pos = d4dnr->body;
+				memcpy(pos, dnr->adn, dnr->adn_len);
+				pos += dnr->adn_len;
+
+				if (dnr->addr4_cnt > 0 || dnr->svc_len > 0) {
+					uint8_t addr4_len = dnr->addr4_cnt * sizeof(*dnr->addr4);
+
+					*(pos++) = addr4_len;
+					memcpy(pos, dnr->addr4, addr4_len);
+					pos += addr4_len;
+					memcpy(pos, dnr->svc, dnr->svc_len);
+					pos += dnr->svc_len;
+
+					d4dnr_len += sizeof(addr4_len) + addr4_len + dnr->svc_len;
+				}
+
+				d4dnr_len_be = htons(d4dnr_len);
+				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
+			}
+
+			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
+				   dnrs_len, dnrs);
+			break;
 		}
 	}
 
@@ -1035,7 +1105,7 @@ static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
 	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid, const char* reqopts, const size_t reqopts_len)
+	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
@@ -1127,10 +1197,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				}
 
 				if (reqopts_len > 0) {
-					a->reqopts = realloc(a->reqopts, reqopts_len + 1);
+					a->reqopts = realloc(a->reqopts, reqopts_len);
 					if (a->reqopts) {
 						memcpy(a->reqopts, reqopts, reqopts_len);
-						a->reqopts[reqopts_len] = 0;
+						a->reqopts_len = reqopts_len;
 					}
 				}
 

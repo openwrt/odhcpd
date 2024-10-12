@@ -142,6 +142,11 @@ struct odhcpd_ipaddr {
 	};
 };
 
+struct odhcpd_ip6prefix {
+	struct in6_addr addr;
+	uint8_t len;
+};
+
 enum odhcpd_mode {
 	MODE_DISABLED,
 	MODE_SERVER,
@@ -167,6 +172,10 @@ struct config {
 	char *dhcp_statefile;
 	char *dhcp_hostsfile;
 	int log_level;
+
+	// Global RA settings
+	struct odhcpd_ip6prefix *ra_addroutes;
+	size_t ra_addroutes_cnt;
 };
 
 
@@ -306,6 +315,8 @@ struct interface {
 	bool ra_dns;
 	uint8_t pref64_length;
 	struct in6_addr pref64_addr;
+	struct odhcpd_ip6prefix *ra_addroutes;
+	size_t ra_addroutes_cnt;
 	bool no_dynamic_dhcp;
 	bool have_link_local;
 	uint8_t pio_filter_length;

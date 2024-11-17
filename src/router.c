@@ -350,16 +350,6 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 	if (*maxival > lowest_found_lifetime/3)
 		*maxival = lowest_found_lifetime/3;
 
-	if (*maxival > MaxRtrAdvInterval)
-		*maxival = MaxRtrAdvInterval;
-	else if (*maxival < 4)
-		*maxival = 4;
-
-	if (minival < MinRtrAdvInterval)
-		minival = MinRtrAdvInterval;
-	else if (minival > (*maxival * 3)/4)
-		minival = (*maxival >= 9 ? *maxival/3 : *maxival);
-
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
 			minival*1000;

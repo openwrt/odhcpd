@@ -18,6 +18,7 @@
 #include <libubox/vlist.h>
 
 #include "odhcpd.h"
+#include "router.h"
 
 static struct blob_buf b;
 static int reload_pipe[2] = { -1, -1 };
@@ -255,8 +256,12 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra_flags = ND_RA_FLAG_OTHER;
 	iface->ra_slaac = true;
 	iface->ra_maxinterval = 600;
+	/*
+	 * RFC4861: MinRtrAdvInterval: Default: 0.33 * MaxRtrAdvInterval If
+	 * MaxRtrAdvInterval >= 9 seconds; otherwise, the Default is MaxRtrAdvInterval.
+	 */
 	iface->ra_mininterval = iface->ra_maxinterval/3;
-	iface->ra_lifetime = -1;
+	iface->ra_lifetime = 3 * iface->ra_maxinterval; /* RFC4861: AdvDefaultLifetime: Default: 3 * MaxRtrAdvInterval */
 	iface->ra_dns = true;
 }
 

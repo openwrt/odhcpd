@@ -1241,11 +1241,13 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);
 
-		if (ra_reachabletime <= 3600000)
-			iface->ra_reachabletime = ra_reachabletime;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name);
+		/* rfc4861#section-6.2.1 : AdvReachableTime : 
+		 * MUST be no greater than 3,600,000 msec
+		 */
+		iface->ra_reachabletime = ra_reachabletime <= 3600000 ? ra_reachabletime : 3600000;
+		if(ra_reachabletime > 3600000)
+			syslog(LOG_ERR, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name, iface->ra_reachabletime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {

@@ -32,7 +32,7 @@ struct icmpv6_opt {
 
 #define MaxInitialRtrAdvInterval	16
 #define MaxInitialRtAdvs		3
-#define MaxRtrAdvInterval		1800
+/* #define MaxRtrAdvInterval		1800 */
 /* RFC8319 §4
 	This document updates §4.2 and 6.2.1 of [RFC4861] to change
 	the following router configuration variables.

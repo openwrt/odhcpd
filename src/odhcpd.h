@@ -249,6 +249,9 @@ struct dhcp_assignment {
 struct dnr_options {
 	uint16_t priority;
 
+	uint32_t lifetime;
+	bool lifetime_set;
+
 	uint8_t *adn;
 	uint16_t adn_len;
 

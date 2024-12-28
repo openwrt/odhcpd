@@ -661,6 +661,19 @@ static int parse_dnr_str(char *str, struct interface *iface)
 		svc_key = strtok_r(svc_tok, "=", &saveptr2);
 		svc_val = strtok_r(NULL, "=", &saveptr2);
 
+		if (!strcmp(svc_key, "_lifetime")) {
+			uint32_t lifetime;
+
+			if (!svc_val || sscanf(svc_val, "%" SCNu32, &lifetime) != 1) {
+				syslog(LOG_ERR, "Invalid value '%s' for _lifetime", svc_val ? svc_val : "");
+				goto err;
+			}
+
+			dnr.lifetime = lifetime;
+			dnr.lifetime_set = true;
+			continue;
+		}
+
 		for (svc_id = 0; svc_id < DNR_SVC_MAX; svc_id++)
 			if (!strcmp(svc_key, svc_param_key_names[svc_id]))
 				break;

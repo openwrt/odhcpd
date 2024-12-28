@@ -824,7 +824,10 @@ pref64_out:
 			dnr->type = ND_OPT_DNR;
 			dnr->len = dnr_sz[i] / 8;
 			dnr->priority = htons(iface->dnr[i].priority);
-			dnr->lifetime = htonl(lifetime);
+			if (iface->dnr[i].lifetime_set)
+				dnr->lifetime = htonl(iface->dnr[i].lifetime);
+			else
+				dnr->lifetime = htonl(lifetime);
 
 			dnr->adn_len = htons(iface->dnr[i].adn_len);
 			memcpy(tmp, iface->dnr[i].adn, iface->dnr[i].adn_len);

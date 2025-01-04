@@ -18,6 +18,7 @@
 #include <libubox/vlist.h>
 
 #include "odhcpd.h"
+#include "dhcpv6-pxe.h"
 
 static struct blob_buf b;
 static int reload_pipe[2] = { -1, -1 };
@@ -42,6 +43,22 @@ struct config config = {.legacy = false, .main_dhcpv4 = false,
 #define PD_MIN_LEN_MAX (64-2) // must delegate at least 2 bits of prefix
 
 #define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
+
+enum {
+	IPV6_PXE_URL,
+	IPV6_PXE_ARCH,
+	IPV6_PXE_MAX
+};
+
+static const struct blobmsg_policy ipv6_pxe_attrs[IPV6_PXE_MAX] = {
+	[IPV6_PXE_URL] = {.name = "url", .type = BLOBMSG_TYPE_STRING },
+	[IPV6_PXE_ARCH] = {.name = "arch", .type = BLOBMSG_TYPE_INT32 },
+};
+
+const struct uci_blob_param_list ipv6_pxe_attr_list = {
+	.n_params = IPV6_PXE_MAX,
+	.params = ipv6_pxe_attrs,
+};
 
 enum {
 	IFACE_ATTR_INTERFACE,
@@ -1623,6 +1640,29 @@ void reload_services(struct interface *iface)
 	}
 }
 
+static int ipv6_pxe_from_uci(struct uci_section* s)
+{
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &ipv6_pxe_attr_list);
+
+	void* data = blob_data(b.head);
+	size_t len = blob_len(b.head);
+	
+	struct blob_attr* tb[IFACE_ATTR_MAX];
+	blobmsg_parse(ipv6_pxe_attrs, IPV6_PXE_MAX, tb, data, len);
+
+	if (!tb[IPV6_PXE_URL])
+		return -1;
+
+	const char* url = blobmsg_get_string(tb[IPV6_PXE_URL]);
+
+	uint32_t arch = 0xFFFFFFFF;
+	if (tb[IPV6_PXE_ARCH])
+		arch = blobmsg_get_u32(tb[IPV6_PXE_ARCH]);
+
+	return ipv6_pxe_entry_new(arch, url) ? -1 : 0;
+}
+
 void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
@@ -1659,6 +1699,15 @@ void odhcpd_reload(void)
 			if (!strcmp(s->type, "host"))
 				set_lease_from_uci(s);
 		}
+
+		/* 4. IPv6 PxE */
+		ipv6_pxe_clear();
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section* s = uci_to_section(e);
+			if (!strcmp(s->type, "boot6"))
+				ipv6_pxe_from_uci(s);
+		}
+		ipv6_pxe_dump();
 	}
 
 	if (config.dhcp_statefile) {

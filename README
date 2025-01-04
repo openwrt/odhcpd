@@ -40,6 +40,7 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
       and only serving NDP for DAD and for traffic to the router itself
       [Warning: you should provide additional firewall rules for security]
 
+5. IPv6 PxE Support.
 
 ** Compiling **
 
@@ -168,3 +169,8 @@ hostid		string				IPv6 host identifier
 name		string				Hostname
 leasetime	string				DHCPv4/v6 leasetime
 
+Sections of type boot6
+Option		Type	Required		Description
+url		string	yes		e.g. tftp://[fd11::1]/pxe.efi
+arch		integer	no		the arch code. 07 is EFI.
+						If not present, this boot6 will be the default.

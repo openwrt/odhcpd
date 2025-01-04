@@ -25,6 +25,7 @@
 
 #include "odhcpd.h"
 #include "dhcpv6.h"
+#include "dhcpv6-pxe.h"
 #ifdef DHCPV4_SUPPORT
 #include "dhcpv4.h"
 #endif
@@ -183,6 +184,7 @@ enum {
 	IOV_RELAY_MSG,
 	IOV_DHCPV4O6_SERVER,
 	IOV_DNR,
+	IOV_BOOTFILE_URL,
 	IOV_TOTAL
 };
 
@@ -558,6 +560,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DNR] = {dnrs, dnrs_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
+		[IOV_BOOTFILE_URL] = {NULL, 0}
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
@@ -663,6 +666,9 @@ static void handle_client_request(void *addr, void *data, size_t len,
 					break;
 				}
 			}
+		} else if (otype == DHCPV6_OPT_CLIENT_ARCH) {
+			uint16_t arch_code = ntohs(((uint16_t*)odata)[0]);
+			ipv6_pxe_serve_boot_url(arch_code, &iov[IOV_BOOTFILE_URL]);
 		}
 	}
 
@@ -732,7 +738,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
 				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
 				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
-				      iov[IOV_DNR].iov_len -
+				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
 				      (4 + opts_end - opts));
 
 	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

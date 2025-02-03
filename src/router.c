@@ -450,6 +450,51 @@ struct nd_opt_dnr_info {
 	uint8_t body[];
 };
 
+/* Returns 0 on success, -1 on memory error (`routes` is unmodified in that case) */
+static int append_router_advert_routes(struct nd_opt_route_info **routes,
+	size_t *routes_cnt, struct odhcpd_ip6prefix *addroutes, size_t addroutes_cnt,
+	int route_preference, uint32_t lifetime)
+{
+	if (addroutes_cnt == 0) {
+		return 0;
+	}
+
+	struct nd_opt_route_info *routes_tmp = realloc(*routes,
+		sizeof(**routes) * (*routes_cnt + addroutes_cnt));
+
+	if (!routes_tmp) {
+		return -1;
+	}
+
+	*routes = routes_tmp;
+
+	memset(&((*routes)[*routes_cnt]), 0, addroutes_cnt *
+		sizeof(**routes));
+
+	for (size_t i = 0; i < addroutes_cnt; ++i) {
+		size_t routes_i = *routes_cnt + i;
+
+		(*routes)[routes_i].type = ND_OPT_ROUTE_INFO;
+		(*routes)[routes_i].len = sizeof(**routes) / 8;
+		(*routes)[routes_i].prefix = addroutes[i].len;
+		(*routes)[routes_i].flags = 0;
+		if (route_preference < 0)
+			(*routes)[routes_i].flags |= ND_RA_PREF_LOW;
+		else if (route_preference > 0)
+			(*routes)[routes_i].flags |= ND_RA_PREF_HIGH;
+
+		(*routes)[routes_i].lifetime = htonl(lifetime);
+		(*routes)[routes_i].addr[0] = addroutes[i].addr.s6_addr32[0];
+		(*routes)[routes_i].addr[1] = addroutes[i].addr.s6_addr32[1];
+		(*routes)[routes_i].addr[2] = addroutes[i].addr.s6_addr32[2];
+		(*routes)[routes_i].addr[3] = addroutes[i].addr.s6_addr32[3];
+	}
+
+	*routes_cnt += addroutes_cnt;
+
+	return 0;
+}
+
 /* Router Advert server mode */
 static int send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
@@ -811,6 +856,33 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           independent of having or not having IPv6 connectivity on the
 	 *           WAN interface.
 	 */
+
+	/* If router is not default */
+	if (!default_route || !valid_prefix) {
+		/* Additional global RA routes */
+		if (config.ra_addroutes_cnt > 0) {
+			int ec = append_router_advert_routes(&routes, &routes_cnt,
+				config.ra_addroutes, config.ra_addroutes_cnt,
+				iface->route_preference, lifetime);
+
+			if (ec == -1) {
+				syslog(LOG_ERR, "Realloc failed for additional global RA routes on %s",
+					iface->name);
+			}
+		}
+
+		/* Additional interface RA routes */
+		if (iface->ra_addroutes_cnt > 0) {
+			int ec = append_router_advert_routes(&routes, &routes_cnt,
+				iface->ra_addroutes, iface->ra_addroutes_cnt,
+				iface->route_preference, lifetime);
+
+			if (ec == -1) {
+				syslog(LOG_ERR, "Realloc failed for additional iface RA routes on %s",
+					iface->name);
+			}
+		}
+	}
 
 	for (ssize_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];

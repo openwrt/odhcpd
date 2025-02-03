@@ -31,7 +31,7 @@ struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {.legacy = false, .main_dhcpv4 = false,
 			.dhcp_cb = NULL, .dhcp_statefile = NULL, .dhcp_hostsfile = NULL,
-			.log_level = LOG_WARNING};
+			.log_level = LOG_WARNING, .ra_addroutes = NULL, .ra_addroutes_cnt = 0};
 
 #define START_DEFAULT	100
 #define LIMIT_DEFAULT	150
@@ -103,6 +103,7 @@ enum {
 	IFACE_ATTR_RA_HOPLIMIT,
 	IFACE_ATTR_RA_MTU,
 	IFACE_ATTR_RA_DNS,
+	IFACE_ATTR_RA_ADDROUTES,
 	IFACE_ATTR_RA_PREF64,
 	IFACE_ATTR_PD_MANAGER,
 	IFACE_ATTR_PD_CER,
@@ -159,6 +160,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_HOPLIMIT] = { .name = "ra_hoplimit", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MTU] = { .name = "ra_mtu", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_DNS] = { .name = "ra_dns", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_RA_ADDROUTES] = { .name = "ra_addroutes", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_RA_PREF64] = { .name = "ra_pref64", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
@@ -200,6 +202,7 @@ enum {
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_LOGLEVEL,
 	ODHCPD_ATTR_HOSTSFILE,
+	ODHCPD_ATTR_RA_ADDROUTES,
 	ODHCPD_ATTR_MAX
 };
 
@@ -210,6 +213,7 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
 	[ODHCPD_ATTR_HOSTSFILE] = { .name = "hostsfile", .type = BLOBMSG_TYPE_STRING },
+	[ODHCPD_ATTR_RA_ADDROUTES] = { .name = "ra_addroutes", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 const struct uci_blob_param_list odhcpd_attr_list = {
@@ -285,6 +289,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_router);
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
+	free(iface->ra_addroutes);
 	free(iface->filter_class);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
@@ -364,6 +369,50 @@ static int parse_ra_flags(uint8_t *flags, struct blob_attr *attr)
 	return 0;
 }
 
+/* Returns 0 on success, -1 on invalid value, -2 on memory error
+(`routes` is unmodified in that case) */
+static int parse_ra_addroutes(struct blob_attr *attr, struct odhcpd_ip6prefix **routes,
+	size_t *routes_cnt)
+{
+	if (blobmsg_type(attr) != BLOBMSG_TYPE_STRING ||
+		!blobmsg_check_attr(attr, false))
+		return -1;
+
+	const char *str = blobmsg_get_string(attr);
+	char *astr = malloc(strlen(str) + 1);
+	char *delim;
+	int l;
+	struct odhcpd_ip6prefix prefix;
+
+	if (!astr || !strcpy(astr, str))
+		return -2;
+
+	if ((delim = strchr(astr, '/')) == NULL || (*(delim++) = 0) ||
+		sscanf(delim, "%i", &l) == 0 || l < 1 || l > 128 ||
+		inet_pton(AF_INET6, astr, &prefix.addr) == 0 ||
+		IN6_IS_ADDR_UNSPECIFIED(&prefix.addr)) {
+		return -1;
+	} else {
+		prefix.len = l;
+
+		struct odhcpd_ip6prefix *tmp = realloc(*routes, (*routes_cnt + 1) *
+			sizeof(**routes));
+		if (!tmp) {
+			if (astr)
+				free(astr);
+			return -2;
+		}
+
+		*routes = tmp;
+		(*routes)[*routes_cnt] = prefix;
+		++(*routes_cnt);
+	}
+
+	if (astr)
+		free(astr);
+	return 0;
+}
+
 static void set_config(struct uci_section *s)
 {
 	struct blob_attr *tb[ODHCPD_ATTR_MAX], *c;
@@ -399,6 +448,28 @@ static void set_config(struct uci_section *s)
 		if (config.log_level != log_level) {
 			config.log_level = log_level;
 			setlogmask(LOG_UPTO(config.log_level));
+		}
+	}
+
+	if ((c = tb[ODHCPD_ATTR_RA_ADDROUTES])) {
+		free(config.ra_addroutes);
+		config.ra_addroutes = NULL;
+		config.ra_addroutes_cnt = 0;
+
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			int ec = parse_ra_addroutes(cur, &(config.ra_addroutes),
+				&(config.ra_addroutes_cnt));
+
+			if (ec == -1) {
+				syslog(LOG_ERR, "Invalid %s value",
+					odhcpd_attrs[ODHCPD_ATTR_RA_ADDROUTES].name);
+			} else if (ec == -2) {
+				syslog(LOG_ERR, "Memory allocation failed for %s",
+					odhcpd_attrs[ODHCPD_ATTR_RA_ADDROUTES].name);
+			}
 		}
 	}
 }
@@ -1316,6 +1387,24 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_DNS]))
 		iface->ra_dns = blobmsg_get_bool(c);
+	
+	if ((c = tb[IFACE_ATTR_RA_ADDROUTES])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			int ec = parse_ra_addroutes(cur, &(iface->ra_addroutes),
+				&(iface->ra_addroutes_cnt));
+
+			if (ec == -1) {
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+					iface_attrs[IFACE_ATTR_RA_ADDROUTES].name, iface->name);
+			} else if (ec == -2) {
+				syslog(LOG_ERR, "Memory allocation failed for %s on interface '%s'",
+					iface_attrs[IFACE_ATTR_RA_ADDROUTES].name, iface->name);
+			}
+		}
+	}
 
 	if ((c = tb[IFACE_ATTR_DNR])) {
 		struct blob_attr *cur;

@@ -67,6 +67,8 @@ leasefile	string				DHCP/v6 lease/hostfile
 leasetrigger	string				Lease trigger script
 hostsfile	string				DHCP/v6 hostfile
 loglevel	integer 6			Syslog level priority (0-7)
+ra_staticroute	list	string			Announced static routes for all interfaces
+		[IPv6 prefix]			(used if RA doesn't include default router info already)
 
 
 Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)
@@ -149,6 +151,8 @@ ra_mtu			integer -			MTU to be advertised in
 							RA messages
 ra_dns			bool	1			Announce DNS configuration in
 							RA messages (RFC8106)
+ra_staticroute		list	string			Announced static routes
+			[IPv6 prefix]			(used if RA doesn't include default router info already)
 ra_pref64		string				Announce PREF64 option
 			[IPv6 prefix]			for NAT64 prefix (RFC8781)
 ndproxy_routing		bool	1			Learn routes from NDP

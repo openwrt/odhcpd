@@ -145,6 +145,11 @@ struct odhcpd_ipaddr {
 	};
 };
 
+struct odhcpd_ip6prefix {
+	struct in6_addr addr;
+	uint8_t len;
+};
+
 enum odhcpd_mode {
 	MODE_DISABLED,
 	MODE_SERVER,
@@ -170,6 +175,10 @@ struct config {
 	char *dhcp_statefile;
 	char *dhcp_hostsfile;
 	int log_level;
+
+	// Global RA settings
+	struct odhcpd_ip6prefix *ra_static_routes;
+	size_t ra_static_routes_cnt;
 };
 
 
@@ -332,6 +341,8 @@ struct interface {
 	uint8_t pref64_length;
 	uint8_t pref64_plc;
 	uint32_t pref64_prefix[3];
+	struct odhcpd_ip6prefix *ra_static_routes;
+	size_t ra_static_routes_cnt;
 	bool no_dynamic_dhcp;
 	bool have_link_local;
 	uint8_t pio_filter_length;
@@ -457,6 +468,8 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 int odhcpd_netmask2bitlen(bool v6, void *mask);
 bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
+bool odhcpd_addr6_to_network(const struct in6_addr *addr, uint8_t prefix,
+			     struct in6_addr *network);
 bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);

@@ -623,6 +623,28 @@ bool odhcpd_bitlen2netmask(bool inet6, unsigned int bits, void *mask)
 	return true;
 }
 
+/* `addr` and `network` can be the same memory location */
+bool odhcpd_addr6_to_network(const struct in6_addr *addr, uint8_t prefix,
+			     struct in6_addr *network)
+{
+	if (prefix > 128) {
+		return false;
+	}
+
+	/* Calculate mask */
+	struct in6_addr mask;
+	if (!odhcpd_bitlen2netmask(true, prefix, &mask)) {
+		return false;
+	}
+
+	/* Apply the mask */
+	for (unsigned int i = 0; i < sizeof(mask.s6_addr); i++) {
+		network->s6_addr[i] = addr->s6_addr[i] & mask.s6_addr[i];
+	}
+
+	return true;
+}
+
 bool odhcpd_valid_hostname(const char *name)
 {
 #define MAX_LABEL	63

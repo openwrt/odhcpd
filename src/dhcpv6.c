@@ -872,6 +872,48 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 	return addr;
 }
 
+static bool filter_client_request(struct interface *iface, void *data, size_t *len) {
+	struct dhcpv6_client_header *h = data;
+	uint8_t *start = data + sizeof(*h);
+	uint8_t *odata, *end = data + *len;
+	uint16_t otype, olen;
+	uint8_t *tmp, *p_tmp;
+
+	if (h->msg_type != DHCPV6_MSG_SOLICIT)
+		return false;
+
+	if (iface->dhcpv6_na && iface->dhcpv6_pd)
+		return false;
+
+	tmp = p_tmp = malloc(end - start);
+	if (!tmp)
+		return false;
+
+	dhcpv6_for_each_option(start, end, otype, olen, odata) {
+		/* point to the start of the option and not the option data */
+		odata -= sizeof(otype) + sizeof(olen);
+		olen += sizeof(otype) + sizeof(olen);
+
+		if (otype == DHCPV6_OPT_IA_NA && !iface->dhcpv6_na) {
+			*len -= olen;
+			continue;
+		}
+
+		if (otype == DHCPV6_OPT_IA_PD && !iface->dhcpv6_pd) {
+			*len -= olen;
+			continue;
+		}
+
+		memcpy(p_tmp, odata, olen);
+		p_tmp += olen;
+	}
+
+	memcpy(start, tmp, p_tmp - tmp);
+	free(tmp);
+
+	return true;
+}
+
 /* Relay client request (regular DHCPv6-relay) */
 static void relay_client_request(struct sockaddr_in6 *source,
 		const void *data, size_t len, struct interface *iface)
@@ -904,6 +946,11 @@ static void relay_client_request(struct sockaddr_in6 *source,
 			return; /* Invalid hop count */
 
 		hdr.hop_count = h->hop_count + 1;
+	}
+
+	if (filter_client_request(iface, (void *)data, &len)) {
+		iov[1].iov_len = len;
+		hdr.relay_message_len = htons(len);
 	}
 
 	/* use memcpy here as the destination fields are unaligned */

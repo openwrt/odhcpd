@@ -516,9 +516,14 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 			goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_IP]))
-		if (inet_pton(AF_INET, blobmsg_get_string(c), &l->ipaddr) < 0)
+	if ((c = tb[LEASE_ATTR_IP])) {
+		char *ip_str = blobmsg_get_string(c);
+
+		if (!strcmp(ip_str, "ignore"))
+			l->ignore = true;
+		else if (inet_pton(AF_INET, ip_str, &l->ipaddr) < 0)
 			goto err;
+	}
 
 	if ((c = tb[LEASE_ATTR_HOSTID])) {
 		errno = 0;

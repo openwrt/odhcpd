@@ -1516,7 +1516,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			}
 		}
 
-		if (l && a && a->lease != l) {
+		bool ignored = (l && l->ignore);
+		if (l && a && (a->lease != l || ignored)) {
 			free_assignment(a);
 			a = NULL;
 		}
@@ -1533,7 +1534,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			if (!a) {
 				if ((!iface->no_dynamic_dhcp || (l && is_na)) &&
-				    (iface->dhcpv6_pd || iface->dhcpv6_na)) {
+				    (iface->dhcpv6_pd || iface->dhcpv6_na) && !ignored) {
 					/* Create new binding */
 					a = alloc_assignment(clid_len);
 

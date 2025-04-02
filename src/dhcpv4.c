@@ -1110,8 +1110,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
 	time_t now = odhcpd_time();
+	bool ignored = (l && l->ignore);
 
-	if (l && a && a->lease != l) {
+	if (l && a && (a->lease != l || ignored)) {
 		free_assignment(a);
 		a = NULL;
 	}
@@ -1125,7 +1126,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		bool assigned = !!a;
 
 		if (!a) {
-			if (!iface->no_dynamic_dhcp || l) {
+			if ((!iface->no_dynamic_dhcp || l) && !ignored) {
 				/* Create new binding */
 				a = alloc_assignment(0);
 				if (!a) {

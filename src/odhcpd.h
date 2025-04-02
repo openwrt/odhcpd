@@ -183,6 +183,7 @@ struct lease {
 	uint8_t *duid;
 	uint32_t leasetime;
 	char *hostname;
+	bool ignore;
 };
 
 enum {

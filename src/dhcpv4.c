@@ -669,6 +669,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	size_t reqopts_len = 0;
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
+	bool ipv6_only = false;
 
 	uint8_t *start = &req->options[4];
 	uint8_t *end = ((uint8_t*)data) + len;
@@ -709,6 +710,15 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
+	/* Check if this client would prefer IPv6 only and we're configured to allow it */
+	for (size_t opt = 0; opt < reqopts_len; opt++) {
+		switch (reqopts[opt]) {
+		case DHCPV4_OPT_IPV6_ONLY:
+			ipv6_only = (iface->ipv6only_wait != 0);
+			break;
+		}
+	}
+	
 	if (reqmsg != DHCPV4_MSG_DISCOVER && reqmsg != DHCPV4_MSG_REQUEST &&
 	    reqmsg != DHCPV4_MSG_INFORM && reqmsg != DHCPV4_MSG_DECLINE &&
 	    reqmsg != DHCPV4_MSG_RELEASE)
@@ -718,13 +728,17 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	uint32_t serverid = iface->dhcpv4_local.s_addr;
 	uint32_t fr_serverid = INADDR_ANY;
 
-	if (reqmsg != DHCPV4_MSG_INFORM)
+	if ((reqmsg != DHCPV4_MSG_INFORM) && !ipv6_only)
 		a = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
 				 &leasetime, hostname, hostname_len,
 				 accept_fr_nonce, &incl_fr_opt, &fr_serverid,
 				 reqopts, reqopts_len);
 
-	if (!a) {
+	/* 
+	 * RFC8925: If this client prefers IPv6 only, we don't have an assignment for it,
+	 * but we still want to send a positive response with the address INADDR_ANY .
+	 */
+	if (!a && !ipv6_only) {
 		if (reqmsg == DHCPV4_MSG_REQUEST)
 			msg = DHCPV4_MSG_NAK;
 		else if (reqmsg == DHCPV4_MSG_DISCOVER)
@@ -732,8 +746,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	} else if (reqmsg == DHCPV4_MSG_DISCOVER)
 		msg = DHCPV4_MSG_OFFER;
 	else if (reqmsg == DHCPV4_MSG_REQUEST &&
-			((reqaddr && reqaddr != a->addr) ||
-			 (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr))) {
+			(a && ((reqaddr && reqaddr != a->addr) ||
+			 (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr)))) {
 		msg = DHCPV4_MSG_NAK;
 		/*
 		 * DHCP client requested an IP which we can't offer to him. Probably the
@@ -859,8 +873,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
-		switch (a->reqopts[opt]) {
+	for (size_t opt = 0; opt < reqopts_len; opt++) {
+		switch (reqopts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
 			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
 				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
@@ -925,6 +939,13 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
 				   dnrs_len, dnrs);
+			break;
+		case DHCPV4_OPT_IPV6_ONLY:
+			if (ipv6_only) {
+				uint32_t ipv6only_wait = htons(iface->ipv6only_wait);
+				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_IPV6_ONLY,
+					sizeof(uint32_t), &ipv6only_wait);
+			}
 			break;
 		}
 	}

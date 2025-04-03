@@ -116,6 +116,7 @@ and may also receive information from ubus
 | ndproxy_slave		|bool	| 0	| NDProxy external slave |
 | prefix_filter		|string	|`::/0`	| Only advertise on-link prefixes within the provided IPv6 prefix; others are filtered out. [IPv6 prefix] |
 | ntp			|list	|`<local address>`| NTP servers to announce accepts IPv4 and IPv6 |
+| ipv6only_wait		|integer| 0     | Enable support for IPv6-Only Preferred option in DHCPv4 responses (RFC8925) - 0: disabled, 1: default timeout (1800), 300+: custom timeout(s) |
 
 
 ### Sections of type host (static leases)

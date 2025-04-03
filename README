@@ -158,7 +158,10 @@ prefix_filter		string	::/0			Only advertise on-link prefixes within
 							filtered out.
 ntp			list	<local address>		NTP servers to announce
 							accepts IPv4 and IPv6
-
+dhcpv4_ipv6only         bool    0                       Enable support for IPv6-Only Preferred
+                                                        option in DHCPv4 responses (RFC8925)
+dhcpv4_ipv6only_wait	integer 1800                    The number of seconds for which the
+                                                        client should disable DHCPv4, Range [300+]
 
 Sections of type host (static leases)
 Option		Type	Default			Description

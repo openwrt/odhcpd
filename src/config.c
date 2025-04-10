@@ -1853,6 +1853,8 @@ void odhcpd_reload(void)
 	if (!uci)
 		return;
 
+	syslog(LOG_NOTICE, "Reloading...");
+
 	vlist_update(&leases);
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);

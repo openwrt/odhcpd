@@ -78,6 +78,7 @@ int main(int argc, char **argv)
 {
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
+	bool ipv6 = ipv6_enabled();
 
 	while ((opt = getopt(argc, argv, "hl:")) != -1) {
 		switch (opt) {
@@ -110,10 +111,10 @@ int main(int argc, char **argv)
 	signal(SIGINT, sighandler);
 	signal(SIGTERM, sighandler);
 
-	if (netlink_init())
+	if (netlink_init(ipv6))
 		return 4;
 
-	if (ipv6_enabled()) {
+	if (ipv6) {
 		if (router_init())
 			return 4;
 

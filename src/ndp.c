@@ -354,7 +354,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	syslog(LOG_DEBUG, "Got a NS for %s on %s", ipbuf, iface->name);
 
 	odhcpd_get_mac(iface, mac);
-	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
+	if (!memcmp(ll->sll_addr, mac, sizeof(mac)) && !iface->master)
 		return; /* Looped back */
 
 	avl_for_each_element(&interfaces, c, avl) {

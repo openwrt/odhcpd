@@ -108,6 +108,7 @@ enum {
 	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
+	IFACE_ATTR_NDP_FROM_LINK_LOCAL,
 	IFACE_ATTR_PREFIX_FILTER,
 	IFACE_ATTR_PREFERRED_LIFETIME,
 	IFACE_ATTR_NTP,
@@ -162,6 +163,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_PREF64] = { .name = "ra_pref64", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NDPROXY_ROUTING] = { .name = "ndproxy_routing", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_NDPROXY_SLAVE] = { .name = "ndproxy_slave", .type = BLOBMSG_TYPE_BOOL },
+	[IFACE_ATTR_NDP_FROM_LINK_LOCAL] = { .name = "ndp_from_link_local", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_PREFIX_FILTER] = { .name = "prefix_filter", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PREFERRED_LIFETIME] = { .name = "preferred_lifetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
@@ -259,6 +261,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra = MODE_DISABLED;
 	iface->ndp = MODE_DISABLED;
 	iface->learn_routes = 1;
+	iface->ndp_from_link_local = true;
+	iface->cached_linklocal_valid = false;
 	iface->dhcp_leasetime = 43200;
 	iface->preferred_lifetime = 604800; /* rfc4861#section-6.2.1: AdvPreferredLifetime 7 days */
 	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
@@ -1404,6 +1408,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_SLAVE]))
 		iface->external = blobmsg_get_bool(c);
+
+	if ((c = tb[IFACE_ATTR_NDP_FROM_LINK_LOCAL]))
+		iface->ndp_from_link_local = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_PREFIX_FILTER]))
 		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),

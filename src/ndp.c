@@ -286,12 +286,21 @@ static void ping6(struct in6_addr *addr,
 	struct icmp6_hdr echo = { .icmp6_type = ICMP6_ECHO_REQUEST };
 	struct iovec iov = { .iov_base = &echo, .iov_len = sizeof(echo) };
 	char ipbuf[INET6_ADDRSTRLEN];
+	struct in6_addr src_addr;
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 	syslog(LOG_DEBUG, "Pinging for %s on %s", ipbuf, iface->name);
 
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, true);
-	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+
+	/* Use link-local address as source for consistency and macOS compatibility */
+	if (odhcpd_get_interface_linklocal_addr(iface, &src_addr) == 0) {
+		odhcpd_send_with_src(iface->ndp_ping_fd, &dest, &iov, 1, iface, &src_addr);
+	} else {
+		/* Fallback to default behavior if no link-local address is available */
+		odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+	}
+
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, false);
 }
 
@@ -306,6 +315,7 @@ static void send_na(struct in6_addr *to_addr,
 	struct nd_opt_hdr *opt = (struct nd_opt_hdr*) &pbuf[sizeof(struct nd_neighbor_advert)];
 	struct iovec iov = { .iov_base = &pbuf, .iov_len = sizeof(pbuf) };
 	char ipbuf[INET6_ADDRSTRLEN];
+	struct in6_addr src_addr;
 
 	memset(pbuf, 0, sizeof(pbuf));
 	adv->nd_na_hdr = (struct icmp6_hdr) {
@@ -319,7 +329,13 @@ static void send_na(struct in6_addr *to_addr,
 	inet_ntop(AF_INET6, to_addr, ipbuf, sizeof(ipbuf));
 	syslog(LOG_DEBUG, "Answering NS to %s on %s", ipbuf, iface->ifname);
 
-	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+	/* Use link-local address as source for macOS compatibility (RFC 4861 compliance) */
+	if (odhcpd_get_interface_linklocal_addr(iface, &src_addr) == 0) {
+		odhcpd_send_with_src(iface->ndp_ping_fd, &dest, &iov, 1, iface, &src_addr);
+	} else {
+		/* Fallback to default behavior if no link-local address is available */
+		odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+	}
 }
 
 /* Handle solicitations */

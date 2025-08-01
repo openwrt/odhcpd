@@ -184,6 +184,13 @@ struct config {
 #define DUID_MAX_LEN 130
 #define DUID_HEXSTRLEN (DUID_MAX_LEN * 2 + 1)
 
+struct duid {
+	uint8_t len;
+	uint8_t id[DUID_MAX_LEN];
+	uint32_t iaid;
+	bool iaid_set;
+};
+
 struct lease {
 	struct vlist_node node;
 	struct list_head assignments;
@@ -191,10 +198,8 @@ struct lease {
 	uint64_t hostid;
 	size_t mac_count;
 	struct ether_addr *macs;
-	uint16_t duid_len;
-	uint8_t *duid;
-	uint32_t iaid;
-	bool iaid_set;
+	size_t duid_count;
+	struct duid *duids;
 	uint32_t leasetime;
 	char *hostname;
 };

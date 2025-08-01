@@ -125,7 +125,7 @@ and may also receive information from ubus
 | :-------------------- | :---- | :---- | :---------- |
 | ip			|string	|(none) | IPv4 host address |
 | mac			|list\|string|(none) | HexadecimalMACaddress(es) |
-| duid			|string |(none) | Hexadecimal DUID, or DUID%IAID |
+| duid			|list\|string|(none) | Hexadecimal DUID(s), or DUID%IAID(s) |
 | hostid		|string	|(none)	| IPv6hostidentifier |
 | name			|string	|(none) | Hostname |
 | leasetime		|string	|(none) | DHCPv4/v6leasetime |

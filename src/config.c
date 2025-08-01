@@ -181,7 +181,7 @@ const struct uci_blob_param_list interface_attr_list = {
 
 const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
-	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_ARRAY },
 	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
@@ -433,30 +433,51 @@ err:
 
 static void free_lease(struct lease *l)
 {
+	if (!l)
+		return;
+
 	free(l->hostname);
 	free(l);
 }
 
-
 int set_lease_from_blobmsg(struct blob_attr *ba)
 {
 	struct blob_attr *tb[LEASE_ATTR_MAX], *c;
-	struct lease *l;
+	struct lease *l = NULL;
+	int mac_count = 0;
+	struct ether_addr *macs;
 	size_t duidlen = 0;
 	uint8_t *duid;
 
 	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
+	if ((c = tb[LEASE_ATTR_MAC])) {
+		mac_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (mac_count < 0)
+			goto err;
+	}
+
 	if ((c = tb[LEASE_ATTR_DUID]))
 		duidlen = (blobmsg_data_len(c) - 1) / 2;
 
-	l = calloc_a(sizeof(*l), &duid, duidlen);
+	l = calloc_a(sizeof(*l),
+		     &macs, mac_count * sizeof(*macs),
+		     &duid, duidlen);
 	if (!l)
 		goto err;
 
-	if ((c = tb[LEASE_ATTR_MAC]))
-		if (!ether_aton_r(blobmsg_get_string(c), &l->mac))
-			goto err;
+	if ((c = tb[LEASE_ATTR_MAC])) {
+		struct blob_attr *cur;
+		size_t rem;
+		int i = 0;
+
+		l->mac_count = mac_count;
+		l->macs = macs;
+
+		blobmsg_for_each_attr(cur, c, rem)
+			if (!ether_aton_r(blobmsg_get_string(cur), &l->macs[i++]))
+				goto err;
+	}
 
 	if ((c = tb[LEASE_ATTR_DUID])) {
 		ssize_t len;
@@ -503,9 +524,7 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	return 0;
 
 err:
-	if (l)
-		free_lease(l);
-
+	free_lease(l);
 	return -1;
 }
 
@@ -1508,8 +1527,18 @@ static int lease_cmp(const void *k1, const void *k2, _unused void *ptr)
 	if (cmp)
 		return cmp;
 
-	return memcmp(l1->mac.ether_addr_octet, l2->mac.ether_addr_octet,
-				sizeof(l1->mac.ether_addr_octet));
+	if (l1->mac_count != l2->mac_count)
+		return l1->mac_count - l2->mac_count;
+
+	for (size_t i = 0; i < l1->mac_count; i++) {
+		cmp = memcmp(l1->macs[i].ether_addr_octet,
+			     l2->macs[i].ether_addr_octet,
+			     sizeof(l1->macs[i].ether_addr_octet));
+		if (cmp)
+			return cmp;
+	}
+
+	return 0;
 }
 
 static void lease_change_config(struct lease *l_old, struct lease *l_new)
@@ -1587,9 +1616,11 @@ struct lease *config_find_lease_by_mac(const uint8_t *mac)
 	struct lease *l;
 
 	vlist_for_each_element(&leases, l, node) {
-		if (!memcmp(l->mac.ether_addr_octet, mac,
-				sizeof(l->mac.ether_addr_octet)))
-			return l;
+		for (size_t i = 0; i < l->mac_count; i++) {
+			if (!memcmp(l->macs[i].ether_addr_octet, mac,
+				    sizeof(l->macs[i].ether_addr_octet)))
+				return l;
+		}
 	}
 
 	return NULL;

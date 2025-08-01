@@ -161,13 +161,13 @@ ntp			list	<local address>		NTP servers to announce
 
 
 Sections of type host (static leases)
-Option		Type	Default			Description
-ip		string				IP-Address to lease
-mac		string				MAC-address
-duid		string				DUID in base16
-hostid		string				IPv6 host identifier
-name		string				Hostname
-leasetime	string				DHCPv4/v6 leasetime
+Option		Type		Default			Description
+ip		string		(none)			IPv4 host address
+mac		list|string	(none)			Hexadecimal MAC address(es)
+duid		string		(none)			Hexadecimal DUID
+hostid		string		(none)			IPv6 host identifier
+name		string		(none)			Hostname
+leasetime	string		(none)			DHCPv4/v6 leasetime
 
 Sections of type boot6
 Option		Type	Required		Description

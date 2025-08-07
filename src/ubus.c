@@ -176,6 +176,66 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	return 0;
 }
 
+static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	char ipv6_addr[INET6_ADDRSTRLEN];
+	time_t now = odhcpd_time();
+	struct interface *iface;
+	void *interfaces_blob;
+
+	blob_buf_init(&b, 0);
+
+	interfaces_blob = blobmsg_open_table(&b, "interfaces");
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		size_t i;
+
+		if (iface->ra != MODE_SERVER)
+			continue;
+
+		void *interface_blob = blobmsg_open_array(&b, iface->ifname);
+
+		for (i = 0; i < iface->pio_cnt; i++) {
+			struct ra_pio *cur_pio = &iface->pio[i];
+			struct odhcpd_ipaddr *cur_pio_addr = NULL;
+			void *cur_pio_blob;
+			size_t str_len;
+			size_t j;
+
+			cur_pio_blob = blobmsg_open_table(&b, NULL);
+
+			inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_addr, sizeof(ipv6_addr));
+			str_len = strnlen(ipv6_addr, INET6_ADDRSTRLEN);
+			snprintf(&ipv6_addr[str_len], INET6_ADDRSTRLEN - str_len, "/%u", cur_pio->length);
+
+			for (j = 0; !cur_pio_addr && (j < iface->addr6_len); j++) {
+				struct odhcpd_ipaddr *cur_addr = &iface->addr6[j];
+
+				if (cur_addr->prefix == cur_pio->length &&
+					!odhcpd_bmemcmp(&cur_addr->addr.in6, &cur_pio->prefix, cur_addr->prefix))
+					cur_pio_addr = cur_addr;
+			}
+
+			if (!ra_pio_infinite(cur_pio))
+				blobmsg_add_u32(&b, "lifetime", cur_pio->lifetime - now);
+			blobmsg_add_string(&b, "prefix", ipv6_addr);
+			blobmsg_add_u8(&b, "stale", !cur_pio_addr || cur_pio_addr->preferred_lt <= now);
+
+			blobmsg_close_table(&b, cur_pio_blob);
+		}
+
+		blobmsg_close_array(&b, interface_blob);
+	}
+
+	blobmsg_close_table(&b, interfaces_blob);
+
+	ubus_send_reply(ctx, req, b.head);
+
+	return 0;
+}
+
 static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
 		_unused struct ubus_request_data *req, _unused const char *method,
 		struct blob_attr *msg)
@@ -189,6 +249,7 @@ static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubu
 static struct ubus_method main_object_methods[] = {
 	{.name = "ipv4leases", .handler = handle_dhcpv4_leases},
 	{.name = "ipv6leases", .handler = handle_dhcpv6_leases},
+	{.name = "ipv6ra", .handler = handle_ra_pio},
 	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
 };
 

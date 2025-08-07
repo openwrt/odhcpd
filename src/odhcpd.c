@@ -49,6 +49,7 @@ static int urandom_fd = -1;
 
 static void sighandler(_unused int signal)
 {
+	config_shutdown();
 	uloop_end();
 }
 

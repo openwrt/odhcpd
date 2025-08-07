@@ -11,6 +11,7 @@ FIND_PATH(ubox_include_dir libubox/uloop.h)
 FIND_PATH(libnl-tiny_include_dir netlink-generic.h PATH_SUFFIXES libnl-tiny)
 INCLUDE_DIRECTORIES(${ubox_include_dir} ${libnl-tiny_include_dir})
 
+FIND_LIBRARY(json NAMES json-c)
 FIND_LIBRARY(libnl NAMES nl-tiny)
 
 add_definitions(-D_GNU_SOURCE -Os -Wall -Werror --std=gnu99)
@@ -37,7 +38,7 @@ if(${DHCPV4_SUPPORT})
 endif(${DHCPV4_SUPPORT})
 
 add_executable(odhcpd src/odhcpd.c src/config.c src/router.c src/dhcpv6.c src/ndp.c src/dhcpv6-ia.c src/dhcpv6-pxe.c src/netlink.c ${EXT_SRC})
-target_link_libraries(odhcpd resolv ubox uci ${libnl} ${EXT_LINK})
+target_link_libraries(odhcpd resolv ubox uci ${json} ${libnl} ${EXT_LINK})
 
 # Installation
 install(TARGETS odhcpd DESTINATION sbin/)

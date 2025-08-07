@@ -140,7 +140,6 @@ struct odhcpd_ipaddr {
 		/* ipv6 only */
 		struct {
 			uint8_t dprefix;
-			uint8_t invalid_advertisements;
 			bool tentative;
 		};
 
@@ -173,6 +172,10 @@ struct config {
 	char *dhcp_cb;
 	char *dhcp_statefile;
 	char *dhcp_hostsfile;
+
+	char *ra_piofolder;
+	int ra_piofolder_fd;
+
 	int log_level;
 };
 
@@ -270,6 +273,14 @@ struct dnr_options {
 };
 
 
+// RA PIO - RFC9096
+struct ra_pio {
+	struct in6_addr prefix;
+	uint8_t length;
+	time_t lifetime;
+};
+
+
 struct interface {
 	struct avl_node avl;
 
@@ -281,8 +292,6 @@ struct interface {
 	// IPv6 runtime data
 	struct odhcpd_ipaddr *addr6;
 	size_t addr6_len;
-	struct odhcpd_ipaddr *invalid_addr6;
-	size_t invalid_addr6_len;
 
 	// RA runtime data
 	struct odhcpd_event router_event;
@@ -403,6 +412,11 @@ struct interface {
 	// DNR
 	struct dnr_options *dnr;
 	size_t dnr_cnt;
+
+	// RA PIO - RFC9096
+	struct ra_pio *pios;
+	size_t pio_cnt;
+	bool pio_update;
 };
 
 extern struct avl_tree interfaces;
@@ -432,6 +446,24 @@ inline static struct dhcp_assignment *alloc_assignment(size_t extra_len)
 	INIT_LIST_HEAD(&a->lease_list);
 
 	return a;
+}
+
+inline static bool ra_pio_expired(const struct ra_pio *pio, time_t now)
+{
+	return pio->lifetime && (now > pio->lifetime);
+}
+
+inline static uint32_t ra_pio_lifetime(const struct ra_pio *pio, time_t now)
+{
+	if (!pio->lifetime || now > pio->lifetime)
+		return 0;
+
+	return (uint32_t) (pio->lifetime - now);
+}
+
+inline static bool ra_pio_stale(const struct ra_pio *pio)
+{
+	return !!pio->lifetime;
 }
 
 // Exported main functions
@@ -469,6 +501,8 @@ struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len)
 struct lease *config_find_lease_by_mac(const uint8_t *mac);
 struct lease *config_find_lease_by_hostid(const uint64_t hostid);
 struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);
+void config_load_ra_pio(struct interface *iface);
+void config_save_ra_pio(struct interface *iface);
 int set_lease_from_blobmsg(struct blob_attr *ba);
 
 #ifdef WITH_UBUS

@@ -176,6 +176,62 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	return 0;
 }
 
+static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+		_unused struct ubus_request_data *req, _unused const char *method,
+		_unused struct blob_attr *msg)
+{
+	char ipv6_str[INET6_ADDRSTRLEN];
+	time_t now = odhcpd_time();
+	struct interface *iface;
+	void *interfaces_blob;
+
+	blob_buf_init(&b, 0);
+
+	interfaces_blob = blobmsg_open_table(&b, "interfaces");
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		void *interface_blob;
+
+		if (iface->ra != MODE_SERVER)
+			continue;
+
+		interface_blob = blobmsg_open_array(&b, iface->ifname);
+
+		for (size_t i = 0; i < iface->pio_cnt; i++) {
+			struct ra_pio *cur_pio = &iface->pios[i];
+			void *cur_pio_blob;
+			uint32_t pio_lt;
+			bool pio_stale;
+
+			if (ra_pio_expired(cur_pio, now))
+				continue;
+
+			cur_pio_blob = blobmsg_open_table(&b, NULL);
+
+			pio_lt = ra_pio_lifetime(cur_pio, now);
+			pio_stale = ra_pio_stale(cur_pio);
+
+			inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str));
+
+			if (pio_lt)
+				blobmsg_add_u32(&b, "lifetime", pio_lt);
+			blobmsg_add_string(&b, "prefix", ipv6_str);
+			blobmsg_add_u16(&b, "length", cur_pio->length);
+			blobmsg_add_u8(&b, "stale", pio_stale);
+
+			blobmsg_close_table(&b, cur_pio_blob);
+		}
+
+		blobmsg_close_array(&b, interface_blob);
+	}
+
+	blobmsg_close_table(&b, interfaces_blob);
+
+	ubus_send_reply(ctx, req, b.head);
+
+	return 0;
+}
+
 static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
 		_unused struct ubus_request_data *req, _unused const char *method,
 		struct blob_attr *msg)
@@ -189,6 +245,7 @@ static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubu
 static struct ubus_method main_object_methods[] = {
 	{.name = "ipv4leases", .handler = handle_dhcpv4_leases},
 	{.name = "ipv6leases", .handler = handle_dhcpv6_leases},
+	{.name = "ipv6ra", .handler = handle_ra_pio},
 	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
 };
 

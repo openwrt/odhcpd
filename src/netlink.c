@@ -210,61 +210,6 @@ static void refresh_iface_addr6(int ifindex)
 				    addr[i].valid_lt < iface->addr6[i].valid_lt || addr[i].preferred_lt < iface->addr6[i].preferred_lt)
 					change = true;
 			}
-
-			if (change) {
-				/*
-				 * Keep track of removed prefixes, so we could advertise them as invalid
-				 * for at least a couple of times.
-				 *
-				 * RFC7084 § 4.3 :
-				 *    L-13:  If the delegated prefix changes, i.e., the current prefix is
-				 *           replaced with a new prefix without any overlapping time
-				 *           period, then the IPv6 CE router MUST immediately advertise the
-				 *           old prefix with a Preferred Lifetime of zero and a Valid
-				 *           Lifetime of either a) zero or b) the lower of the current
-				 *           Valid Lifetime and two hours (which must be decremented in
-				 *           real time) in a Router Advertisement message as described in
-				 *           Section 5.5.3, (e) of [RFC4862].
-				 */
-
-				for (size_t i = 0; i < iface->addr6_len; ++i) {
-					bool removed = true;
-
-					if (iface->addr6[i].valid_lt <= (uint32_t)now)
-						continue;
-
-					for (ssize_t j = 0; removed && j < len; ++j) {
-						size_t plen = min(addr[j].prefix, iface->addr6[i].prefix);
-
-						if (odhcpd_bmemcmp(&addr[j].addr.in6, &iface->addr6[i].addr.in6, plen) == 0)
-							removed = false;
-					}
-
-					for (size_t j = 0; removed && j < iface->invalid_addr6_len; ++j) {
-						size_t plen = min(iface->invalid_addr6[j].prefix, iface->addr6[i].prefix);
-
-						if (odhcpd_bmemcmp(&iface->invalid_addr6[j].addr.in6, &iface->addr6[i].addr.in6, plen) == 0)
-							removed = false;
-					}
-
-					if (removed) {
-						size_t pos = iface->invalid_addr6_len;
-						struct odhcpd_ipaddr *new_invalid_addr6 = realloc(iface->invalid_addr6,
-								sizeof(*iface->invalid_addr6) * (pos + 1));
-
-						if (!new_invalid_addr6)
-							break;
-
-						iface->invalid_addr6 = new_invalid_addr6;
-						iface->invalid_addr6_len++;
-						memcpy(&iface->invalid_addr6[pos], &iface->addr6[i], sizeof(*iface->invalid_addr6));
-						iface->invalid_addr6[pos].valid_lt = iface->invalid_addr6[pos].preferred_lt = (uint32_t)now;
-
-						if (iface->invalid_addr6[pos].prefix < 64)
-							iface->invalid_addr6[pos].prefix = 64;
-					}
-				}
-			}
 		}
 
 		iface->addr6 = addr;

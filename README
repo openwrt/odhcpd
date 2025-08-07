@@ -67,6 +67,8 @@ leasefile	string				DHCP/v6 lease/hostfile
 leasetrigger	string				Lease trigger script
 hostsfile	string				DHCP/v6 hostfile
 loglevel	integer 6			Syslog level priority (0-7)
+piofolder	string				Folder to store IPv6 prefix information (to
+						detect stale prefixes, see RFC9096, §3.5)
 
 
 Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)

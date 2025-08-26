@@ -467,7 +467,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct sockaddr_in6 dest;
 	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0, dnrs_sz = 0;
 	size_t pfxs_cnt = 0, routes_cnt = 0;
-	ssize_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
+	size_t valid_addr_cnt = 0, invalid_addr_cnt = 0;
 	/* 
 	 * lowest_found_lifetime stores the lowest lifetime of all prefixes;
 	 * necessary to find shortest adv interval necessary
@@ -567,7 +567,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 	/* Construct Prefix Information options */
-	for (ssize_t i = 0; i < valid_addr_cnt + invalid_addr_cnt; ++i) {
+	for (size_t i = 0; i < valid_addr_cnt + invalid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
 		uint32_t preferred_lt = 0;
@@ -812,7 +812,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           WAN interface.
 	 */
 
-	for (ssize_t i = 0; i < valid_addr_cnt; ++i) {
+	for (size_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;

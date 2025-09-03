@@ -350,16 +350,6 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 	if (*maxival > lowest_found_lifetime/3)
 		*maxival = lowest_found_lifetime/3;
 
-	if (*maxival > MaxRtrAdvInterval)
-		*maxival = MaxRtrAdvInterval;
-	else if (*maxival < 4)
-		*maxival = 4;
-
-	if (minival < MinRtrAdvInterval)
-		minival = MinRtrAdvInterval;
-	else if (minival > (*maxival * 3)/4)
-		minival = (*maxival >= 9 ? *maxival/3 : *maxival);
-
 	odhcpd_urandom(&msecs, sizeof(msecs));
 	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
 			minival*1000;
@@ -376,15 +366,12 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 
 static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 {
-	uint32_t lifetime = 3*maxival;
+	uint32_t lifetime = iface->ra_lifetime;
 
-	if (iface->ra_lifetime >= 0) {
-		lifetime = iface->ra_lifetime;
-		if (lifetime > 0 && lifetime < maxival)
-			lifetime = maxival;
-		else if (lifetime > 9000)
-			lifetime = 9000;
-	}
+	if (lifetime > 0 && lifetime < maxival)
+		lifetime = maxival;
+	else if (lifetime > RouterLifetime_MAX)
+		lifetime = RouterLifetime_MAX;
 
 	return lifetime;
 }

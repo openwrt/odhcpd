@@ -162,7 +162,7 @@ ntp			list	<local address>		NTP servers to announce
 
 Sections of type host (static leases)
 Option		Type	Default			Description
-ip		string				IP-Address to lease
+ip		string				IP-Address to lease or 'ignore' to ignore any DHCP request from this host
 mac		string				MAC-address
 duid		string				DUID in base16
 hostid		string				IPv6 host identifier

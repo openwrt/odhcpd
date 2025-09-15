@@ -714,7 +714,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			continue;
 
 		switch (svc_key) {
-		case DNR_SVC_MANDATORY:
+		case DNR_SVC_MANDATORY: {
 			uint16_t mkeys[DNR_SVC_MAX];
 
 			svc_val_len = 0;
@@ -746,8 +746,9 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			memcpy(dnr.svc + dnr.svc_len + 4, mkeys, svc_val_len);
 			dnr.svc_len += 4 + svc_val_len;
 			break;
+		}
 
-		case DNR_SVC_ALPN:
+		case DNR_SVC_ALPN: {
 			size_t len_off;
 
 			tmp = realloc(dnr.svc, dnr.svc_len + 4);
@@ -784,8 +785,9 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			svc_val_len_be = ntohs(svc_val_len);
 			memcpy(dnr.svc + len_off, &svc_val_len_be, sizeof(svc_val_len_be));
 			break;
+		}
 
-		case DNR_SVC_PORT:
+		case DNR_SVC_PORT: {
 			uint16_t port;
 
 			if (sscanf(svc_val_str, "%" SCNu16, &port) != 1) {
@@ -806,6 +808,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			memcpy(dnr.svc + dnr.svc_len + 4, &port, sizeof(port));
 			dnr.svc_len += 6;
 			break;
+		}
 
 		case DNR_SVC_NO_DEFAULT_ALPN:
 			/* fall through */
@@ -847,16 +850,17 @@ static int parse_dnr_str(char *str, struct interface *iface)
 		}
 	}
 
-done:
-	struct dnr_options *tmp;
-	tmp = realloc(iface->dnr, (iface->dnr_cnt + 1) * sizeof(dnr));
-	if (!tmp)
-		goto err;
+done: {
+		struct dnr_options *tmp;
+		tmp = realloc(iface->dnr, (iface->dnr_cnt + 1) * sizeof(dnr));
+		if (!tmp)
+			goto err;
 
-	iface->dnr = tmp;
-	memcpy(iface->dnr + iface->dnr_cnt, &dnr, sizeof(dnr));
-	iface->dnr_cnt++;
-	return 0;
+		iface->dnr = tmp;
+		memcpy(iface->dnr + iface->dnr_cnt, &dnr, sizeof(dnr));
+		iface->dnr_cnt++;
+		return 0;
+	}
 
 err:
 	free(dnr.adn);

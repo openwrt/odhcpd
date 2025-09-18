@@ -37,6 +37,10 @@
 // RFC 8781 defines PREF64 option
 #define ND_OPT_PREF64 38
 
+// RFC9096 defines recommended option lifetimes configuration values
+#define ND_PREFERRED_LIMIT 2700
+#define ND_VALID_LIMIT 5400
+
 // RFC 9463 - Discovery of Network-designated Resolvers (DNR)
 #define ND_OPT_DNR 144
 
@@ -328,7 +332,6 @@ struct interface {
 	bool ra_slaac;
 	bool ra_not_onlink;
 	bool ra_advrouter;
-	bool ra_useleasetime;
 	bool ra_dns;
 	uint8_t pref64_length;
 	uint8_t pref64_plc;
@@ -346,7 +349,8 @@ struct interface {
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
 	int ra_mtu;
-	uint32_t preferred_lifetime;
+	uint32_t max_preferred_lifetime;
+	uint32_t max_valid_lifetime;
 
 	// DHCP
 	uint32_t dhcp_leasetime;

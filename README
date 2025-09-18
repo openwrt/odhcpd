@@ -67,6 +67,7 @@ leasefile	string				DHCP/v6 lease/hostfile
 leasetrigger	string				Lease trigger script
 hostsfile	string				DHCP/v6 hostfile
 loglevel	integer 6			Syslog level priority (0-7)
+piofile		string				IPv6 RA PIO file
 
 
 Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)

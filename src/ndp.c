@@ -332,6 +332,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	struct interface *c;
 	char ipbuf[INET6_ADDRSTRLEN];
 	uint8_t mac[6];
+	bool is_self_sent;
 
 	/* Solicitation is for duplicate address detection */
 	bool ns_is_dad = IN6_IS_ADDR_UNSPECIFIED(&ip6->ip6_src);
@@ -354,7 +355,8 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	syslog(LOG_DEBUG, "Got a NS for %s on %s", ipbuf, iface->name);
 
 	odhcpd_get_mac(iface, mac);
-	if (!memcmp(ll->sll_addr, mac, sizeof(mac)))
+	is_self_sent = !memcmp(ll->sll_addr, mac, sizeof(mac));
+	if (is_self_sent && !iface->master)
 		return; /* Looped back */
 
 	avl_for_each_element(&interfaces, c, avl) {
@@ -366,7 +368,7 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	/* Catch global-addressed NS and answer them manually.
 	 * The kernel won't answer these and cannot route them either. */
 	if (!IN6_IS_ADDR_MULTICAST(&ip6->ip6_dst) &&
-			IN6_IS_ADDR_LINKLOCAL(&ip6->ip6_src)) {
+			IN6_IS_ADDR_LINKLOCAL(&ip6->ip6_src) && !is_self_sent) {
 		bool is_proxy_neigh = netlink_get_interface_proxy_neigh(iface->ifindex,
 				&req->nd_ns_target) == 1;
 

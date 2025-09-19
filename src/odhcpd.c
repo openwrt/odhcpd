@@ -190,6 +190,14 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface)
 {
+	return odhcpd_send_with_src(socket, dest, iov, iov_len, iface, NULL);
+}
+
+/* Forwards a packet on a specific interface with optional source address */
+ssize_t odhcpd_send_with_src(int socket, struct sockaddr_in6 *dest,
+		struct iovec *iov, size_t iov_len,
+		const struct interface *iface, const struct in6_addr *src_addr)
+{
 	/* Construct headers */
 	uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
 	struct msghdr msg = {
@@ -209,6 +217,10 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 	chdr->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
 	struct in6_pktinfo *pktinfo = (struct in6_pktinfo*)CMSG_DATA(chdr);
 	pktinfo->ipi6_ifindex = iface->ifindex;
+
+	/* Set source address if provided */
+	if (src_addr)
+		pktinfo->ipi6_addr = *src_addr;
 
 	/* Also set scope ID if link-local */
 	if (IN6_IS_ADDR_LINKLOCAL(&dest->sin6_addr)
@@ -252,6 +264,21 @@ static int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *
 
 	close(sock);
 	return ret;
+}
+
+/* Get link-local address for NDP operations - prefer this over ULA for macOS compatibility */
+int odhcpd_get_interface_linklocal_addr(const struct interface *iface, struct in6_addr *addr)
+{
+	/* First try to get link-local address from interface addresses */
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		if (IN6_IS_ADDR_LINKLOCAL(&iface->addr6[i].addr.in6)) {
+			*addr = iface->addr6[i].addr.in6;
+			return 0;
+		}
+	}
+
+	/* Fallback to the existing method */
+	return odhcpd_get_linklocal_interface_address(iface->ifindex, addr);
 }
 
 /*

@@ -438,7 +438,12 @@ void odhcpd_process(struct odhcpd_event *event);
 ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		const struct interface *iface);
+ssize_t odhcpd_send_with_src(int socket, struct sockaddr_in6 *dest,
+		struct iovec *iov, size_t iov_len,
+		const struct interface *iface, const struct in6_addr *src_addr);
 int odhcpd_get_interface_dns_addr(const struct interface *iface,
+		struct in6_addr *addr);
+int odhcpd_get_interface_linklocal_addr(const struct interface *iface,
 		struct in6_addr *addr);
 int odhcpd_get_interface_config(const char *ifname, const char *what);
 int odhcpd_get_mac(const struct interface *iface, uint8_t mac[6]);

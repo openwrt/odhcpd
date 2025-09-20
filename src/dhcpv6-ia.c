@@ -1499,21 +1499,38 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			}
 		}
 
-		/* Find assignment */
+		/* Find an existing assignment */
 		struct dhcp_assignment *c, *a = NULL;
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if ((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) &&
-			    c->iaid == ia->iaid && (INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
-			    ((is_pd && (c->flags & OAF_DHCPV6_PD)) || (is_na && (c->flags & OAF_DHCPV6_NA)))) {
-				a = c;
+			/* If we're looking for a PD, is this a PD? */
+			if (is_pd && !(c->flags & OAF_DHCPV6_PD))
+				continue;
 
-				/* Reset state */
-				if (a->flags & OAF_BOUND)
-					apply_lease(a, false);
+			/* If we're looking for a NA, is this a NA? */
+			if (is_na && !(c->flags & OAF_DHCPV6_NA))
+				continue;
 
-				stop_reconf(a);
-				break;
-			}
+			/* Is this assignment still valid? */
+			if (!INFINITE_VALID(c->valid_until) && now >= c->valid_until)
+				continue;
+
+			/* Does the DUID match? */
+			if (c->clid_len != clid_len || memcmp(c->clid_data, clid_data, clid_len))
+			       continue;
+
+			/* Does the IAID match? */
+			if (c->iaid != ia->iaid)
+			       continue;
+
+			/* We have a match */
+			a = c;
+
+			/* Reset state */
+			if (a->flags & OAF_BOUND)
+				apply_lease(a, false);
+
+			stop_reconf(a);
+			break;
 		}
 
 		if (l && a && a->lease != l) {

@@ -1374,7 +1374,6 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assign
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
-	struct lease *l;
 	struct dhcp_assignment *first = NULL;
 	const struct dhcpv6_client_header *hdr = data;
 	time_t now = odhcpd_time();
@@ -1383,7 +1382,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint8_t *clid_data = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
-	char duidbuf[261], hostname[256];
+	char duidbuf[DUID_MAX_LEN * 2 + 1], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
@@ -1395,7 +1394,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
 				memcpy(mac, &odata[4], sizeof(mac));
 
-			if (olen <= 130)
+			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
 		} else if (otype == DHCPV6_OPT_FQDN && olen >= 2 && olen <= 255) {
 			uint8_t fqdn_buf[256];
@@ -1410,12 +1409,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			rapid_commit = true;
 	}
 
-	if (!clid_data || !clid_len || clid_len > 130)
+	if (!clid_data || !clid_len || clid_len > DUID_MAX_LEN)
 		goto out;
-
-	l = config_find_lease_by_duid(clid_data, clid_len);
-	if (!l)
-		l = config_find_lease_by_mac(mac);
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
@@ -1428,6 +1423,11 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		size_t ia_response_len = 0;
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
+		struct lease *l;
+
+		l = config_find_lease_by_duid_and_iaid(clid_data, clid_len, ntohl(ia->iaid));
+		if (!l)
+			l = config_find_lease_by_mac(mac);
 
 		/* Parse request hint for IA-PD */
 		if (is_pd) {

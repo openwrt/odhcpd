@@ -1519,8 +1519,42 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			       continue;
 
 			/* Does the IAID match? */
-			if (c->iaid != ia->iaid)
-			       continue;
+			if (c->iaid != ia->iaid) {
+				if (is_pd)
+					continue;
+
+				/* Does the existing assignment stem from the same static lease cfg? */
+				if (c->lease != l)
+					continue;
+
+				/*
+				 * If there's a DUID configured for this static lease, but without
+				 * an IAID, we will proceed under the assumption that a request
+				 * with the right DUID but with *any* IAID should be able to take
+				 * over the assignment. E.g. when switching from WiFi to ethernet
+				 * on the same client. This is similar to how multiple MAC adresses
+				 * are handled for DHCPv4.
+				 */
+				for (size_t i = 0; i < l->duid_count; i++) {
+					if (l->duids[i].iaid_set && l->duids[i].iaid != htonl(ia->iaid))
+						continue;
+
+					if (l->duids[i].len != clid_len)
+						continue;
+
+					if (memcmp(l->duids[i].id, clid_data, clid_len))
+						continue;
+
+					/*
+					 * Reconf doesn't specify the IAID, so we have to assume the client
+					 * already knows or doesn't care about the old assignment.
+					 */
+					stop_reconf(c);
+					free_assignment(c);
+					goto proceed;
+				}
+				continue;
+			}
 
 			/* We have a match */
 			a = c;
@@ -1538,6 +1572,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			a = NULL;
 		}
 
+proceed:
 		/* Generic message handling */
 		uint16_t status = DHCPV6_STATUS_OK;
 		if (a && a->managed_size < 0)

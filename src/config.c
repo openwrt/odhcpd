@@ -1671,16 +1671,30 @@ static void lease_update(_unused struct vlist_tree *tree, struct vlist_node *nod
 		lease_delete(lease_old);
 }
 
-struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len)
+/*
+ * Either find:
+ *  a) a lease with an exact DUID/IAID match; or
+ *  b) a lease with a matching DUID and no IAID set
+ */
+struct lease *config_find_lease_by_duid_and_iaid(const uint8_t *duid, const uint16_t len,
+						 const uint32_t iaid)
 {
-	struct lease *l;
+	struct lease *l, *candidate = NULL;
 
 	vlist_for_each_element(&leases, l, node) {
-		if (l->duid_len == len && !memcmp(l->duid, duid, len))
+		if (l->duid_len != len || memcmp(l->duid, duid, len))
+			continue;
+
+		if (!l->iaid_set) {
+			candidate = l;
+			continue;
+		}
+
+		if (l->iaid == iaid)
 			return l;
 	}
 
-	return NULL;
+	return candidate;
 }
 
 struct lease *config_find_lease_by_mac(const uint8_t *mac)

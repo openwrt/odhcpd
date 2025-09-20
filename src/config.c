@@ -469,7 +469,7 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	struct lease *l = NULL;
 	int mac_count = 0;
 	struct ether_addr *macs;
-	size_t duidlen = 0;
+	size_t duid_alloc_size = 0;
 	uint8_t *duid;
 
 	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
@@ -481,11 +481,12 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	}
 
 	if ((c = tb[LEASE_ATTR_DUID]))
-		duidlen = (blobmsg_data_len(c) - 1) / 2;
+		/* We might overallocate some bytes here, that's fine */
+		duid_alloc_size = (blobmsg_data_len(c) - 1) / 2;
 
 	l = calloc_a(sizeof(*l),
 		     &macs, mac_count * sizeof(*macs),
-		     &duid, duidlen);
+		     &duid, duid_alloc_size);
 	if (!l)
 		goto err;
 
@@ -503,15 +504,50 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	}
 
 	if ((c = tb[LEASE_ATTR_DUID])) {
-		ssize_t len;
+		const char *duid_str = blobmsg_get_string(c);
+		size_t duid_str_len = blobmsg_data_len(c) - 1;
+		ssize_t duid_len;
+		const char *iaid_str;
+
+		/* We support a hex string with either "<DUID>", or "<DUID>%<IAID>" */
+		iaid_str = strrchr(duid_str, '%');
+		if (iaid_str) {
+			size_t iaid_str_len = strlen(++iaid_str);
+
+			/* IAID = uint32, RFC8415, §21.4, §21.5, §21.21 */
+			if (iaid_str_len < 1 || iaid_str_len > 2 * sizeof(uint32_t)) {
+				syslog(LOG_ERR, "Invalid IAID length '%s'", iaid_str);
+				goto err;
+			}
+
+			errno = 0;
+			l->iaid = strtoull(iaid_str, NULL, 16);
+			if (errno) {
+				syslog(LOG_ERR, "Invalid IAID '%s'", iaid_str);
+				goto err;
+			}
+
+			l->iaid_set = true;
+			duid_str_len -= (iaid_str_len + 1);
+		}
+
+		if (duid_str_len < 2 || duid_str_len > DUID_MAX_LEN * 2 || duid_str_len % 2) {
+			syslog(LOG_ERR, "Invalid DUID length '%.*s'", (int)duid_str_len, duid_str);
+			goto err;
+		}
 
 		l->duid = duid;
-		len = odhcpd_unhexlify(l->duid, duidlen, blobmsg_get_string(c));
-
-		if (len < 0)
+		duid_len = odhcpd_unhexlify(l->duid, duid_str_len / 2, duid_str);
+		if (duid_len < 0) {
+			syslog(LOG_ERR, "Invalid DUID '%.*s'", (int)duid_str_len, duid_str);
 			goto err;
+		}
 
-		l->duid_len = len;
+		l->duid_len = duid_len;
+		syslog(LOG_DEBUG,
+		       "Found a static lease for DUID '%.*s' (%zi bytes), IAID 0x%08" PRIx32 "%s",
+		       (int)duid_str_len, duid_str, duid_len,
+		       l->iaid, l->iaid_set ? "" : " (not defined)");
 	}
 
 	if ((c = tb[LEASE_ATTR_NAME])) {

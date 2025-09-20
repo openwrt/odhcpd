@@ -54,12 +54,12 @@ static void sighandler(_unused int signal)
 
 static void print_usage(const char *app)
 {
-	printf(
-	"== %s Usage ==\n\n"
-	"  -h, --help   Print this help\n"
-	"  -l level     Specify log level 0..7 (default %d)\n",
-		app, config.log_level
-	);
+	printf("== %s Usage ==\n"
+	       "\n"
+	       "	-c <path>	Use an alternative configuration file\n"
+	       "	-l <int>	Specify log level 0..7 (default %d)\n"
+	       "	-h		Print this help text and exit\n",
+	       app, config.log_level);
 }
 
 static bool ipv6_enabled(void)
@@ -79,15 +79,19 @@ int main(int argc, char **argv)
 	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
 
-	while ((opt = getopt(argc, argv, "hl:")) != -1) {
+	while ((opt = getopt(argc, argv, "c:l:h")) != -1) {
 		switch (opt) {
-		case 'h':
-			print_usage(argv[0]);
-			return 0;
+		case 'c':
+			config.uci_cfgfile = realpath(optarg, NULL);
+			fprintf(stderr, "Configuration will be read from %s\n", config.uci_cfgfile);
+			break;
 		case 'l':
 			config.log_level = (atoi(optarg) & LOG_PRIMASK);
 			fprintf(stderr, "Log level set to %d\n", config.log_level);
 			break;
+		case 'h':
+			print_usage(argv[0]);
+			return 0;
 		}
 	}
 	setlogmask(LOG_UPTO(config.log_level));

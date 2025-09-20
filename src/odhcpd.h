@@ -176,6 +176,7 @@ struct config {
 	char *ra_piofolder;
 	int ra_piofolder_fd;
 
+	char *uci_cfgfile;
 	int log_level;
 };
 

@@ -39,6 +39,7 @@ struct config config = {
 	.dhcp_hostsfile = NULL,
 	.ra_piofolder = NULL,
 	.ra_piofolder_fd = -1,
+	.uci_cfgfile = "dhcp",
 	.log_level = LOG_WARNING,
 };
 
@@ -2038,7 +2039,7 @@ void odhcpd_reload(void)
 		clean_interface(i);
 
 	struct uci_package *dhcp = NULL;
-	if (!uci_load(uci, "dhcp", &dhcp)) {
+	if (!uci_load(uci, config.uci_cfgfile, &dhcp)) {
 		struct uci_element *e;
 
 		/* 1. Global settings */

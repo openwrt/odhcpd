@@ -89,6 +89,7 @@ and may also receive information from ubus
 | dhcpv6_pd		|bool	| 1	| DHCPv6 stateful addressing hands out IA_PD - Internet Address - Prefix Delegation |
 | dhcpv6_pd_min_len	|integer| -	| Minimum prefix length to delegate with IA_PD (value is adjusted if needed to be greater than the interface prefix length).  Range [1,62] |
 | dhcpv6_option		|list	| -	| Custom DHCPv6 options in the form of strings formatted as `<optcode>,<encoding>:<data>`. For example: `42,hex:4575726F70652F4265726C696E` (timezone = "Europe/Berlin", RFC4833, §3) |
+| dhcpv4_option		|list	| -	| Custom DHCPv4 options in the same format |
 | router		|list	|`<local address>`| Routers to announce, accepts IPv4 only |
 | dns			|list	|`<local address>`| DNS servers to announce, accepts IPv4 and IPv6 |
 | dnr			|list	|disabled| Encrypted DNS servers to announce, `<priority> <domain name> [<comma separated IP addresses> <SvcParams (key=value)>...]` |

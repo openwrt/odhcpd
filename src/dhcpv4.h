@@ -91,12 +91,6 @@ struct dhcpv4_auth_forcerenew {
 	uint8_t key[16];
 } _packed;
 
-struct dhcpv4_option {
-	uint8_t type;
-	uint8_t len;
-	uint8_t data[];
-};
-
 /* DNR */
 struct dhcpv4_dnr {
 	uint16_t len;
@@ -104,7 +98,6 @@ struct dhcpv4_dnr {
 	uint8_t adn_len;
 	uint8_t body[];
 };
-
 
 #define dhcpv4_for_each_option(start, end, opt)\
 	for (opt = (struct dhcpv4_option*)(start); \

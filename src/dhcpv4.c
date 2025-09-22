@@ -871,6 +871,18 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
 				   dnrs_len, dnrs);
 			break;
+
+		default:
+			for (size_t i = 0; i < iface->dhcpv4_option_cnt; i++) {
+				if (iface->dhcpv4_options[i]->type != a->reqopts[opt])
+					continue;
+				dhcpv4_put(&reply, &cookie,
+					   iface->dhcpv4_options[i]->type,
+					   iface->dhcpv4_options[i]->len,
+					   iface->dhcpv4_options[i]->data);
+				break;
+			}
+			break;
 		}
 	}
 

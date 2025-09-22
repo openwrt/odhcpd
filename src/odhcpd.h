@@ -270,6 +270,12 @@ struct dnr_options {
 	uint16_t svc_len;
 };
 
+// Generic DHCPv6 option
+struct dhcpv6_option {
+	uint16_t code;
+	uint16_t length;
+	uint8_t data[];
+};
 
 // RA PIO - RFC9096
 struct ra_pio {
@@ -390,6 +396,8 @@ struct interface {
 	bool dhcpv6_na;
 	uint32_t dhcpv6_hostid_len;
 	uint32_t dhcpv6_pd_min_len; // minimum delegated prefix length
+	struct dhcpv6_option **dhcpv6_options;
+	size_t dhcpv6_option_cnt;
 
 	char *upstream;
 	size_t upstream_len;

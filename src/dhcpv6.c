@@ -185,6 +185,7 @@ enum {
 	IOV_DHCPV4O6_SERVER,
 	IOV_DNR,
 	IOV_BOOTFILE_URL,
+	IOV_CUSTOM_OPTIONS,
 	IOV_TOTAL
 };
 
@@ -411,6 +412,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	struct dhcpv6_dnr *dnrs = NULL;
 	size_t dnrs_len = 0;
 
+	/* Custom options */
+	struct dhcpv6_option *custom_options[iface->dhcpv6_option_cnt];
+	size_t custom_option_cnt = 0;
+	uint8_t *custom_option_buf = NULL;
+	size_t custom_option_buf_len = 0;
+
 	uint16_t otype, olen;
 	uint8_t *odata;
 	uint16_t *reqopts = NULL;
@@ -502,6 +509,37 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				memcpy(&d6dnr->len, &d6dnr_len_be, sizeof(d6dnr_len_be));
 			}
 			break;
+
+		default:
+			for (size_t i = 0; i < iface->dhcpv6_option_cnt; i++) {
+				struct dhcpv6_option *copt = iface->dhcpv6_options[i];
+
+				if (opt != copt->code)
+					continue;
+
+				custom_options[custom_option_cnt++] = copt;
+				custom_option_buf_len += 2 * sizeof(uint16_t) + copt->length;
+			}
+			break;
+		}
+	}
+
+	if (custom_option_cnt > 0) {
+		uint8_t *tmp;
+
+		custom_option_buf = alloca(custom_option_buf_len);
+		tmp = custom_option_buf;
+
+		for (size_t i = 0; i < custom_option_cnt; i++) {
+			struct dhcpv6_option *copt = custom_options[i];
+			struct {
+				uint16_t type;
+				uint16_t len;
+			} copt_hdr = { htons(copt->code), htons(copt->length) };
+
+			memcpy(tmp, &copt_hdr, sizeof(copt_hdr));
+			memcpy(tmp + sizeof(copt_hdr), copt->data, copt->length);
+			tmp += sizeof(copt_hdr) + copt->length;
 		}
 	}
 
@@ -560,7 +598,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DNR] = {dnrs, dnrs_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
-		[IOV_BOOTFILE_URL] = {NULL, 0}
+		[IOV_BOOTFILE_URL] = {NULL, 0},
+		[IOV_CUSTOM_OPTIONS] = {custom_option_buf, custom_option_buf_len},
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
@@ -730,15 +769,25 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (iov[IOV_NESTED].iov_len > 0) /* Update length */
-		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
-				      iov[IOV_RAPID_COMMIT].iov_len + iov[IOV_DNS].iov_len +
-				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
-				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
+		update_nested_message(data, len,
+				      iov[IOV_DEST].iov_len +
+				      iov[IOV_MAXRT].iov_len +
+				      iov[IOV_RAPID_COMMIT].iov_len +
+				      iov[IOV_DNS].iov_len +
+				      iov[IOV_DNS_ADDR].iov_len +
+				      iov[IOV_SEARCH].iov_len +
+				      iov[IOV_SEARCH_DOMAIN].iov_len +
+				      iov[IOV_PDBUF].iov_len +
 				      iov[IOV_DHCPV4O6_SERVER].iov_len +
-				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
-				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
-				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
-				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
+				      iov[IOV_CERID].iov_len +
+				      iov[IOV_DHCPV6_RAW].iov_len +
+				      iov[IOV_NTP].iov_len +
+				      iov[IOV_NTP_ADDR].iov_len +
+				      iov[IOV_SNTP].iov_len +
+				      iov[IOV_SNTP_ADDR].iov_len +
+				      iov[IOV_DNR].iov_len +
+				      iov[IOV_BOOTFILE_URL].iov_len +
+				      iov[IOV_CUSTOM_OPTIONS].iov_len -
 				      (4 + opts_end - opts));
 
 	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

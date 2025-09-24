@@ -1218,7 +1218,7 @@ static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info
 	}
 }
 
-static void valid_until_cb(struct uloop_timeout *event)
+static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
@@ -1241,7 +1241,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 int dhcpv4_init(void)
 {
 	static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb };
-	static struct uloop_timeout valid_until_timeout = { .cb = valid_until_cb };
+	static struct uloop_timeout valid_until_timeout = { .cb = dhcpv4_valid_until_cb };
 
 	uloop_timeout_set(&valid_until_timeout, 1000);
 	netlink_add_netevent_handler(&dhcpv4_netevent_handler);

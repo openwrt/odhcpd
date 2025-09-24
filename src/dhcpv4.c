@@ -40,8 +40,6 @@
 				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
-static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
-
 static uint32_t serial = 0;
 
 struct odhcpd_ref_ip {
@@ -269,6 +267,8 @@ static void dhcpv4_fr_start(struct dhcp_assignment *a)
 
 	dhcpv4_fr_send(a);
 }
+
+static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
 
 static void dhcpv4_fr_delay_timer(struct uloop_timeout *event)
 {

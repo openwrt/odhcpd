@@ -50,17 +50,6 @@ struct odhcpd_ref_ip {
 	struct odhcpd_ipaddr addr;
 };
 
-static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
-{
-	struct dhcp_assignment *a;
-
-	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
-		if (!memcmp(a->hwaddr, hwaddr, 6))
-			return a;
-
-	return NULL;
-}
-
 static void inc_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct odhcpd_ref_ip *ip)
 {
 	*ptr = ip;
@@ -400,6 +389,16 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	return false;
 }
 
+static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
+{
+	struct dhcp_assignment *a;
+
+	list_for_each_entry(a, &iface->dhcpv4_assignments, head)
+		if (!memcmp(a->hwaddr, hwaddr, 6))
+			return a;
+
+	return NULL;
+}
 
 static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,

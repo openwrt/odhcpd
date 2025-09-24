@@ -1155,7 +1155,7 @@ out:
 	return ret;
 }
 
-static void handle_addrlist_change(struct interface *iface)
+static void dhcpv4_addrlist_change(struct interface *iface)
 {
 	struct odhcpd_ipaddr ip;
 	struct odhcpd_ref_ip *a;
@@ -1208,7 +1208,7 @@ static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info
 		dhcpv4_setup_interface(iface, true);
 		break;
 	case NETEV_ADDRLIST_CHANGE:
-		handle_addrlist_change(iface);
+		dhcpv4_addrlist_change(iface);
 		break;
 	default:
 		break;

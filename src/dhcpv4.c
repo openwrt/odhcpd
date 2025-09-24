@@ -325,15 +325,6 @@ static int dhcpv4_send_reply(const void *buf, size_t len,
 	return sendto(*sock, buf, len, MSG_DONTWAIT, dest, dest_len);
 }
 
-/* Handler for DHCPv4 messages */
-static void handle_dhcpv4(void *addr, void *data, size_t len,
-		struct interface *iface, _unused void *dest_addr)
-{
-	int sock = iface->dhcpv4_event.uloop.fd;
-
-	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
-}
-
 /* DNR */
 struct dhcpv4_dnr {
 	uint16_t len;
@@ -724,6 +715,15 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &reply.yiaddr,
 					a ? a->hostname : NULL, iface->ifname);
 #endif
+}
+
+/* Handler for DHCPv4 messages */
+static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
+				struct interface *iface, _unused void *dest_addr)
+{
+	int sock = iface->dhcpv4_event.uloop.fd;
+
+	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
 }
 
 static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignment *a,
@@ -1138,7 +1138,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 			goto out;
 		}
 
-		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
+		iface->dhcpv4_event.handle_dgram = dhcpv4_handle_dgram;
 		odhcpd_register(&iface->dhcpv4_event);
 	} else {
 		while (!list_empty(&iface->dhcpv4_assignments))

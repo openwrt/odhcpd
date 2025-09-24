@@ -97,6 +97,14 @@ struct dhcpv4_option {
 	uint8_t data[];
 };
 
+/* DNR */
+struct dhcpv4_dnr {
+	uint16_t len;
+	uint16_t priority;
+	uint8_t adn_len;
+	uint8_t body[];
+};
+
 
 #define dhcpv4_for_each_option(start, end, opt)\
 	for (opt = (struct dhcpv4_option*)(start); \

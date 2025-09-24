@@ -318,14 +318,6 @@ static int dhcpv4_send_reply(const void *buf, size_t len,
 	return sendto(*sock, buf, len, MSG_DONTWAIT, dest, dest_len);
 }
 
-/* DNR */
-struct dhcpv4_dnr {
-	uint16_t len;
-	uint16_t priority;
-	uint8_t adn_len;
-	uint8_t body[];
-};
-
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)

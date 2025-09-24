@@ -749,17 +749,6 @@ static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignm
 	return true;
 }
 
-static char* ip4toa(uint32_t addr)
-{
-	static char buf[16];
-
-	snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
-		((uint8_t *)&addr)[0], ((uint8_t *)&addr)[1],
-		((uint8_t *)&addr)[2], ((uint8_t *)&addr)[3]);
-
-	return buf;
-}
-
 static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 			  uint32_t raddr)
 {
@@ -768,6 +757,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	uint32_t count = end - start + 1;
 	uint32_t seed = 0;
 	bool assigned;
+	char buf[INET_ADDRSTRLEN];
 
 	/* Preconfigured IP address by static lease */
 	if (a->addr) {
@@ -775,7 +765,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, a->addr);
 
 		if (assigned)
-			syslog(LOG_DEBUG, "Assigning static IP: %s", ip4toa(a->addr));
+			syslog(LOG_DEBUG, "Assigning static IP: %s",
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
 
 		return assigned;
 	}
@@ -788,8 +779,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 
 		if (assigned) {
 			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
-			       ip4toa(a->addr));
-
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
 			return true;
 		}
 	}
@@ -815,7 +805,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 
 		if (assigned) {
 			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
-			       ip4toa(a->addr), i + 1, count);
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)),
+			       i + 1, count);
 
 			return true;
 		}

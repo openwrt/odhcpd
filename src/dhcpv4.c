@@ -105,30 +105,32 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	return fr_ip ? true : false;
 }
 
-static char *dhcpv4_msg_to_string(uint8_t reqmsg)
+static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
 {
-	switch (reqmsg) {
-	case (DHCPV4_MSG_DISCOVER):
-		return "DHCPV4_MSG_DISCOVER";
-	case (DHCPV4_MSG_OFFER):
-		return "DHCPV4_MSG_OFFER";
-	case (DHCPV4_MSG_REQUEST):
-		return "DHCPV4_MSG_REQUEST";
-	case (DHCPV4_MSG_DECLINE):
-		return "DHCPV4_MSG_DECLINE";
-	case (DHCPV4_MSG_ACK):
-		return "DHCPV4_MSG_ACK";
-	case (DHCPV4_MSG_NAK):
-		return "DHCPV4_MSG_NAK";
-	case (DHCPV4_MSG_RELEASE):
-		return "DHCPV4_MSG_RELEASE";
-	case (DHCPV4_MSG_INFORM):
-		return "DHCPV4_MSG_INFORM";
-	case (DHCPV4_MSG_FORCERENEW):
-		return "DHCPV4_MSG_FORCERENEW";
-	default:
+	static const char *dhcpv4_msg_names[] = {
+		[DHCPV4_MSG_DISCOVER]		= "DHCPV4_MSG_DISCOVER",
+		[DHCPV4_MSG_OFFER]		= "DHCPV4_MSG_OFFER",
+		[DHCPV4_MSG_REQUEST]		= "DHCPV4_MSG_REQUEST",
+		[DHCPV4_MSG_DECLINE]		= "DHCPV4_MSG_DECLINE",
+		[DHCPV4_MSG_ACK]		= "DHCPV4_MSG_ACK",
+		[DHCPV4_MSG_NAK]		= "DHCPV4_MSG_NAK",
+		[DHCPV4_MSG_RELEASE]		= "DHCPV4_MSG_RELEASE",
+		[DHCPV4_MSG_INFORM]		= "DHCPV4_MSG_INFORM",
+		[DHCPV4_MSG_FORCERENEW]		= "DHCPV4_MSG_FORCERENEW",
+		[DHCPV4_MSG_LEASEQUERY]		= "DHCPV4_MSG_LEASEQUERY",
+		[DHCPV4_MSG_LEASEUNASSIGNED]	= "DHCPV4_MSG_LEASEUNASSIGNED",
+		[DHCPV4_MSG_LEASEUNKNOWN]	= "DHCPV4_MSG_LEASEUNKNOWN",
+		[DHCPV4_MSG_LEASEACTIVE]	= "DHCPV4_MSG_LEASEACTIVE",
+		[DHCPV4_MSG_BULKLEASEQUERY]	= "DHCPV4_MSG_BULKLEASEQUERY",
+		[DHCPV4_MSG_LEASEQUERYDONE]	= "DHCPV4_MSG_LEASEQUERYDONE",
+		[DHCPV4_MSG_ACTIVELEASEQUERY]	= "DHCPV4_MSG_ACTIVELEASEQUERY",
+		[DHCPV4_MSG_LEASEQUERYSTATUS]	= "DHCPV4_MSG_LEASEQUERYSTATUS",
+		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
+	};
+
+	if (reqmsg >= ARRAY_SIZE(dhcpv4_msg_names))
 		return "UNKNOWN";
-	}
+	return dhcpv4_msg_names[reqmsg];
 }
 
 static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,

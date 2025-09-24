@@ -979,7 +979,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	return a;
 }
 
-static int setup_dhcpv4_addresses(struct interface *iface)
+static int dhcpv4_setup_addresses(struct interface *iface)
 {
 	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
@@ -1133,7 +1133,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 			goto out;
 		}
 
-		if (setup_dhcpv4_addresses(iface) < 0) {
+		if (dhcpv4_setup_addresses(iface) < 0) {
 			ret = -1;
 			goto out;
 		}
@@ -1167,7 +1167,7 @@ static void handle_addrlist_change(struct interface *iface)
 	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
 	ip.broadcast = iface->dhcpv4_bcast;
 
-	setup_dhcpv4_addresses(iface);
+	dhcpv4_setup_addresses(iface);
 
 	if ((ip.addr.in.s_addr & mask) ==
 	    (iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr))

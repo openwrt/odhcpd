@@ -151,12 +151,6 @@ static char *dhcpv4_msg_to_string(uint8_t reqmsg)
 	}
 }
 
-static void dhcpv4_free_assignment(struct dhcp_assignment *a)
-{
-	if (a->fr_ip)
-		dhcpv4_fr_stop(a);
-}
-
 static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 		uint8_t type, uint8_t len, const void *data)
 {
@@ -724,6 +718,12 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 	int sock = iface->dhcpv4_event.uloop.fd;
 
 	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
+}
+
+static void dhcpv4_free_assignment(struct dhcp_assignment *a)
+{
+	if (a->fr_ip)
+		dhcpv4_fr_stop(a);
 }
 
 static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignment *a,

@@ -280,13 +280,11 @@ static void dhcpv4_fr_delay_timer(struct uloop_timeout *event)
 
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a)
 {
-#define MIN_DELAY   500
-#define MAX_FUZZ    500
 	int msecs;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 
-	msecs = labs(msecs)%MAX_FUZZ + MIN_DELAY;
+	msecs = abs(msecs) % DHCPV4_FR_MAX_FUZZ + DHCPV4_FR_MIN_DELAY;
 
 	uloop_timeout_set(&a->fr_timer, msecs);
 	a->fr_timer.cb = dhcpv4_fr_delay_timer;

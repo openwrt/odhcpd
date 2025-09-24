@@ -42,7 +42,6 @@
 
 static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
-static void dhcpv4_fr_stop(struct dhcp_assignment *a);
 static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
@@ -259,6 +258,14 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
+static void dhcpv4_fr_stop(struct dhcp_assignment *a)
+{
+	uloop_timeout_cancel(&a->fr_timer);
+	decr_ref_cnt_ip(&a->fr_ip, a->iface);
+	a->fr_cnt = 0;
+	a->fr_timer.cb = NULL;
+}
+
 static void dhcpv4_fr_timer(struct uloop_timeout *event)
 {
 	struct dhcp_assignment *a = container_of(event, struct dhcp_assignment, fr_timer);
@@ -300,14 +307,6 @@ static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a)
 
 	uloop_timeout_set(&a->fr_timer, msecs);
 	a->fr_timer.cb = dhcpv4_fr_delay_timer;
-}
-
-static void dhcpv4_fr_stop(struct dhcp_assignment *a)
-{
-	uloop_timeout_cancel(&a->fr_timer);
-	decr_ref_cnt_ip(&a->fr_ip, a->iface);
-	a->fr_cnt = 0;
-	a->fr_timer.cb = NULL;
 }
 
 static int dhcpv4_send_reply(const void *buf, size_t len,

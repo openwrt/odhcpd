@@ -40,12 +40,8 @@
 				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
-static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info);
 static int setup_dhcpv4_addresses(struct interface *iface);
 static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
-static void valid_until_cb(struct uloop_timeout *event);
-static void handle_addrlist_change(struct interface *iface);
-static void dhcpv4_fr_start(struct dhcp_assignment *a);
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
 static void dhcpv4_fr_stop(struct dhcp_assignment *a);
 static void handle_dhcpv4(void *addr, void *data, size_t len,
@@ -56,8 +52,6 @@ static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid,
 		const uint8_t *reqopts, const size_t reqopts_len);
 
-static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb, };
-static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 
 struct odhcpd_ref_ip {
@@ -65,15 +59,6 @@ struct odhcpd_ref_ip {
 	int ref_cnt;
 	struct odhcpd_ipaddr addr;
 };
-
-/* Create socket and register events */
-int dhcpv4_init(void)
-{
-	uloop_timeout_set(&valid_until_timeout, 1000);
-	netlink_add_netevent_handler(&dhcpv4_netevent_handler);
-
-	return 0;
-}
 
 int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
@@ -171,26 +156,6 @@ out:
 	}
 
 	return ret;
-}
-
-
-static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info)
-{
-	struct interface *iface = info->iface;
-
-	if (!iface || iface->dhcpv4 == MODE_DISABLED)
-		return;
-
-	switch (event) {
-	case NETEV_IFINDEX_CHANGE:
-		dhcpv4_setup_interface(iface, true);
-		break;
-	case NETEV_ADDRLIST_CHANGE:
-		handle_addrlist_change(iface);
-		break;
-	default:
-		break;
-	}
 }
 
 static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
@@ -337,25 +302,6 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	}
 
 	return fr_ip ? true : false;
-}
-
-static void valid_until_cb(struct uloop_timeout *event)
-{
-	struct interface *iface;
-	time_t now = odhcpd_time();
-
-	avl_for_each_element(&interfaces, iface, avl) {
-		struct dhcp_assignment *a, *n;
-
-		if (iface->dhcpv4 != MODE_SERVER)
-			continue;
-
-		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
-			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
-				free_assignment(a);
-		}
-	}
-	uloop_timeout_set(event, 1000);
 }
 
 static void handle_addrlist_change(struct interface *iface)
@@ -1251,4 +1197,54 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	dhcpv6_ia_write_statefile();
 
 	return a;
+}
+
+static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info)
+{
+	struct interface *iface = info->iface;
+
+	if (!iface || iface->dhcpv4 == MODE_DISABLED)
+		return;
+
+	switch (event) {
+	case NETEV_IFINDEX_CHANGE:
+		dhcpv4_setup_interface(iface, true);
+		break;
+	case NETEV_ADDRLIST_CHANGE:
+		handle_addrlist_change(iface);
+		break;
+	default:
+		break;
+	}
+}
+
+static void valid_until_cb(struct uloop_timeout *event)
+{
+	struct interface *iface;
+	time_t now = odhcpd_time();
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		struct dhcp_assignment *a, *n;
+
+		if (iface->dhcpv4 != MODE_SERVER)
+			continue;
+
+		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
+			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
+				free_assignment(a);
+		}
+	}
+	uloop_timeout_set(event, 1000);
+}
+
+/* Create socket and register events */
+int dhcpv4_init(void)
+{
+	static struct netevent_handler dhcpv4_netevent_handler = { .cb = dhcpv4_netevent_cb };
+	static struct uloop_timeout valid_until_timeout = { .cb = valid_until_cb };
+
+	uloop_timeout_set(&valid_until_timeout, 1000);
+	netlink_add_netevent_handler(&dhcpv4_netevent_handler);
+
+	return 0;
 }

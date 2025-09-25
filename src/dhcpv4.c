@@ -157,42 +157,38 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
 	struct dhcpv4_message fr_msg = {
-		.op = DHCPV4_BOOTREPLY,
-		.htype = 1,
-		.hlen = 6,
+		.op = DHCPV4_OP_BOOTREPLY,
+		.htype = ARPHRD_ETHER,
+		.hlen = ETH_ALEN,
 		.hops = 0,
 		.secs = 0,
 		.flags = 0,
-		.ciaddr = {INADDR_ANY},
-		.yiaddr = {INADDR_ANY},
-		.siaddr = {INADDR_ANY},
-		.giaddr = {INADDR_ANY},
-		.chaddr = {0},
-		.sname = {0},
-		.file = {0},
+		.ciaddr = { INADDR_ANY },
+		.yiaddr = { INADDR_ANY },
+		.siaddr = { INADDR_ANY },
+		.giaddr = { INADDR_ANY },
+		.chaddr = { 0 },
+		.sname = { 0 },
+		.file = { 0 },
+		.options = { DHCPV4_MAGIC_COOKIE },
 	};
 	struct dhcpv4_auth_forcerenew *auth_o, auth = {
-		.protocol = 3,
-		.algorithm = 1,
-		.rdm = 0,
-		.replay = {htonl(time(NULL)), htonl(++serial)},
-		.type = 2,
-		.key = {0},
+		.protocol = DHCPV4_AUTH_PROTO_RKAP,
+		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+		.replay = { htonl(time(NULL)), htonl(++serial) },
+		.type = DHCPV4_AUTH_RKAP_AI_TYPE_MD5_DIGEST,
+		.key = { 0 },
 	};
 	struct interface *iface = a->iface;
 
 	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
 	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
 
-	fr_msg.options[0] = 0x63;
-	fr_msg.options[1] = 0x82;
-	fr_msg.options[2] = 0x53;
-	fr_msg.options[3] = 0x63;
-
-	uint8_t *cookie = &fr_msg.options[4];
+	uint8_t *cookie = &fr_msg.options[DHCPV4_MAGIC_COOKIE_LEN];
 	uint8_t msg = DHCPV4_MSG_FORCERENEW;
 
-	dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
+	dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
 		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
 		auth_o = (struct dhcpv4_auth_forcerenew *)(cookie - sizeof(auth));
@@ -571,7 +567,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		return;
 
 	if (len < offsetof(struct dhcpv4_message, options) + 4 ||
-			req->op != DHCPV4_BOOTREQUEST || req->hlen != 6)
+			req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
 		return;
 
 	syslog(LOG_DEBUG, "Got DHCPv4 request on %s", iface->name);
@@ -584,25 +580,21 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	int sock = iface->dhcpv4_event.uloop.fd;
 
 	struct dhcpv4_message reply = {
-		.op = DHCPV4_BOOTREPLY,
+		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = req->htype,
 		.hlen = req->hlen,
 		.hops = 0,
 		.xid = req->xid,
 		.secs = 0,
 		.flags = req->flags,
-		.ciaddr = {INADDR_ANY},
+		.ciaddr = { INADDR_ANY },
 		.giaddr = req->giaddr,
 		.siaddr = iface->dhcpv4_local,
+		.options = { DHCPV4_MAGIC_COOKIE },
 	};
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
-	reply.options[0] = 0x63;
-	reply.options[1] = 0x82;
-	reply.options[2] = 0x53;
-	reply.options[3] = 0x63;
-
-	uint8_t *cookie = &reply.options[4];
+	uint8_t *cookie = &reply.options[DHCPV4_MAGIC_COOKIE_LEN];
 	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
 	uint8_t msg = DHCPV4_MSG_ACK;
 
@@ -750,12 +742,12 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		if (incl_fr_opt) {
 			if (reqmsg == DHCPV4_MSG_REQUEST) {
 				struct dhcpv4_auth_forcerenew auth = {
-					.protocol = 3,
-					.algorithm = 1,
-					.rdm = 0,
-					.replay = {htonl(time(NULL)), htonl(++serial)},
-					.type = 1,
-					.key = {0},
+					.protocol = DHCPV4_AUTH_PROTO_RKAP,
+					.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+					.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+					.replay = { htonl(time(NULL)), htonl(++serial) },
+					.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
+					.key = { 0 },
 				};
 
 				memcpy(auth.key, a->key, sizeof(auth.key));

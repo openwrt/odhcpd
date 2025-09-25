@@ -253,21 +253,30 @@ struct dhcpv4_msg_data {
 	ssize_t len;
 };
 
-static int send_reply(_unused const void *buf, size_t len,
-		      _unused const struct sockaddr *dest, _unused socklen_t dest_len,
-		      _unused void *opaque)
+static ssize_t dhcpv6_4o6_send_reply(struct iovec *iov, size_t iov_len,
+				     _unused struct sockaddr *dest,
+				     _unused socklen_t dest_len,
+				     void *opaque)
 {
 	struct dhcpv4_msg_data *reply = opaque;
+	size_t len = 0;
+
+	for (size_t i = 0; i < iov_len; i++)
+		len += iov[i].iov_len;
 
 	if (len > reply->maxsize) {
 		error("4o6: reply too large, %zu > %zu", len, reply->maxsize);
 		reply->len = -1;
-	} else {
-		memcpy(reply->msg, buf, len);
-		reply->len = len;
+		return -1;
 	}
 
-	return reply->len;
+	for (size_t i = 0, off = 0; i < iov_len; i++) {
+		memcpy(reply->msg + off, iov[i].iov_base, iov[i].iov_len);
+		off += iov[i].iov_len;
+	}
+	reply->len = len;
+
+	return len;
 }
 
 static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
@@ -301,7 +310,7 @@ static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
 	addrv4.sin_port = htons(DHCPV4_CLIENT_PORT);
 
 	dhcpv4_handle_msg(&addrv4, msgv4_data, msgv4_len,
-			  iface, NULL, send_reply, &reply);
+			  iface, NULL, dhcpv6_4o6_send_reply, &reply);
 
 	return reply.len;
 }

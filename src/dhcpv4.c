@@ -549,39 +549,33 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	return a;
 }
 
-static int dhcpv4_send_reply(const void *buf, size_t len,
-			     const struct sockaddr *dest, socklen_t dest_len,
-			     void *opaque)
+static ssize_t dhcpv4_send_reply(struct iovec *iov, size_t iov_len,
+				 struct sockaddr *dest, socklen_t dest_len,
+				 void *opaque)
 {
 	int *sock = opaque;
+	struct msghdr msg = {
+		.msg_name = dest,
+		.msg_namelen = dest_len,
+		.msg_iov = iov,
+		.msg_iovlen = iov_len,
+	};
 
-	return sendto(*sock, buf, len, MSG_DONTWAIT, dest, dest_len);
+	return sendmsg(*sock, &msg, MSG_DONTWAIT);
 }
+
+enum {
+	IOV_HEADER = 0,
+	IOV_END,
+	IOV_TOTAL
+};
 
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		struct interface *iface, _unused void *dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
 	struct dhcpv4_message *req = data;
-
-	if (iface->dhcpv4 == MODE_DISABLED)
-		return;
-
-	/* FIXME: would checking the magic cookie value here break any clients? */
-
-	if (len < offsetof(struct dhcpv4_message, options) ||
-	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
-		return;
-
-	debug("Got DHCPv4 request on %s", iface->name);
-
-	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		warn("No DHCP range available on %s", iface->name);
-		return;
-	}
-
 	int sock = iface->dhcpv4_event.uloop.fd;
-
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = req->htype,
@@ -595,7 +589,12 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		.siaddr = iface->dhcpv4_local,
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
-	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
+	uint8_t end_opt = DHCPV4_OPT_END;
+
+	struct iovec iov[IOV_TOTAL] = {
+		[IOV_HEADER] = { &reply, 0 },
+		[IOV_END] = { &end_opt, sizeof(end_opt) },
+	};
 
 	uint8_t *cursor = reply.options;
 	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
@@ -613,6 +612,24 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	uint8_t *start = req->options;
 	uint8_t *end = ((uint8_t *)data) + len;
 	struct dhcpv4_option *opt;
+
+	if (iface->dhcpv4 == MODE_DISABLED)
+		return;
+
+	/* FIXME: would checking the magic cookie value here break any clients? */
+
+	if (len < offsetof(struct dhcpv4_message, options) ||
+	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
+		return;
+
+	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
+
+	debug("Got DHCPv4 request on %s", iface->name);
+
+	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
+		warn("No DHCP range available on %s", iface->name);
+		return;
+	}
 
 	dhcpv4_for_each_option(start, end, opt) {
 		if (opt->type == DHCPV4_OPT_MESSAGE && opt->len == 1)
@@ -865,8 +882,6 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_END, 0, NULL);
-
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
 	if (req->giaddr.s_addr) {
 		/*
@@ -914,8 +929,9 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
-	if (send_reply(&reply, PACKET_SIZE(&reply, cursor),
-		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
+	iov[IOV_HEADER].iov_len = PACKET_SIZE(&reply, cursor);
+
+	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",
 		      dhcpv4_msg_to_string(msg),
 		      dest.sin_addr.s_addr == INADDR_BROADCAST ?

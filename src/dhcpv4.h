@@ -92,12 +92,12 @@ struct dhcpv4_message {
 	uint8_t chaddr[16];
 	char sname[64];
 	char file[128];
-	uint8_t options[312];
-};
+	uint32_t cookie;
+	uint8_t options[308];
+} _packed;
 
 // RFC2131, §3
-#define DHCPV4_MAGIC_COOKIE 99, 130, 83, 99
-#define DHCPV4_MAGIC_COOKIE_LEN 4
+#define DHCPV4_MAGIC_COOKIE 0x63825363
 
 // RFC3203, §6; RFC3118, §2; RFC6704, §3.1.2
 struct dhcpv4_auth_forcerenew {

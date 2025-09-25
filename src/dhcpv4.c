@@ -133,18 +133,18 @@ static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
 	return dhcpv4_msg_names[reqmsg];
 }
 
-static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
+static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
 		uint8_t type, uint8_t len, const void *data)
 {
-	uint8_t *c = *cookie;
+	uint8_t *c = *cursor;
 	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
 	bool tag_only = type == DHCPV4_OPT_PAD || type == DHCPV4_OPT_END;
 	int total_len = tag_only ? 1 : 2 + len;
 
-	if (*cookie + total_len > end)
+	if (*cursor + total_len > end)
 		return;
 
-	*cookie += total_len;
+	*cursor += total_len;
 	*c++ = type;
 
 	if (tag_only)
@@ -185,14 +185,14 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
 	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
 
-	uint8_t *cookie = &fr_msg.options[DHCPV4_MAGIC_COOKIE_LEN];
+	uint8_t *cursor = &fr_msg.options[DHCPV4_MAGIC_COOKIE_LEN];
 	uint8_t msg = DHCPV4_MSG_FORCERENEW;
 
-	dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
+	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-		auth_o = (struct dhcpv4_auth_forcerenew *)(cookie - sizeof(auth));
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+		auth_o = (struct dhcpv4_auth_forcerenew *)(cursor - sizeof(auth));
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
 
 		md5_ctx_t md5;
 		uint8_t secretbytes[64];
@@ -217,9 +217,9 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
 		md5_end(auth_o->key, &md5);
 	} else {
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_SERVERID, 4,
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_SERVERID, 4,
 				&a->fr_ip->addr.addr.in.s_addr);
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
 	}
 
 	struct sockaddr_in dest;
@@ -228,7 +228,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
 	dest.sin_addr.s_addr = a->addr;
 
-	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cookie),
+	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
 			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
@@ -594,7 +594,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	};
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
-	uint8_t *cookie = &reply.options[DHCPV4_MAGIC_COOKIE_LEN];
+	uint8_t *cursor = &reply.options[DHCPV4_MAGIC_COOKIE_LEN];
 	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
 	uint8_t msg = DHCPV4_MSG_ACK;
 
@@ -710,8 +710,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
 
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SERVERID, 4, &serverid);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);
 
 	if (a) {
 		uint32_t val;
@@ -719,25 +719,25 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		reply.yiaddr.s_addr = a->addr;
 
 		val = htonl(leasetime);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_LEASETIME, 4, &val);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
 
 		if (leasetime != UINT32_MAX) {
 			val = htonl(500 * leasetime / 1000);
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_RENEW, 4, &val);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
 
 			val = htonl(875 * leasetime / 1000);
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
 		}
 
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
 				&iface->dhcpv4_mask.s_addr);
 
 		if (a->hostname)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_HOSTNAME,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_HOSTNAME,
 					strlen(a->hostname), a->hostname);
 
 		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
 
 		if (incl_fr_opt) {
 			if (reqmsg == DHCPV4_MSG_REQUEST) {
@@ -751,10 +751,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				};
 
 				memcpy(auth.key, a->key, sizeof(auth.key));
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
 			} else {
 				uint8_t one = 1;
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 					sizeof(one), &one);
 			}
 		}
@@ -767,39 +767,39 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	if (!ioctl(sock, SIOCGIFMTU, &ifr)) {
 		uint16_t mtu = htons(ifr.ifr_mtu);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_MTU, 2, &mtu);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
 	}
 
 	if (iface->search && iface->search_len <= 255)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SEARCH_DOMAIN,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
 				iface->search_len, iface->search);
 	else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
 		uint8_t search_buf[256];
 		int len = dn_comp(_res.dnsrch[0], search_buf,
 						sizeof(search_buf), NULL, NULL);
 		if (len > 0)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SEARCH_DOMAIN,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
 					len, search_buf);
 	}
 
 	if (iface->dhcpv4_router_cnt == 0)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
 	else
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER,
 				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
 
 
 	if (iface->dhcpv4_dns_cnt == 0) {
 		if (iface->dns_service)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
 	} else
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
 	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
 		switch (a->reqopts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NTPSERVER,
 				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
 			break;
 
@@ -860,13 +860,13 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
 			}
 
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNR,
 				   dnrs_len, dnrs);
 			break;
 		}
 	}
 
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_END, 0, NULL);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_END, 0, NULL);
 
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
 	if (req->giaddr.s_addr) {
@@ -915,7 +915,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
-	if (send_reply(&reply, PACKET_SIZE(&reply, cookie),
+	if (send_reply(&reply, PACKET_SIZE(&reply, cursor),
 		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
 			dhcpv4_msg_to_string(msg),

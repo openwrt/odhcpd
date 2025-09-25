@@ -181,18 +181,21 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		.key = { 0 },
 	};
 	struct interface *iface = a->iface;
+	uint8_t *cursor = &fr_msg.options[DHCPV4_MAGIC_COOKIE_LEN];
+	uint8_t msg = DHCPV4_MSG_FORCERENEW;
+	struct sockaddr_in dest = {
+		.sin_family = AF_INET,
+		.sin_port = htons(DHCPV4_CLIENT_PORT),
+		.sin_addr = { a->addr },
+	};
 
 	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
 	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
 
-	uint8_t *cursor = &fr_msg.options[DHCPV4_MAGIC_COOKIE_LEN];
-	uint8_t msg = DHCPV4_MSG_FORCERENEW;
-
 	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
+		auth_o = (struct dhcpv4_auth_forcerenew *)cursor;
 		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-		auth_o = (struct dhcpv4_auth_forcerenew *)(cursor - sizeof(auth));
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
 
 		md5_ctx_t md5;
 		uint8_t secretbytes[64];
@@ -216,20 +219,14 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
 		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
 		md5_end(auth_o->key, &md5);
-	} else {
+	} else
 		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_SERVERID, 4,
 				&a->fr_ip->addr.addr.in.s_addr);
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
-	}
 
-	struct sockaddr_in dest;
-	memset(&dest, 0, sizeof(dest));
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	dest.sin_addr.s_addr = a->addr;
+	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
 
 	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
-			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
+		   MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else

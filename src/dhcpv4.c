@@ -1111,6 +1111,20 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	struct lease *l = config_find_lease_by_mac(mac);
 	time_t now = odhcpd_time();
 
+	/*
+	 * If we found a static lease cfg, but no old assignment for this
+	 * hwaddr, we need to clear out any old assignments given to other
+	 * hwaddrs in order to take over the IP address.
+	 */
+	if (l && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
+		struct dhcp_assignment *c, *tmp;
+
+		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
+			if (c->flags & OAF_DHCPV4 && c->flags & OAF_STATIC)
+				free_assignment(c);
+		}
+	}
+
 	if (l && a && a->lease != l) {
 		free_assignment(a);
 		a = NULL;

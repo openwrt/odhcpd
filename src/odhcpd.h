@@ -176,6 +176,15 @@ struct config {
 	int log_level;
 };
 
+/* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
+#define DUID_MAX_LEN 130
+
+struct duid {
+	uint8_t len;
+	uint8_t id[DUID_MAX_LEN];
+	uint32_t iaid;
+	bool iaid_set;
+};
 
 struct lease {
 	struct vlist_node node;
@@ -184,8 +193,8 @@ struct lease {
 	uint64_t hostid;
 	size_t mac_count;
 	struct ether_addr *macs;
-	uint16_t duid_len;
-	uint8_t *duid;
+	size_t duid_count;
+	struct duid *duids;
 	uint32_t leasetime;
 	char *hostname;
 };
@@ -465,7 +474,8 @@ bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
 bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
-struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len);
+struct lease *config_find_lease_by_duid_and_iaid(const uint8_t *duid, const uint16_t len,
+						 const uint32_t iaid);
 struct lease *config_find_lease_by_mac(const uint8_t *mac);
 struct lease *config_find_lease_by_hostid(const uint64_t hostid);
 struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);

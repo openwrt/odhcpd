@@ -182,7 +182,7 @@ const struct uci_blob_param_list interface_attr_list = {
 const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
 	[LEASE_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_ARRAY },
-	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_ARRAY },
 	[LEASE_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
@@ -441,14 +441,63 @@ static void free_lease(struct lease *l)
 	free(l);
 }
 
+static bool parse_duid(struct duid *duid, struct blob_attr *c)
+{
+	const char *duid_str = blobmsg_get_string(c);
+	size_t duid_str_len = blobmsg_data_len(c) - 1;
+	ssize_t duid_len;
+	const char *iaid_str;
+
+	/* We support a hex string with either "<DUID>", or "<DUID>%<IAID>" */
+	iaid_str = strrchr(duid_str, '%');
+	if (iaid_str) {
+		size_t iaid_str_len = strlen(++iaid_str);
+
+		/* IAID = uint32, RFC8415, §21.4, §21.5, §21.21 */
+		if (iaid_str_len < 1 || iaid_str_len > 2 * sizeof(uint32_t)) {
+			syslog(LOG_ERR, "Invalid IAID length '%s'", iaid_str);
+			return false;
+		}
+
+		errno = 0;
+		duid->iaid = strtoull(iaid_str, NULL, 16);
+		if (errno) {
+			syslog(LOG_ERR, "Invalid IAID '%s'", iaid_str);
+			return false;
+		}
+
+		duid->iaid_set = true;
+		duid_str_len -= (iaid_str_len + 1);
+	}
+
+	if (duid_str_len < 2 || duid_str_len > DUID_MAX_LEN * 2 || duid_str_len % 2) {
+		syslog(LOG_ERR, "Invalid DUID length '%.*s'", (int)duid_str_len, duid_str);
+		return false;
+	}
+
+	duid_len = odhcpd_unhexlify(duid->id, duid_str_len / 2, duid_str);
+	if (duid_len < 0) {
+		syslog(LOG_ERR, "Invalid DUID '%.*s'", (int)duid_str_len, duid_str);
+		return false;
+	}
+
+	duid->len = duid_len;
+	syslog(LOG_DEBUG,
+	       "Found a static lease for DUID '%.*s' (%zi bytes), IAID 0x%08" PRIx32 "%s",
+	       (int)duid_str_len, duid_str, duid_len,
+	       duid->iaid, duid->iaid_set ? "" : " (not defined)");
+
+	return true;
+}
+
 int set_lease_from_blobmsg(struct blob_attr *ba)
 {
 	struct blob_attr *tb[LEASE_ATTR_MAX], *c;
 	struct lease *l = NULL;
 	int mac_count = 0;
 	struct ether_addr *macs;
-	size_t duidlen = 0;
-	uint8_t *duid;
+	int duid_count = 0;
+	struct duid *duids;
 
 	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
@@ -458,12 +507,15 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 			goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_DUID]))
-		duidlen = (blobmsg_data_len(c) - 1) / 2;
+	if ((c = tb[LEASE_ATTR_DUID])) {
+		duid_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (duid_count < 0)
+			goto err;
+	}
 
 	l = calloc_a(sizeof(*l),
 		     &macs, mac_count * sizeof(*macs),
-		     &duid, duidlen);
+		     &duids, duid_count * sizeof(*duids));
 	if (!l)
 		goto err;
 
@@ -481,15 +533,16 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	}
 
 	if ((c = tb[LEASE_ATTR_DUID])) {
-		ssize_t len;
+		struct blob_attr *cur;
+		size_t rem;
+		unsigned i = 0;
 
-		l->duid = duid;
-		len = odhcpd_unhexlify(l->duid, duidlen, blobmsg_get_string(c));
+		l->duid_count = duid_count;
+		l->duids = duids;
 
-		if (len < 0)
-			goto err;
-
-		l->duid_len = len;
+		blobmsg_for_each_attr(cur, c, rem)
+			if (!parse_duid(&duids[i++], cur))
+				goto err;
 	}
 
 	if ((c = tb[LEASE_ATTR_NAME])) {
@@ -1527,14 +1580,19 @@ static int lease_cmp(const void *k1, const void *k2, _unused void *ptr)
 	const struct lease *l1 = k1, *l2 = k2;
 	int cmp = 0;
 
-	if (l1->duid_len != l2->duid_len)
-		return l1->duid_len - l2->duid_len;
+	if (l1->duid_count != l2->duid_count)
+		return l1->duid_count - l2->duid_count;
 
-	if (l1->duid_len && l2->duid_len)
-		cmp = memcmp(l1->duid, l2->duid, l1->duid_len);
+	for (size_t i = 0; i < l1->duid_count; i++) {
+		if (l1->duids[i].len != l2->duids[i].len)
+			return l1->duids[i].len - l2->duids[i].len;
 
-	if (cmp)
-		return cmp;
+		if (l1->duids[i].len && l2->duids[i].len) {
+			cmp = memcmp(l1->duids[i].id, l2->duids[i].id, l1->duids[i].len);
+			if (cmp)
+				return cmp;
+		}
+	}
 
 	if (l1->mac_count != l2->mac_count)
 		return l1->mac_count - l2->mac_count;
@@ -1608,16 +1666,35 @@ static void lease_update(_unused struct vlist_tree *tree, struct vlist_node *nod
 		lease_delete(lease_old);
 }
 
-struct lease *config_find_lease_by_duid(const uint8_t *duid, const uint16_t len)
+/*
+ * Either find:
+ *  a) a lease with an exact DUID/IAID match; or
+ *  b) a lease with a matching DUID and no IAID set
+ */
+struct lease *config_find_lease_by_duid_and_iaid(const uint8_t *duid, const uint16_t len,
+						 const uint32_t iaid)
 {
-	struct lease *l;
+	struct lease *l, *candidate = NULL;
 
 	vlist_for_each_element(&leases, l, node) {
-		if (l->duid_len == len && !memcmp(l->duid, duid, len))
-			return l;
+		for (size_t i = 0; i < l->duid_count; i++) {
+			if (l->duids[i].len != len)
+				continue;
+
+			if (memcmp(l->duids[i].id, duid, len))
+				continue;
+
+			if (!l->duids[i].iaid_set) {
+				candidate = l;
+				continue;
+			}
+
+			if (l->duids[i].iaid == iaid)
+				return l;
+		}
 	}
 
-	return NULL;
+	return candidate;
 }
 
 struct lease *config_find_lease_by_mac(const uint8_t *mac)

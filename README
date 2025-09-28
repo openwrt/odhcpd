@@ -164,7 +164,7 @@ Sections of type host (static leases)
 Option		Type		Default			Description
 ip		string		(none)			IPv4 host address
 mac		list|string	(none)			Hexadecimal MAC address(es)
-duid		string		(none)			Hexadecimal DUID
+duid		list|string	(none)			Hexadecimal DUID(s), or DUID%IAID(s)
 hostid		string		(none)			IPv6 host identifier
 name		string		(none)			Hostname
 leasetime	string		(none)			DHCPv4/v6 leasetime

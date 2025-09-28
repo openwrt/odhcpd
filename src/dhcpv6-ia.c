@@ -1389,7 +1389,6 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assign
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
-	struct lease *l;
 	struct dhcp_assignment *first = NULL;
 	const struct dhcpv6_client_header *hdr = data;
 	time_t now = odhcpd_time();
@@ -1398,7 +1397,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint8_t *clid_data = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
-	char duidbuf[261], hostname[256];
+	char duidbuf[DUID_MAX_LEN * 2 + 1], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
@@ -1410,7 +1409,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
 				memcpy(mac, &odata[4], sizeof(mac));
 
-			if (olen <= 130)
+			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
 		} else if (otype == DHCPV6_OPT_FQDN && olen >= 2 && olen <= 255) {
 			uint8_t fqdn_buf[256];
@@ -1425,12 +1424,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			rapid_commit = true;
 	}
 
-	if (!clid_data || !clid_len || clid_len > 130)
+	if (!clid_data || !clid_len || clid_len > DUID_MAX_LEN)
 		goto out;
-
-	l = config_find_lease_by_duid(clid_data, clid_len);
-	if (!l)
-		l = config_find_lease_by_mac(mac);
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
@@ -1443,6 +1438,11 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		size_t ia_response_len = 0;
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
+		struct lease *l;
+
+		l = config_find_lease_by_duid_and_iaid(clid_data, clid_len, ntohl(ia->iaid));
+		if (!l)
+			l = config_find_lease_by_mac(mac);
 
 		/* Parse request hint for IA-PD */
 		if (is_pd) {
@@ -1499,21 +1499,71 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			}
 		}
 
-		/* Find assignment */
+		/* Find an existing assignment */
 		struct dhcp_assignment *c, *a = NULL;
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if ((c->clid_len == clid_len && !memcmp(c->clid_data, clid_data, clid_len)) &&
-			    c->iaid == ia->iaid && (INFINITE_VALID(c->valid_until) || now < c->valid_until) &&
-			    ((is_pd && (c->flags & OAF_DHCPV6_PD)) || (is_na && (c->flags & OAF_DHCPV6_NA)))) {
-				a = c;
+			/* If we're looking for a PD, is this a PD? */
+			if (is_pd && !(c->flags & OAF_DHCPV6_PD))
+				continue;
 
-				/* Reset state */
-				if (a->flags & OAF_BOUND)
-					apply_lease(a, false);
+			/* If we're looking for a NA, is this a NA? */
+			if (is_na && !(c->flags & OAF_DHCPV6_NA))
+				continue;
 
-				stop_reconf(a);
-				break;
+			/* Is this assignment still valid? */
+			if (!INFINITE_VALID(c->valid_until) && now >= c->valid_until)
+				continue;
+
+			/* Does the DUID match? */
+			if (c->clid_len != clid_len || memcmp(c->clid_data, clid_data, clid_len))
+			       continue;
+
+			/* Does the IAID match? */
+			if (c->iaid != ia->iaid) {
+				if (is_pd)
+					continue;
+
+				/* Does the existing assignment stem from the same static lease cfg? */
+				if (c->lease != l)
+					continue;
+
+				/*
+				 * If there's a DUID configured for this static lease, but without
+				 * an IAID, we will proceed under the assumption that *any* request
+				 * with the right DUID should be able to take over the assignment.
+				 * E.g. when switching from WiFi to ethernet on the same client. This
+				 * is similar to how multiple MAC adresses are handled for DHCPv4.
+				 */
+				for (size_t i = 0; i < l->duid_count; i++) {
+					if (l->duids[i].iaid_set)
+						continue;
+
+					if (l->duids[i].len != clid_len)
+						continue;
+
+					if (memcmp(l->duids[i].id, clid_data, clid_len))
+						continue;
+
+					/*
+					 * Reconf doesn't specify the IAID, so we have to assume the client
+					 * already knows or doesn't care about the old assignment.
+					 */
+					stop_reconf(c);
+					free_assignment(c);
+					goto proceed;
+				}
+				continue;
 			}
+
+			/* We have a match */
+			a = c;
+
+			/* Reset state */
+			if (a->flags & OAF_BOUND)
+				apply_lease(a, false);
+
+			stop_reconf(a);
+			break;
 		}
 
 		if (l && a && a->lease != l) {
@@ -1521,6 +1571,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			a = NULL;
 		}
 
+proceed:
 		/* Generic message handling */
 		uint16_t status = DHCPV6_STATUS_OK;
 		if (a && a->managed_size < 0)

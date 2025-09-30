@@ -211,7 +211,7 @@ static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 	if ((a->flags & OAF_BOUND) && (a->flags & OAF_DHCPV6_PD))
 		apply_lease(a, false);
 
-	if (a->reconf_cnt)
+	if (a->fr_cnt)
 		stop_reconf(a);
 
 	free(a->managed);
@@ -661,8 +661,8 @@ static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
 		end[-1] = 0;
 
 		c->managed_size = 0;
-		if (c->accept_reconf)
-			c->reconf_cnt = 1;
+		if (c->accept_fr_nonce)
+			c->fr_cnt = 1;
 
 		char *saveptr;
 		for (char *line = strtok_r(data, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
@@ -725,8 +725,8 @@ static void managed_handle_pd_done(struct ustream *s)
 
 	c->managed_size = 0;
 
-	if (c->accept_reconf)
-		c->reconf_cnt = 1;
+	if (c->accept_fr_nonce)
+		c->fr_cnt = 1;
 }
 
 static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
@@ -929,7 +929,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 		else if (c->flags & OAF_BOUND)
 			apply_lease(c, true);
 
-		if (c->accept_reconf && c->reconf_cnt == 0) {
+		if (c->accept_fr_nonce && c->fr_cnt == 0) {
 			struct dhcp_assignment *a;
 
 			start_reconf(c);
@@ -938,7 +938,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			list_for_each_entry(a, &iface->ia_assignments, head)
 				if (a != c && a->clid_len == c->clid_len &&
 						!memcmp(a->clid_data, c->clid_data, a->clid_len))
-					a->reconf_cnt = INT_MAX;
+					a->fr_cnt = INT_MAX;
 		}
 	}
 
@@ -954,32 +954,32 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 static void reconf_timeout_cb(struct uloop_timeout *event)
 {
-	struct dhcp_assignment *a = container_of(event, struct dhcp_assignment, reconf_timer);
+	struct dhcp_assignment *a = container_of(event, struct dhcp_assignment, fr_timer);
 
-	if (a->reconf_cnt > 0 && a->reconf_cnt < DHCPV6_REC_MAX_RC) {
+	if (a->fr_cnt > 0 && a->fr_cnt < DHCPV6_REC_MAX_RC) {
 		send_reconf(a);
-		uloop_timeout_set(&a->reconf_timer,
-					DHCPV6_REC_TIMEOUT << a->reconf_cnt);
-		a->reconf_cnt++;
+		uloop_timeout_set(&a->fr_timer,
+				  DHCPV6_REC_TIMEOUT << a->fr_cnt);
+		a->fr_cnt++;
 	} else
 		stop_reconf(a);
 }
 
 static void start_reconf(struct dhcp_assignment *a)
 {
-	uloop_timeout_set(&a->reconf_timer,
-				DHCPV6_REC_TIMEOUT << a->reconf_cnt);
-	a->reconf_timer.cb = reconf_timeout_cb;
-	a->reconf_cnt++;
+	uloop_timeout_set(&a->fr_timer,
+			  DHCPV6_REC_TIMEOUT << a->fr_cnt);
+	a->fr_timer.cb = reconf_timeout_cb;
+	a->fr_cnt++;
 
 	send_reconf(a);
 }
 
 static void stop_reconf(struct dhcp_assignment *a)
 {
-	uloop_timeout_cancel(&a->reconf_timer);
-	a->reconf_cnt = 0;
-	a->reconf_timer.cb = NULL;
+	uloop_timeout_cancel(&a->fr_timer);
+	a->fr_cnt = 0;
+	a->fr_timer.cb = NULL;
 }
 
 static void valid_until_cb(struct uloop_timeout *event)
@@ -1647,7 +1647,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 							a->flags |= OAF_BROKEN_HOSTNAME;
 					}
 				}
-				a->accept_reconf = accept_reconf;
+				a->accept_fr_nonce = accept_reconf;
 				a->flags &= ~OAF_TENTATIVE;
 				a->flags |= OAF_BOUND;
 				apply_lease(a, true);

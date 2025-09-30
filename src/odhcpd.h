@@ -218,12 +218,10 @@ struct dhcp_assignment {
 	time_t valid_until;
 	time_t preferred_until;
 
-#define fr_timer	reconf_timer
-	struct uloop_timeout reconf_timer;
-#define accept_fr_nonce accept_reconf
-	bool accept_reconf;
-#define fr_cnt		reconf_cnt
-	int reconf_cnt;
+	// ForceRenew - RFC6704 §3.1.2 (IPv4), RFC8415 (IPv6), §20.4, §21.11
+	struct uloop_timeout fr_timer;
+	bool accept_fr_nonce;
+	int fr_cnt;
 	uint8_t key[16];
 	struct odhcpd_ref_ip *fr_ip;
 
@@ -245,8 +243,7 @@ struct dhcp_assignment {
 	uint8_t *reqopts;
 	size_t reqopts_len;
 
-#define hwaddr		mac
-	uint8_t mac[6];
+	uint8_t hwaddr[6];
 
 	uint16_t clid_len;
 	uint8_t clid_data[];

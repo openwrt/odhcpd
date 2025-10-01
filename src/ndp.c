@@ -291,7 +291,10 @@ static void ping6(struct in6_addr *addr,
 	syslog(LOG_DEBUG, "Pinging for %s on %s", ipbuf, iface->name);
 
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, true);
-	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+
+	/* Use link-local address as source for RFC 4861 compliance and macOS compatibility */
+	odhcpd_try_send_with_src(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+
 	netlink_setup_route(addr, 128, iface->ifindex, NULL, 128, false);
 }
 
@@ -319,7 +322,8 @@ static void send_na(struct in6_addr *to_addr,
 	inet_ntop(AF_INET6, to_addr, ipbuf, sizeof(ipbuf));
 	syslog(LOG_DEBUG, "Answering NS to %s on %s", ipbuf, iface->ifname);
 
-	odhcpd_send(iface->ndp_ping_fd, &dest, &iov, 1, iface);
+	/* Use link-local address as source for RFC 4861 compliance and macOS compatibility */
+	odhcpd_try_send_with_src(iface->ndp_ping_fd, &dest, &iov, 1, iface);
 }
 
 /* Handle solicitations */

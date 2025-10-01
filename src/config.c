@@ -97,6 +97,8 @@ enum {
 	IFACE_ATTR_DHCPV6_PD_MIN_LEN,
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_DHCPV6_HOSTID_LEN,
+	IFACE_ATTR_DHCPV6_OPTION,
+	IFACE_ATTR_DHCPV4_OPTION,
 	IFACE_ATTR_RA_DEFAULT,
 	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_FLAGS,
@@ -151,6 +153,8 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_PD_MIN_LEN] = { .name = "dhcpv6_pd_min_len", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_DHCPV6_OPTION] = { .name = "dhcpv6_option", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DHCPV4_OPTION] = { .name = "dhcpv4_option", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
@@ -281,6 +285,10 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_pd_min_len = 0;
 	iface->dhcpv6_na = true;
 	iface->dhcpv6_hostid_len = HOSTID_LEN_DEFAULT;
+	iface->dhcpv6_options = NULL;
+	iface->dhcpv6_option_cnt = 0;
+	iface->dhcpv4_options = NULL;
+	iface->dhcpv4_option_cnt = 0;
 	iface->dns_service = true;
 	iface->ra_flags = ND_RA_FLAG_OTHER;
 	iface->ra_slaac = true;
@@ -303,6 +311,12 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
 	free(iface->dhcpv6_sntp);
+	for (unsigned i = 0; i < iface->dhcpv6_option_cnt; i++)
+		free(iface->dhcpv6_options[i]);
+	free(iface->dhcpv6_options);
+	for (unsigned i = 0; i < iface->dhcpv4_option_cnt; i++)
+		free(iface->dhcpv4_options[i]);
+	free(iface->dhcpv4_options);
 	for (unsigned i = 0; i < iface->dnr_cnt; i++) {
 		free(iface->dnr[i].adn);
 		free(iface->dnr[i].addr4);
@@ -1268,6 +1282,106 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
 				iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name);
 
+	}
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_OPTION])) {
+		int opt_count;
+
+		opt_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (opt_count > 0) {
+			struct blob_attr *cur;
+			size_t rem;
+
+			iface->dhcpv6_option_cnt = 0;
+			iface->dhcpv6_options = realloc(iface->dhcpv6_options, opt_count * sizeof(*iface->dhcpv6_options));
+			blobmsg_for_each_attr(cur, c, rem) {
+				const char *opt_data;
+				char *opt_code_end;
+				unsigned long opt_code;
+				size_t opt_len;
+				struct dhcpv6_option *opt;
+
+				/* syntax: <code>,<encoding>:<data> */
+				opt_data = strchr(blobmsg_get_string(cur), ',');
+				if (!opt_data)
+					goto err_option;
+
+				opt_code = strtoul(blobmsg_get_string(cur), &opt_code_end, 10);
+				if (opt_code < 1 || opt_code > UINT16_MAX || opt_code_end != opt_data)
+					goto err_option;
+
+				opt_data++;
+				if (strncmp(opt_data, "hex:", strlen("hex:")))
+					goto err_option;
+
+				opt_data += strlen("hex:");
+				opt_len = strlen(opt_data);
+				if (opt_len % 2 || opt_len / 2 > UINT16_MAX)
+					goto err_option;
+
+				opt_len /= 2;
+				opt = malloc(sizeof(*opt) + opt_len);
+				opt->code = opt_code;
+				opt->length = opt_len;
+				odhcpd_unhexlify(opt->data, opt_len, opt_data);
+				iface->dhcpv6_options[iface->dhcpv6_option_cnt++] = opt;
+				continue;
+
+			err_option:
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_DHCPV6_OPTION].name, iface->name);
+			}
+		}
+	}
+
+	if ((c = tb[IFACE_ATTR_DHCPV4_OPTION])) {
+		int opt_count;
+
+		opt_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (opt_count > 0) {
+			struct blob_attr *cur;
+			size_t rem;
+
+			iface->dhcpv4_option_cnt = 0;
+			iface->dhcpv4_options = realloc(iface->dhcpv4_options, opt_count * sizeof(*iface->dhcpv4_options));
+			blobmsg_for_each_attr(cur, c, rem) {
+				const char *opt_data;
+				char *opt_code_end;
+				unsigned long opt_code;
+				size_t opt_len;
+				struct dhcpv4_option *opt;
+
+				/* syntax: <code>,<encoding>:<data> */
+				opt_data = strchr(blobmsg_get_string(cur), ',');
+				if (!opt_data)
+					goto err_option4;
+
+				opt_code = strtoul(blobmsg_get_string(cur), &opt_code_end, 10);
+				if (opt_code < 1 || opt_code > UINT8_MAX || opt_code_end != opt_data)
+					goto err_option4;
+
+				opt_data++;
+				if (strncmp(opt_data, "hex:", strlen("hex:")))
+					goto err_option4;
+
+				opt_data += strlen("hex:");
+				opt_len = strlen(opt_data);
+				if (opt_len % 2 || opt_len / 2 > UINT8_MAX)
+					goto err_option4;
+
+				opt_len /= 2;
+				opt = malloc(sizeof(*opt) + opt_len);
+				opt->type = opt_code;
+				opt->len = opt_len;
+				odhcpd_unhexlify(opt->data, opt_len, opt_data);
+				iface->dhcpv4_options[iface->dhcpv4_option_cnt++] = opt;
+				continue;
+
+			err_option4:
+				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
+				       iface_attrs[IFACE_ATTR_DHCPV4_OPTION].name, iface->name);
+			}
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))

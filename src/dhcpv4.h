@@ -91,13 +91,6 @@ struct dhcpv4_auth_forcerenew {
 	uint8_t key[16];
 } _packed;
 
-struct dhcpv4_option {
-	uint8_t type;
-	uint8_t len;
-	uint8_t data[];
-};
-
-
 #define dhcpv4_for_each_option(start, end, opt)\
 	for (opt = (struct dhcpv4_option*)(start); \
 		&opt[1] <= (struct dhcpv4_option*)(end) && \

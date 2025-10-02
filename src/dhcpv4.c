@@ -40,12 +40,9 @@
 				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
-static int setup_dhcpv4_addresses(struct interface *iface);
 static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
 static void dhcpv4_fr_stop(struct dhcp_assignment *a);
-static void handle_dhcpv4(void *addr, void *data, size_t len,
-		struct interface *iface, void *dest_addr);
 static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
 		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
 		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
@@ -60,104 +57,6 @@ struct odhcpd_ref_ip {
 	struct odhcpd_ipaddr addr;
 };
 
-int dhcpv4_setup_interface(struct interface *iface, bool enable)
-{
-	int ret = 0;
-
-	enable = enable && (iface->dhcpv4 != MODE_DISABLED);
-
-	if (iface->dhcpv4_event.uloop.fd >= 0) {
-		uloop_fd_delete(&iface->dhcpv4_event.uloop);
-		close(iface->dhcpv4_event.uloop.fd);
-		iface->dhcpv4_event.uloop.fd = -1;
-	}
-
-	if (enable) {
-		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
-					{INADDR_ANY}, {0}};
-		int val = 1;
-
-		iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-		if (iface->dhcpv4_event.uloop.fd < 0) {
-			syslog(LOG_ERR, "socket(AF_INET): %m");
-			ret = -1;
-			goto out;
-		}
-
-		/* Basic IPv4 configuration */
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
-			ret = -1;
-			goto out;
-		}
-
-		val = IPTOS_PREC_INTERNETCONTROL;
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
-			ret = -1;
-			goto out;
-		}
-
-		val = IP_PMTUDISC_DONT;
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
-					iface->ifname, strlen(iface->ifname)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr,
-					sizeof(bind_addr)) < 0) {
-			syslog(LOG_ERR, "bind(): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setup_dhcpv4_addresses(iface) < 0) {
-			ret = -1;
-			goto out;
-		}
-
-		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
-		odhcpd_register(&iface->dhcpv4_event);
-	} else {
-		while (!list_empty(&iface->dhcpv4_assignments))
-			free_assignment(list_first_entry(&iface->dhcpv4_assignments,
-							struct dhcp_assignment, head));
-	}
-
-out:
-	if (ret < 0 && iface->dhcpv4_event.uloop.fd >= 0) {
-		close(iface->dhcpv4_event.uloop.fd);
-		iface->dhcpv4_event.uloop.fd = -1;
-	}
-
-	return ret;
-}
-
 static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
 {
 	struct dhcp_assignment *a;
@@ -167,84 +66,6 @@ static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface
 			return a;
 
 	return NULL;
-}
-
-static int setup_dhcpv4_addresses(struct interface *iface)
-{
-	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
-	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
-	iface->dhcpv4_local.s_addr = INADDR_ANY;
-	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
-	iface->dhcpv4_mask.s_addr = INADDR_ANY;
-
-	/* Sanity checks */
-	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
-	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
-	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		syslog(LOG_WARNING, "Invalid DHCP range for %s", iface->name);
-		return -1;
-	}
-
-	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
-		return -1;
-	}
-
-	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
-	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
-
-	for (size_t i = 0; i < iface->addr4_len && start && end; i++) {
-		struct in_addr *addr = &iface->addr4[i].addr.in;
-		struct in_addr mask;
-
-		if (addr_is_fr_ip(iface, addr))
-			continue;
-
-		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
-		if ((start & ntohl(~mask.s_addr)) == start &&
-				(end & ntohl(~mask.s_addr)) == end &&
-				end < ntohl(~mask.s_addr)) {	/* Exclude broadcast address */
-			iface->dhcpv4_start_ip.s_addr = htonl(start) |
-							(addr->s_addr & mask.s_addr);
-			iface->dhcpv4_end_ip.s_addr = htonl(end) |
-							(addr->s_addr & mask.s_addr);
-			iface->dhcpv4_local = *addr;
-			iface->dhcpv4_bcast = iface->addr4[i].broadcast;
-			iface->dhcpv4_mask = mask;
-			return 0;
-		}
-	}
-
-	/* Don't allocate IP range for subnets smaller than /28 */
-	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
-		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s (prefix length must be < %d).", iface->name, MAX_PREFIX_LEN + 1);
-		return -1;
-	}
-
-	iface->dhcpv4_local = iface->addr4[0].addr.in;
-	iface->dhcpv4_bcast = iface->addr4[0].broadcast;
-	odhcpd_bitlen2netmask(false, iface->addr4[0].prefix, &iface->dhcpv4_mask);
-	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
-
-	/* Auto allocate ranges */
-	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {		/* /24, 150 of 256, [100..249] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(100 + 150 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {    /* /25, 100 of 128, [20..119] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(20);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(20 + 100 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {    /* /26, 50 of 64, [10..59] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 50 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {    /* /27, 20 of 32, [10..29] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 20 - 1);
-	} else {							/* /28, 10 of 16, [3..12] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(3);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(3 + 10 - 1);
-	}
-
-	return 0;
 }
 
 static void inc_ref_cnt_ip(struct odhcpd_ref_ip **ptr, struct odhcpd_ref_ip *ip)
@@ -302,47 +123,6 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	}
 
 	return fr_ip ? true : false;
-}
-
-static void handle_addrlist_change(struct interface *iface)
-{
-	struct odhcpd_ipaddr ip;
-	struct odhcpd_ref_ip *a;
-	struct dhcp_assignment *c;
-	uint32_t mask = iface->dhcpv4_mask.s_addr;
-
-	memset(&ip, 0, sizeof(ip));
-	ip.addr.in = iface->dhcpv4_local;
-	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
-	ip.broadcast = iface->dhcpv4_bcast;
-
-	setup_dhcpv4_addresses(iface);
-
-	if ((ip.addr.in.s_addr & mask) ==
-	    (iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr))
-		return;
-
-	if (ip.addr.in.s_addr && !leases_require_fr(iface, &ip, mask))
-		return;
-
-	if (iface->dhcpv4_local.s_addr == INADDR_ANY || list_empty(&iface->dhcpv4_fr_ips))
-		return;
-
-	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
-
-	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
-		syslog(LOG_WARNING, "Failed to add ip address on %s", iface->name);
-		return;
-	}
-
-	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
-		if ((c->flags & OAF_BOUND) && c->fr_ip && !c->fr_cnt) {
-			if (c->accept_fr_nonce || iface->dhcpv4_forcereconf)
-				dhcpv4_fr_rand_delay(c);
-			else
-				dhcpv4_fr_stop(c);
-		}
-	}
 }
 
 static char *dhcpv4_msg_to_string(uint8_t reqmsg)
@@ -1197,6 +977,223 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	dhcpv6_ia_write_statefile();
 
 	return a;
+}
+
+static int setup_dhcpv4_addresses(struct interface *iface)
+{
+	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
+	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
+	iface->dhcpv4_local.s_addr = INADDR_ANY;
+	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
+	iface->dhcpv4_mask.s_addr = INADDR_ANY;
+
+	/* Sanity checks */
+	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
+	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
+	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
+		syslog(LOG_WARNING, "Invalid DHCP range for %s", iface->name);
+		return -1;
+	}
+
+	if (!iface->addr4_len) {
+		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
+		return -1;
+	}
+
+	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
+	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
+
+	for (size_t i = 0; i < iface->addr4_len && start && end; i++) {
+		struct in_addr *addr = &iface->addr4[i].addr.in;
+		struct in_addr mask;
+
+		if (addr_is_fr_ip(iface, addr))
+			continue;
+
+		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
+		if ((start & ntohl(~mask.s_addr)) == start &&
+				(end & ntohl(~mask.s_addr)) == end &&
+				end < ntohl(~mask.s_addr)) {	/* Exclude broadcast address */
+			iface->dhcpv4_start_ip.s_addr = htonl(start) |
+							(addr->s_addr & mask.s_addr);
+			iface->dhcpv4_end_ip.s_addr = htonl(end) |
+							(addr->s_addr & mask.s_addr);
+			iface->dhcpv4_local = *addr;
+			iface->dhcpv4_bcast = iface->addr4[i].broadcast;
+			iface->dhcpv4_mask = mask;
+			return 0;
+		}
+	}
+
+	/* Don't allocate IP range for subnets smaller than /28 */
+	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
+		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s (prefix length must be < %d).", iface->name, MAX_PREFIX_LEN + 1);
+		return -1;
+	}
+
+	iface->dhcpv4_local = iface->addr4[0].addr.in;
+	iface->dhcpv4_bcast = iface->addr4[0].broadcast;
+	odhcpd_bitlen2netmask(false, iface->addr4[0].prefix, &iface->dhcpv4_mask);
+	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
+
+	/* Auto allocate ranges */
+	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {		/* /24, 150 of 256, [100..249] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(100 + 150 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {    /* /25, 100 of 128, [20..119] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(20);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(20 + 100 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {    /* /26, 50 of 64, [10..59] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 50 - 1);
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {    /* /27, 20 of 32, [10..29] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 20 - 1);
+	} else {							/* /28, 10 of 16, [3..12] */
+		iface->dhcpv4_start_ip.s_addr = start | htonl(3);
+		iface->dhcpv4_end_ip.s_addr = end | htonl(3 + 10 - 1);
+	}
+
+	return 0;
+}
+
+int dhcpv4_setup_interface(struct interface *iface, bool enable)
+{
+	int ret = 0;
+
+	enable = enable && (iface->dhcpv4 != MODE_DISABLED);
+
+	if (iface->dhcpv4_event.uloop.fd >= 0) {
+		uloop_fd_delete(&iface->dhcpv4_event.uloop);
+		close(iface->dhcpv4_event.uloop.fd);
+		iface->dhcpv4_event.uloop.fd = -1;
+	}
+
+	if (enable) {
+		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
+					{INADDR_ANY}, {0}};
+		int val = 1;
+
+		iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+		if (iface->dhcpv4_event.uloop.fd < 0) {
+			syslog(LOG_ERR, "socket(AF_INET): %m");
+			ret = -1;
+			goto out;
+		}
+
+		/* Basic IPv4 configuration */
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = IPTOS_PREC_INTERNETCONTROL;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
+			ret = -1;
+			goto out;
+		}
+
+		val = IP_PMTUDISC_DONT;
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
+					&val, sizeof(val)) < 0) {
+			syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
+					iface->ifname, strlen(iface->ifname)) < 0) {
+			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr,
+					sizeof(bind_addr)) < 0) {
+			syslog(LOG_ERR, "bind(): %m");
+			ret = -1;
+			goto out;
+		}
+
+		if (setup_dhcpv4_addresses(iface) < 0) {
+			ret = -1;
+			goto out;
+		}
+
+		iface->dhcpv4_event.handle_dgram = handle_dhcpv4;
+		odhcpd_register(&iface->dhcpv4_event);
+	} else {
+		while (!list_empty(&iface->dhcpv4_assignments))
+			free_assignment(list_first_entry(&iface->dhcpv4_assignments,
+							struct dhcp_assignment, head));
+	}
+
+out:
+	if (ret < 0 && iface->dhcpv4_event.uloop.fd >= 0) {
+		close(iface->dhcpv4_event.uloop.fd);
+		iface->dhcpv4_event.uloop.fd = -1;
+	}
+
+	return ret;
+}
+
+static void handle_addrlist_change(struct interface *iface)
+{
+	struct odhcpd_ipaddr ip;
+	struct odhcpd_ref_ip *a;
+	struct dhcp_assignment *c;
+	uint32_t mask = iface->dhcpv4_mask.s_addr;
+
+	memset(&ip, 0, sizeof(ip));
+	ip.addr.in = iface->dhcpv4_local;
+	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
+	ip.broadcast = iface->dhcpv4_bcast;
+
+	setup_dhcpv4_addresses(iface);
+
+	if ((ip.addr.in.s_addr & mask) ==
+	    (iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr))
+		return;
+
+	if (ip.addr.in.s_addr && !leases_require_fr(iface, &ip, mask))
+		return;
+
+	if (iface->dhcpv4_local.s_addr == INADDR_ANY || list_empty(&iface->dhcpv4_fr_ips))
+		return;
+
+	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
+
+	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
+		syslog(LOG_WARNING, "Failed to add ip address on %s", iface->name);
+		return;
+	}
+
+	list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+		if ((c->flags & OAF_BOUND) && c->fr_ip && !c->fr_cnt) {
+			if (c->accept_fr_nonce || iface->dhcpv4_forcereconf)
+				dhcpv4_fr_rand_delay(c);
+			else
+				dhcpv4_fr_stop(c);
+		}
+	}
 }
 
 static void dhcpv4_netevent_cb(unsigned long event, struct netevent_handler_info *info)

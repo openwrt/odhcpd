@@ -40,13 +40,7 @@
 				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
-static bool addr_is_fr_ip(struct interface *iface, struct in_addr *addr);
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a);
-static struct dhcp_assignment* dhcpv4_lease(struct interface *iface,
-		enum dhcpv4_msg msg, const uint8_t *mac, const uint32_t reqaddr,
-		uint32_t *leasetime, const char *hostname, const size_t hostname_len,
-		const bool accept_fr_nonce, bool *incl_fr_opt, uint32_t *fr_serverid,
-		const uint8_t *reqopts, const size_t reqopts_len);
 
 static uint32_t serial = 0;
 
@@ -307,6 +301,256 @@ static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a)
 
 	uloop_timeout_set(&a->fr_timer, msecs);
 	a->fr_timer.cb = dhcpv4_fr_delay_timer;
+}
+
+static void dhcpv4_free_assignment(struct dhcp_assignment *a)
+{
+	if (a->fr_ip)
+		dhcpv4_fr_stop(a);
+}
+
+static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignment *a,
+				     uint32_t addr)
+{
+	uint32_t h_addr = ntohl(addr);
+	struct dhcp_assignment *c;
+
+	list_for_each_entry(c, list, head) {
+		uint32_t c_addr = ntohl(c->addr);
+
+		if (c_addr == h_addr)
+			return false;
+
+		if (c_addr > h_addr)
+			break;
+	}
+
+	/* Insert new node before c (might match list head) */
+	a->addr = addr;
+	list_add_tail(&a->head, &c->head);
+
+	return true;
+}
+
+static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
+			  uint32_t raddr)
+{
+	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
+	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
+	uint32_t count = end - start + 1;
+	uint32_t seed = 0;
+	bool assigned;
+	char buf[INET_ADDRSTRLEN];
+
+	/* Preconfigured IP address by static lease */
+	if (a->addr) {
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, a->addr);
+
+		if (assigned)
+			syslog(LOG_DEBUG, "Assigning static IP: %s",
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
+
+		return assigned;
+	}
+
+	/* try to assign the IP the client asked for */
+	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
+	    !config_find_lease_by_ipaddr(raddr)) {
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, raddr);
+
+		if (assigned) {
+			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
+			return true;
+		}
+	}
+
+	/* Seed RNG with checksum of hwaddress */
+	for (size_t i = 0; i < sizeof(a->hwaddr); ++i) {
+		/* Knuth's multiplicative method */
+		uint8_t o = a->hwaddr[i];
+		seed += (o*2654435761) % UINT32_MAX;
+	}
+
+	srand(seed);
+
+	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
+	     ++i, try = (((try - start) + 1) % count) + start) {
+		uint32_t n_try = htonl(try);
+
+		if (config_find_lease_by_ipaddr(n_try))
+			continue;
+
+		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
+						    a, n_try);
+
+		if (assigned) {
+			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
+			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)),
+			       i + 1, count);
+
+			return true;
+		}
+	}
+
+	syslog(LOG_NOTICE, "Can't assign any IP address -> address space is full");
+
+	return false;
+}
+
+
+static struct dhcp_assignment*
+dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
+	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
+	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
+	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
+{
+	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
+	struct lease *l = config_find_lease_by_mac(mac);
+	time_t now = odhcpd_time();
+
+	/*
+	 * If we found a static lease cfg, but no old assignment for this
+	 * hwaddr, we need to clear out any old assignments given to other
+	 * hwaddrs in order to take over the IP address.
+	 */
+	if (l && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
+		struct dhcp_assignment *c, *tmp;
+
+		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
+			if (c->flags & OAF_DHCPV4 && c->flags & OAF_STATIC)
+				free_assignment(c);
+		}
+	}
+
+	if (l && a && a->lease != l) {
+		free_assignment(a);
+		a = NULL;
+	}
+
+	if (a && (a->flags & OAF_BOUND) && a->fr_ip) {
+		*fr_serverid = a->fr_ip->addr.addr.in.s_addr;
+		dhcpv4_fr_stop(a);
+	}
+
+	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
+		bool assigned = !!a;
+
+		if (!a) {
+			if (!iface->no_dynamic_dhcp || l) {
+				/* Create new binding */
+				a = alloc_assignment(0);
+				if (!a) {
+					syslog(LOG_WARNING, "Failed to alloc assignment on interface %s",
+							    iface->ifname);
+					return NULL;
+				}
+				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
+				/* Set valid time to 0 for static lease indicating */
+				/* infinite lifetime otherwise current time        */
+				a->valid_until = l ? 0 : now;
+				a->dhcp_free_cb = dhcpv4_free_assignment;
+				a->iface = iface;
+				a->flags = OAF_DHCPV4;
+				a->addr = l ? l->ipaddr : INADDR_ANY;
+
+				assigned = dhcpv4_assign(iface, a, reqaddr);
+
+				if (l) {
+					a->flags |= OAF_STATIC;
+
+					if (l->hostname)
+						a->hostname = strdup(l->hostname);
+
+					if (l->leasetime)
+						a->leasetime = l->leasetime;
+
+					list_add(&a->lease_list, &l->assignments);
+					a->lease = l;
+				}
+			}
+		} else if (((a->addr & iface->dhcpv4_mask.s_addr) !=
+			    (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
+			    !(a->flags & OAF_STATIC)) {
+			list_del_init(&a->head);
+			a->addr = INADDR_ANY;
+
+			assigned = dhcpv4_assign(iface, a, reqaddr);
+		}
+
+		if (assigned) {
+			uint32_t my_leasetime;
+
+			if (a->leasetime)
+				my_leasetime = a->leasetime;
+			else
+				my_leasetime = iface->dhcp_leasetime;
+
+			if ((*leasetime == 0) || (my_leasetime < *leasetime))
+				*leasetime = my_leasetime;
+
+			if (msg == DHCPV4_MSG_DISCOVER) {
+				a->flags &= ~OAF_BOUND;
+
+				*incl_fr_opt = accept_fr_nonce;
+				a->valid_until = now;
+			} else {
+				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
+					a->hostname = realloc(a->hostname, hostname_len + 1);
+					if (a->hostname) {
+						memcpy(a->hostname, hostname, hostname_len);
+						a->hostname[hostname_len] = 0;
+
+						if (odhcpd_valid_hostname(a->hostname))
+							a->flags &= ~OAF_BROKEN_HOSTNAME;
+						else
+							a->flags |= OAF_BROKEN_HOSTNAME;
+					}
+				}
+
+				if (reqopts_len > 0) {
+					a->reqopts = realloc(a->reqopts, reqopts_len);
+					if (a->reqopts) {
+						memcpy(a->reqopts, reqopts, reqopts_len);
+						a->reqopts_len = reqopts_len;
+					}
+				}
+
+				if (!(a->flags & OAF_BOUND)) {
+					a->accept_fr_nonce = accept_fr_nonce;
+					*incl_fr_opt = accept_fr_nonce;
+					odhcpd_urandom(a->key, sizeof(a->key));
+					a->flags |= OAF_BOUND;
+				} else
+					*incl_fr_opt = false;
+
+				a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
+			}
+		} else if (!assigned && a) {
+			/* Cleanup failed assignment */
+			free_assignment(a);
+			a = NULL;
+		}
+
+	} else if (msg == DHCPV4_MSG_RELEASE && a) {
+		a->flags &= ~OAF_BOUND;
+		a->valid_until = now - 1;
+
+	} else if (msg == DHCPV4_MSG_DECLINE && a) {
+		a->flags &= ~OAF_BOUND;
+
+		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
+			memset(a->hwaddr, 0, sizeof(a->hwaddr));
+			a->valid_until = now + 3600; /* Block address for 1h */
+		} else
+			a->valid_until = now - 1;
+	}
+
+	dhcpv6_ia_write_statefile();
+
+	return a;
 }
 
 static int dhcpv4_send_reply(const void *buf, size_t len,
@@ -709,256 +953,6 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 	int sock = iface->dhcpv4_event.uloop.fd;
 
 	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
-}
-
-static void dhcpv4_free_assignment(struct dhcp_assignment *a)
-{
-	if (a->fr_ip)
-		dhcpv4_fr_stop(a);
-}
-
-static bool dhcpv4_insert_assignment(struct list_head *list, struct dhcp_assignment *a,
-				     uint32_t addr)
-{
-	uint32_t h_addr = ntohl(addr);
-	struct dhcp_assignment *c;
-
-	list_for_each_entry(c, list, head) {
-		uint32_t c_addr = ntohl(c->addr);
-
-		if (c_addr == h_addr)
-			return false;
-
-		if (c_addr > h_addr)
-			break;
-	}
-
-	/* Insert new node before c (might match list head) */
-	a->addr = addr;
-	list_add_tail(&a->head, &c->head);
-
-	return true;
-}
-
-static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
-			  uint32_t raddr)
-{
-	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
-	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
-	uint32_t count = end - start + 1;
-	uint32_t seed = 0;
-	bool assigned;
-	char buf[INET_ADDRSTRLEN];
-
-	/* Preconfigured IP address by static lease */
-	if (a->addr) {
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, a->addr);
-
-		if (assigned)
-			syslog(LOG_DEBUG, "Assigning static IP: %s",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
-
-		return assigned;
-	}
-
-	/* try to assign the IP the client asked for */
-	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
-	    !config_find_lease_by_ipaddr(raddr)) {
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, raddr);
-
-		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
-			return true;
-		}
-	}
-
-	/* Seed RNG with checksum of hwaddress */
-	for (size_t i = 0; i < sizeof(a->hwaddr); ++i) {
-		/* Knuth's multiplicative method */
-		uint8_t o = a->hwaddr[i];
-		seed += (o*2654435761) % UINT32_MAX;
-	}
-
-	srand(seed);
-
-	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
-	     ++i, try = (((try - start) + 1) % count) + start) {
-		uint32_t n_try = htonl(try);
-
-		if (config_find_lease_by_ipaddr(n_try))
-			continue;
-
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, n_try);
-
-		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)),
-			       i + 1, count);
-
-			return true;
-		}
-	}
-
-	syslog(LOG_NOTICE, "Can't assign any IP address -> address space is full");
-
-	return false;
-}
-
-
-static struct dhcp_assignment*
-dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
-	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
-	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
-{
-	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
-	struct lease *l = config_find_lease_by_mac(mac);
-	time_t now = odhcpd_time();
-
-	/*
-	 * If we found a static lease cfg, but no old assignment for this
-	 * hwaddr, we need to clear out any old assignments given to other
-	 * hwaddrs in order to take over the IP address.
-	 */
-	if (l && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
-		struct dhcp_assignment *c, *tmp;
-
-		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
-			if (c->flags & OAF_DHCPV4 && c->flags & OAF_STATIC)
-				free_assignment(c);
-		}
-	}
-
-	if (l && a && a->lease != l) {
-		free_assignment(a);
-		a = NULL;
-	}
-
-	if (a && (a->flags & OAF_BOUND) && a->fr_ip) {
-		*fr_serverid = a->fr_ip->addr.addr.in.s_addr;
-		dhcpv4_fr_stop(a);
-	}
-
-	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
-		bool assigned = !!a;
-
-		if (!a) {
-			if (!iface->no_dynamic_dhcp || l) {
-				/* Create new binding */
-				a = alloc_assignment(0);
-				if (!a) {
-					syslog(LOG_WARNING, "Failed to alloc assignment on interface %s",
-							    iface->ifname);
-					return NULL;
-				}
-				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
-				/* Set valid time to 0 for static lease indicating */
-				/* infinite lifetime otherwise current time        */
-				a->valid_until = l ? 0 : now;
-				a->dhcp_free_cb = dhcpv4_free_assignment;
-				a->iface = iface;
-				a->flags = OAF_DHCPV4;
-				a->addr = l ? l->ipaddr : INADDR_ANY;
-
-				assigned = dhcpv4_assign(iface, a, reqaddr);
-
-				if (l) {
-					a->flags |= OAF_STATIC;
-
-					if (l->hostname)
-						a->hostname = strdup(l->hostname);
-
-					if (l->leasetime)
-						a->leasetime = l->leasetime;
-
-					list_add(&a->lease_list, &l->assignments);
-					a->lease = l;
-				}
-			}
-		} else if (((a->addr & iface->dhcpv4_mask.s_addr) !=
-			    (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
-			    !(a->flags & OAF_STATIC)) {
-			list_del_init(&a->head);
-			a->addr = INADDR_ANY;
-
-			assigned = dhcpv4_assign(iface, a, reqaddr);
-		}
-
-		if (assigned) {
-			uint32_t my_leasetime;
-
-			if (a->leasetime)
-				my_leasetime = a->leasetime;
-			else
-				my_leasetime = iface->dhcp_leasetime;
-
-			if ((*leasetime == 0) || (my_leasetime < *leasetime))
-				*leasetime = my_leasetime;
-
-			if (msg == DHCPV4_MSG_DISCOVER) {
-				a->flags &= ~OAF_BOUND;
-
-				*incl_fr_opt = accept_fr_nonce;
-				a->valid_until = now;
-			} else {
-				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
-					a->hostname = realloc(a->hostname, hostname_len + 1);
-					if (a->hostname) {
-						memcpy(a->hostname, hostname, hostname_len);
-						a->hostname[hostname_len] = 0;
-
-						if (odhcpd_valid_hostname(a->hostname))
-							a->flags &= ~OAF_BROKEN_HOSTNAME;
-						else
-							a->flags |= OAF_BROKEN_HOSTNAME;
-					}
-				}
-
-				if (reqopts_len > 0) {
-					a->reqopts = realloc(a->reqopts, reqopts_len);
-					if (a->reqopts) {
-						memcpy(a->reqopts, reqopts, reqopts_len);
-						a->reqopts_len = reqopts_len;
-					}
-				}
-
-				if (!(a->flags & OAF_BOUND)) {
-					a->accept_fr_nonce = accept_fr_nonce;
-					*incl_fr_opt = accept_fr_nonce;
-					odhcpd_urandom(a->key, sizeof(a->key));
-					a->flags |= OAF_BOUND;
-				} else
-					*incl_fr_opt = false;
-
-				a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
-			}
-		} else if (!assigned && a) {
-			/* Cleanup failed assignment */
-			free_assignment(a);
-			a = NULL;
-		}
-
-	} else if (msg == DHCPV4_MSG_RELEASE && a) {
-		a->flags &= ~OAF_BOUND;
-		a->valid_until = now - 1;
-
-	} else if (msg == DHCPV4_MSG_DECLINE && a) {
-		a->flags &= ~OAF_BOUND;
-
-		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
-			memset(a->hwaddr, 0, sizeof(a->hwaddr));
-			a->valid_until = now + 3600; /* Block address for 1h */
-		} else
-			a->valid_until = now - 1;
-	}
-
-	dhcpv6_ia_write_statefile();
-
-	return a;
 }
 
 static int dhcpv4_setup_addresses(struct interface *iface)

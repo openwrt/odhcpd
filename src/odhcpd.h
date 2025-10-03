@@ -362,8 +362,8 @@ struct interface {
 	struct in6_addr pio_filter_addr;
 	int default_router;
 	int route_preference;
-	int ra_maxinterval;
-	int ra_mininterval;
+	uint32_t ra_maxinterval;
+	uint32_t ra_mininterval;
 	uint32_t ra_lifetime;
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;

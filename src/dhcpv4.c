@@ -105,44 +105,46 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	return fr_ip ? true : false;
 }
 
-static char *dhcpv4_msg_to_string(uint8_t reqmsg)
+static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
 {
-	switch (reqmsg) {
-	case (DHCPV4_MSG_DISCOVER):
-		return "DHCPV4_MSG_DISCOVER";
-	case (DHCPV4_MSG_OFFER):
-		return "DHCPV4_MSG_OFFER";
-	case (DHCPV4_MSG_REQUEST):
-		return "DHCPV4_MSG_REQUEST";
-	case (DHCPV4_MSG_DECLINE):
-		return "DHCPV4_MSG_DECLINE";
-	case (DHCPV4_MSG_ACK):
-		return "DHCPV4_MSG_ACK";
-	case (DHCPV4_MSG_NAK):
-		return "DHCPV4_MSG_NAK";
-	case (DHCPV4_MSG_RELEASE):
-		return "DHCPV4_MSG_RELEASE";
-	case (DHCPV4_MSG_INFORM):
-		return "DHCPV4_MSG_INFORM";
-	case (DHCPV4_MSG_FORCERENEW):
-		return "DHCPV4_MSG_FORCERENEW";
-	default:
+	static const char *dhcpv4_msg_names[] = {
+		[DHCPV4_MSG_DISCOVER]		= "DHCPV4_MSG_DISCOVER",
+		[DHCPV4_MSG_OFFER]		= "DHCPV4_MSG_OFFER",
+		[DHCPV4_MSG_REQUEST]		= "DHCPV4_MSG_REQUEST",
+		[DHCPV4_MSG_DECLINE]		= "DHCPV4_MSG_DECLINE",
+		[DHCPV4_MSG_ACK]		= "DHCPV4_MSG_ACK",
+		[DHCPV4_MSG_NAK]		= "DHCPV4_MSG_NAK",
+		[DHCPV4_MSG_RELEASE]		= "DHCPV4_MSG_RELEASE",
+		[DHCPV4_MSG_INFORM]		= "DHCPV4_MSG_INFORM",
+		[DHCPV4_MSG_FORCERENEW]		= "DHCPV4_MSG_FORCERENEW",
+		[DHCPV4_MSG_LEASEQUERY]		= "DHCPV4_MSG_LEASEQUERY",
+		[DHCPV4_MSG_LEASEUNASSIGNED]	= "DHCPV4_MSG_LEASEUNASSIGNED",
+		[DHCPV4_MSG_LEASEUNKNOWN]	= "DHCPV4_MSG_LEASEUNKNOWN",
+		[DHCPV4_MSG_LEASEACTIVE]	= "DHCPV4_MSG_LEASEACTIVE",
+		[DHCPV4_MSG_BULKLEASEQUERY]	= "DHCPV4_MSG_BULKLEASEQUERY",
+		[DHCPV4_MSG_LEASEQUERYDONE]	= "DHCPV4_MSG_LEASEQUERYDONE",
+		[DHCPV4_MSG_ACTIVELEASEQUERY]	= "DHCPV4_MSG_ACTIVELEASEQUERY",
+		[DHCPV4_MSG_LEASEQUERYSTATUS]	= "DHCPV4_MSG_LEASEQUERYSTATUS",
+		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
+	};
+
+	if (reqmsg >= ARRAY_SIZE(dhcpv4_msg_names))
 		return "UNKNOWN";
-	}
+	return dhcpv4_msg_names[reqmsg];
 }
 
-static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
+static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
 		uint8_t type, uint8_t len, const void *data)
 {
-	uint8_t *c = *cookie;
+	uint8_t *c = *cursor;
 	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
 	bool tag_only = type == DHCPV4_OPT_PAD || type == DHCPV4_OPT_END;
 	int total_len = tag_only ? 1 : 2 + len;
 
-	if (*cookie + total_len > end)
+	if (*cursor + total_len > end)
 		return;
 
-	*cookie += total_len;
+	*cursor += total_len;
 	*c++ = type;
 
 	if (tag_only)
@@ -155,46 +157,45 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cookie,
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
 	struct dhcpv4_message fr_msg = {
-		.op = DHCPV4_BOOTREPLY,
-		.htype = 1,
-		.hlen = 6,
+		.op = DHCPV4_OP_BOOTREPLY,
+		.htype = ARPHRD_ETHER,
+		.hlen = ETH_ALEN,
 		.hops = 0,
 		.secs = 0,
 		.flags = 0,
-		.ciaddr = {INADDR_ANY},
-		.yiaddr = {INADDR_ANY},
-		.siaddr = {INADDR_ANY},
-		.giaddr = {INADDR_ANY},
-		.chaddr = {0},
-		.sname = {0},
-		.file = {0},
+		.ciaddr = { INADDR_ANY },
+		.yiaddr = { INADDR_ANY },
+		.siaddr = { INADDR_ANY },
+		.giaddr = { INADDR_ANY },
+		.chaddr = { 0 },
+		.sname = { 0 },
+		.file = { 0 },
+		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
 	struct dhcpv4_auth_forcerenew *auth_o, auth = {
-		.protocol = 3,
-		.algorithm = 1,
-		.rdm = 0,
-		.replay = {htonl(time(NULL)), htonl(++serial)},
-		.type = 2,
-		.key = {0},
+		.protocol = DHCPV4_AUTH_PROTO_RKAP,
+		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+		.replay = { htonl(time(NULL)), htonl(++serial) },
+		.type = DHCPV4_AUTH_RKAP_AI_TYPE_MD5_DIGEST,
+		.key = { 0 },
 	};
 	struct interface *iface = a->iface;
+	uint8_t *cursor = fr_msg.options;
+	uint8_t msg = DHCPV4_MSG_FORCERENEW;
+	struct sockaddr_in dest = {
+		.sin_family = AF_INET,
+		.sin_port = htons(DHCPV4_CLIENT_PORT),
+		.sin_addr = { a->addr },
+	};
 
 	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
 	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
 
-	fr_msg.options[0] = 0x63;
-	fr_msg.options[1] = 0x82;
-	fr_msg.options[2] = 0x53;
-	fr_msg.options[3] = 0x63;
-
-	uint8_t *cookie = &fr_msg.options[4];
-	uint8_t msg = DHCPV4_MSG_FORCERENEW;
-
-	dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
+	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-		auth_o = (struct dhcpv4_auth_forcerenew *)(cookie - sizeof(auth));
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
+		auth_o = (struct dhcpv4_auth_forcerenew *)cursor;
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
 
 		md5_ctx_t md5;
 		uint8_t secretbytes[64];
@@ -218,20 +219,14 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
 		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
 		md5_end(auth_o->key, &md5);
-	} else {
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_SERVERID, 4,
+	} else
+		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_SERVERID, 4,
 				&a->fr_ip->addr.addr.in.s_addr);
-		dhcpv4_put(&fr_msg, &cookie, DHCPV4_OPT_END, 0, NULL);
-	}
 
-	struct sockaddr_in dest;
-	memset(&dest, 0, sizeof(dest));
-	dest.sin_family = AF_INET;
-	dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	dest.sin_addr.s_addr = a->addr;
+	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
 
-	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cookie),
-			MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
+	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
+		   MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
 			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
@@ -280,13 +275,11 @@ static void dhcpv4_fr_delay_timer(struct uloop_timeout *event)
 
 static void dhcpv4_fr_rand_delay(struct dhcp_assignment *a)
 {
-#define MIN_DELAY   500
-#define MAX_FUZZ    500
 	int msecs;
 
 	odhcpd_urandom(&msecs, sizeof(msecs));
 
-	msecs = labs(msecs)%MAX_FUZZ + MIN_DELAY;
+	msecs = abs(msecs) % DHCPV4_FR_MAX_FUZZ + DHCPV4_FR_MIN_DELAY;
 
 	uloop_timeout_set(&a->fr_timer, msecs);
 	a->fr_timer.cb = dhcpv4_fr_delay_timer;
@@ -570,8 +563,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
 
-	if (len < offsetof(struct dhcpv4_message, options) + 4 ||
-			req->op != DHCPV4_BOOTREQUEST || req->hlen != 6)
+	/* FIXME: would checking the magic cookie value here break any clients? */
+
+	if (len < offsetof(struct dhcpv4_message, options) ||
+	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
 		return;
 
 	syslog(LOG_DEBUG, "Got DHCPv4 request on %s", iface->name);
@@ -584,25 +579,21 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	int sock = iface->dhcpv4_event.uloop.fd;
 
 	struct dhcpv4_message reply = {
-		.op = DHCPV4_BOOTREPLY,
+		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = req->htype,
 		.hlen = req->hlen,
 		.hops = 0,
 		.xid = req->xid,
 		.secs = 0,
 		.flags = req->flags,
-		.ciaddr = {INADDR_ANY},
+		.ciaddr = { INADDR_ANY },
 		.giaddr = req->giaddr,
 		.siaddr = iface->dhcpv4_local,
+		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
-	reply.options[0] = 0x63;
-	reply.options[1] = 0x82;
-	reply.options[2] = 0x53;
-	reply.options[3] = 0x63;
-
-	uint8_t *cookie = &reply.options[4];
+	uint8_t *cursor = reply.options;
 	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
 	uint8_t msg = DHCPV4_MSG_ACK;
 
@@ -615,9 +606,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
-	uint8_t *start = &req->options[4];
-	uint8_t *end = ((uint8_t*)data) + len;
+	uint8_t *start = req->options;
+	uint8_t *end = ((uint8_t *)data) + len;
 	struct dhcpv4_option *opt;
+
 	dhcpv4_for_each_option(start, end, opt) {
 		if (opt->type == DHCPV4_OPT_MESSAGE && opt->len == 1)
 			reqmsg = opt->data[0];
@@ -711,15 +703,18 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
 #ifdef WITH_UBUS
-	if (reqmsg == DHCPV4_MSG_RELEASE)
+	if (reqmsg == DHCPV4_MSG_RELEASE) {
+		struct in_addr ciaddr = req->ciaddr; // ensure pointer alignment
 		ubus_bcast_dhcp_event("dhcp.release", req->chaddr, req->hlen,
-					&req->ciaddr, a ? a->hostname : NULL, iface->ifname);
+					&ciaddr, a ? a->hostname : NULL, iface->ifname);
+	}
 #endif
+
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
 
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_MESSAGE, 1, &msg);
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SERVERID, 4, &serverid);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);
 
 	if (a) {
 		uint32_t val;
@@ -727,42 +722,42 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		reply.yiaddr.s_addr = a->addr;
 
 		val = htonl(leasetime);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_LEASETIME, 4, &val);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
 
 		if (leasetime != UINT32_MAX) {
 			val = htonl(500 * leasetime / 1000);
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_RENEW, 4, &val);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
 
 			val = htonl(875 * leasetime / 1000);
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_REBIND, 4, &val);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
 		}
 
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NETMASK, 4,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
 				&iface->dhcpv4_mask.s_addr);
 
 		if (a->hostname)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_HOSTNAME,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_HOSTNAME,
 					strlen(a->hostname), a->hostname);
 
 		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
 
 		if (incl_fr_opt) {
 			if (reqmsg == DHCPV4_MSG_REQUEST) {
 				struct dhcpv4_auth_forcerenew auth = {
-					.protocol = 3,
-					.algorithm = 1,
-					.rdm = 0,
-					.replay = {htonl(time(NULL)), htonl(++serial)},
-					.type = 1,
-					.key = {0},
+					.protocol = DHCPV4_AUTH_PROTO_RKAP,
+					.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+					.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+					.replay = { htonl(time(NULL)), htonl(++serial) },
+					.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
+					.key = { 0 },
 				};
 
 				memcpy(auth.key, a->key, sizeof(auth.key));
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
 			} else {
 				uint8_t one = 1;
-				dhcpv4_put(&reply, &cookie, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 					sizeof(one), &one);
 			}
 		}
@@ -775,39 +770,39 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	if (!ioctl(sock, SIOCGIFMTU, &ifr)) {
 		uint16_t mtu = htons(ifr.ifr_mtu);
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_MTU, 2, &mtu);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
 	}
 
 	if (iface->search && iface->search_len <= 255)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SEARCH_DOMAIN,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
 				iface->search_len, iface->search);
 	else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
 		uint8_t search_buf[256];
 		int len = dn_comp(_res.dnsrch[0], search_buf,
 						sizeof(search_buf), NULL, NULL);
 		if (len > 0)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_SEARCH_DOMAIN,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
 					len, search_buf);
 	}
 
 	if (iface->dhcpv4_router_cnt == 0)
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
 	else
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_ROUTER,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER,
 				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
 
 
 	if (iface->dhcpv4_dns_cnt == 0) {
 		if (iface->dns_service)
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
 	} else
-		dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNSSERVER,
+		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
 	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
 		switch (a->reqopts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_NTPSERVER,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NTPSERVER,
 				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
 			break;
 
@@ -868,13 +863,13 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
 			}
 
-			dhcpv4_put(&reply, &cookie, DHCPV4_OPT_DNR,
+			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNR,
 				   dnrs_len, dnrs);
 			break;
 		}
 	}
 
-	dhcpv4_put(&reply, &cookie, DHCPV4_OPT_END, 0, NULL);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_END, 0, NULL);
 
 	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
 	if (req->giaddr.s_addr) {
@@ -923,7 +918,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
-	if (send_reply(&reply, PACKET_SIZE(&reply, cookie),
+	if (send_reply(&reply, PACKET_SIZE(&reply, cursor),
 		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
 		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
 			dhcpv4_msg_to_string(msg),
@@ -937,11 +932,12 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 			inet_ntoa(dest.sin_addr));
 
-
 #ifdef WITH_UBUS
-	if (msg == DHCPV4_MSG_ACK)
-		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &reply.yiaddr,
+	if (msg == DHCPV4_MSG_ACK) {
+		struct in_addr yiaddr = reply.yiaddr; // ensure pointer alignment
+		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &yiaddr,
 					a ? a->hostname : NULL, iface->ifname);
+	}
 #endif
 }
 
@@ -1035,8 +1031,12 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 int dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
-
-	enable = enable && (iface->dhcpv4 != MODE_DISABLED);
+	struct sockaddr_in bind_addr = {
+		.sin_family = AF_INET,
+		.sin_port = htons(DHCPV4_SERVER_PORT),
+		.sin_addr = { INADDR_ANY },
+	};
+	int val = 1;
 
 	if (iface->dhcpv4_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);
@@ -1044,82 +1044,79 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 		iface->dhcpv4_event.uloop.fd = -1;
 	}
 
-	if (enable) {
-		struct sockaddr_in bind_addr = {AF_INET, htons(DHCPV4_SERVER_PORT),
-					{INADDR_ANY}, {0}};
-		int val = 1;
-
-		iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
-		if (iface->dhcpv4_event.uloop.fd < 0) {
-			syslog(LOG_ERR, "socket(AF_INET): %m");
-			ret = -1;
-			goto out;
-		}
-
-		/* Basic IPv4 configuration */
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
-			ret = -1;
-			goto out;
-		}
-
-		val = IPTOS_PREC_INTERNETCONTROL;
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
-			ret = -1;
-			goto out;
-		}
-
-		val = IP_PMTUDISC_DONT;
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
-					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
-					iface->ifname, strlen(iface->ifname)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr*)&bind_addr,
-					sizeof(bind_addr)) < 0) {
-			syslog(LOG_ERR, "bind(): %m");
-			ret = -1;
-			goto out;
-		}
-
-		if (dhcpv4_setup_addresses(iface) < 0) {
-			ret = -1;
-			goto out;
-		}
-
-		iface->dhcpv4_event.handle_dgram = dhcpv4_handle_dgram;
-		odhcpd_register(&iface->dhcpv4_event);
-	} else {
+	if (!enable || iface->dhcpv4 == MODE_DISABLED) {
 		while (!list_empty(&iface->dhcpv4_assignments))
 			free_assignment(list_first_entry(&iface->dhcpv4_assignments,
-							struct dhcp_assignment, head));
+							 struct dhcp_assignment, head));
+		return 0;
 	}
+
+	iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+	if (iface->dhcpv4_event.uloop.fd < 0) {
+		syslog(LOG_ERR, "socket(AF_INET): %m");
+		ret = -1;
+		goto out;
+	}
+
+	/* Basic IPv4 configuration */
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
+		       &val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
+		       &val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
+		       &val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
+		ret = -1;
+		goto out;
+	}
+
+	val = IPTOS_PREC_INTERNETCONTROL;
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS, &val,
+		       sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
+		ret = -1;
+		goto out;
+	}
+
+	val = IP_PMTUDISC_DONT;
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
+		       &val, sizeof(val)) < 0) {
+		syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
+		       iface->ifname, strlen(iface->ifname)) < 0) {
+		syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr *)&bind_addr,
+		 sizeof(bind_addr)) < 0) {
+		syslog(LOG_ERR, "bind(): %m");
+		ret = -1;
+		goto out;
+	}
+
+	if (dhcpv4_setup_addresses(iface) < 0) {
+		ret = -1;
+		goto out;
+	}
+
+	iface->dhcpv4_event.handle_dgram = dhcpv4_handle_dgram;
+	odhcpd_register(&iface->dhcpv4_event);
 
 out:
 	if (ret < 0 && iface->dhcpv4_event.uloop.fd >= 0) {

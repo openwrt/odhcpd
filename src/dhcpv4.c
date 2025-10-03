@@ -1110,13 +1110,14 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
 	time_t now = odhcpd_time();
+	bool ignored = (l && l->ignore);
 
 	/*
 	 * If we found a static lease cfg, but no old assignment for this
 	 * hwaddr, we need to clear out any old assignments given to other
 	 * hwaddrs in order to take over the IP address.
 	 */
-	if (l && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
+	if (l && !ignored && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
 		struct dhcp_assignment *c, *tmp;
 
 		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
@@ -1125,7 +1126,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		}
 	}
 
-	if (l && a && a->lease != l) {
+	if (l && a && (a->lease != l || ignored)) {
 		free_assignment(a);
 		a = NULL;
 	}
@@ -1139,7 +1140,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		bool assigned = !!a;
 
 		if (!a) {
-			if (!iface->no_dynamic_dhcp || l) {
+			if ((!iface->no_dynamic_dhcp || l) && !ignored) {
 				/* Create new binding */
 				a = alloc_assignment(0);
 				if (!a) {

@@ -32,8 +32,29 @@ struct icmpv6_opt {
 
 #define MaxInitialRtrAdvInterval	16
 #define MaxInitialRtAdvs		3
-#define MaxRtrAdvInterval		1800
-#define MinRtrAdvInterval		3
+/* RFC8319 §4
+	This document updates §4.2 and 6.2.1 of [RFC4861] to change
+	the following router configuration variables.
+
+	In §6.2.1, inside the paragraph that defines
+	MaxRtrAdvInterval, change 1800 to 65535 seconds.
+
+	In §6.2.1, inside the paragraph that defines
+	AdvDefaultLifetime, change 9000 to 65535 seconds.
+*/
+#define MaxRtrAdvInterval				65535
+#define MinRtrAdvInterval				3
+#define AdvDefaultLifetime				65535
+/* RFC8319 §4
+	This document updates §4.2 and 6.2.1 of [RFC4861] to change
+	the following router configuration variables.
+
+	In §4.2, inside the paragraph that defines Router Lifetime,
+	change 9000 to 65535 seconds.
+
+	Note: this is 16 bit Router Lifetime field in RA packets
+*/
+#define RouterLifetime					65535
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

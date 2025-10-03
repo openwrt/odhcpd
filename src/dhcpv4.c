@@ -329,7 +329,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	uint32_t count = end - start + 1;
 	uint32_t seed = 0;
 	bool assigned;
-	char buf[INET_ADDRSTRLEN];
+	char ipv4_str[INET_ADDRSTRLEN];
 
 	/* Preconfigured IP address by static lease */
 	if (a->addr) {
@@ -338,7 +338,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 
 		if (assigned)
 			syslog(LOG_DEBUG, "Assigning static IP: %s",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
+			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 
 		return assigned;
 	}
@@ -351,7 +351,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 
 		if (assigned) {
 			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)));
+			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 			return true;
 		}
 	}
@@ -377,7 +377,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 
 		if (assigned) {
 			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
-			       inet_ntop(AF_INET, &a->addr, buf, sizeof(buf)),
+			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
 			       i + 1, count);
 
 			return true;

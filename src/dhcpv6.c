@@ -895,11 +895,29 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	struct odhcpd_ipaddr *ip;
 	struct sockaddr_in6 s;
 
-	if (h->msg_type == DHCPV6_MSG_RELAY_REPL ||
-	    h->msg_type == DHCPV6_MSG_RECONFIGURE ||
-	    h->msg_type == DHCPV6_MSG_REPLY ||
-	    h->msg_type == DHCPV6_MSG_ADVERTISE)
-		return; /* Invalid message types for client */
+	switch (h->msg_type) {
+	/* Valid message types from clients */
+	case DHCPV6_MSG_SOLICIT:
+	case DHCPV6_MSG_REQUEST:
+	case DHCPV6_MSG_CONFIRM:
+	case DHCPV6_MSG_RENEW:
+	case DHCPV6_MSG_REBIND:
+	case DHCPV6_MSG_RELEASE:
+	case DHCPV6_MSG_DECLINE:
+	case DHCPV6_MSG_INFORMATION_REQUEST:
+	case DHCPV6_MSG_RELAY_FORW:
+	case DHCPV6_MSG_DHCPV4_QUERY:
+		break;
+	/* Invalid message types from clients i.e. server messages */
+	case DHCPV6_MSG_ADVERTISE:
+	case DHCPV6_MSG_REPLY:
+	case DHCPV6_MSG_RECONFIGURE:
+	case DHCPV6_MSG_RELAY_REPL:
+	case DHCPV6_MSG_DHCPV4_RESPONSE:
+		return;
+	default:
+		break;
+	}
 
 	debug("Got a DHCPv6-request on %s", iface->name);
 

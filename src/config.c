@@ -21,6 +21,7 @@
 
 #include "odhcpd.h"
 #include "dhcpv6-pxe.h"
+#include "dhcpv4.h"
 
 static struct blob_buf b;
 static int reload_pipe[2] = { -1, -1 };
@@ -121,6 +122,7 @@ enum {
 	IFACE_ATTR_MAX_PREFERRED_LIFETIME,
 	IFACE_ATTR_MAX_VALID_LIFETIME,
 	IFACE_ATTR_NTP,
+	IFACE_ATTR_IPV6ONLY_WAIT,
 	IFACE_ATTR_MAX
 };
 
@@ -175,6 +177,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_MAX_PREFERRED_LIFETIME] = { .name = "max_preferred_lifetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_MAX_VALID_LIFETIME] = { .name = "max_valid_lifetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_IPV6ONLY_WAIT] = { .name = "ipv6only_wait", .type = BLOBMSG_TYPE_INT32 },
 };
 
 static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
@@ -1496,6 +1499,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					iface->dhcpv6_ntp_cnt++;
 			}
 		}
+	}
+	
+	if ((c = tb[IFACE_ATTR_IPV6ONLY_WAIT])) {
+		uint32_t ipv6only_wait = blobmsg_get_u32(c);
+
+		if (ipv6only_wait == 0)
+			iface->ipv6only_wait = 0; // disabled
+		else if (ipv6only_wait == 1)
+			iface->ipv6only_wait = DHCPV4_DEFAULT_V6ONLY_WAIT;
+		else
+			iface->ipv6only_wait = max(ipv6only_wait, DHCPV4_MIN_V6ONLY_WAIT);
 	}
 
 	config_load_ra_pio(iface);

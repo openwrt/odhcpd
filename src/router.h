@@ -32,8 +32,57 @@ struct icmpv6_opt {
 
 #define MaxInitialRtrAdvInterval	16
 #define MaxInitialRtAdvs		3
-#define MaxRtrAdvInterval		1800
-#define MinRtrAdvInterval		3
+/* RFC8319 §4
+	This document updates §4.2 and 6.2.1 of [RFC4861] to change
+	the following router configuration variables.
+
+	In §6.2.1, inside the paragraph that defines
+	MaxRtrAdvInterval, change 1800 to 65535 seconds.
+
+	In §6.2.1, inside the paragraph that defines
+	AdvDefaultLifetime, change 9000 to 65535 seconds.
+*/
+#define MaxRtrAdvInterval				65535
+#define MinRtrAdvInterval				3
+#define AdvDefaultLifetime				65535
+/* RFC8319 §4
+	This document updates §4.2 and 6.2.1 of [RFC4861] to change
+	the following router configuration variables.
+
+	In §4.2, inside the paragraph that defines Router Lifetime,
+	change 9000 to 65535 seconds.
+
+	Note: this is 16 bit Router Lifetime field in RA packets
+*/
+/* RFC9096 defines recommended option lifetimes configuration values
+	ND_PREFERRED_LIMIT 2700
+	ND_VALID_LIMIT 5400
+
+	RFC9096  §3.4
+	CE routers SHOULD set the "Router Lifetime" of Router Advertisement
+	(RA) messages to ND_PREFERRED_LIMIT.
+
+	Note: while the RFC recommends SHOULD of ND_PREFERRED_LIMIT, this
+	define is used to cap values to a sane ceiling, i.e. ND_VALID_LIMIT.
+*/
+#define RouterLifetime					5400
+/* rfc4861#section-6.2.1 : AdvReachableTime : 
+ * MUST be no greater than 3,600,000 msec
+ */
+#define AdvReachableTime				3600000
+/* rfc4861#section-6.2.1 : AdvCurHopLimit 
+	The value should be set to the current
+	diameter of the Internet.  The value zero means
+	unspecified (by this router).
+
+	Note: this value is an 8 bit int, so max 255.
+*/
+#define AdvCurHopLimit					255
+/* rfc4861#section-10 - constants
+	Node constants:
+		RETRANS_TIMER                 1,000 milliseconds
+*/
+#define RETRANS_TIMER_MAX				60000
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

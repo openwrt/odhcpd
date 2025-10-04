@@ -49,7 +49,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
-			blobmsg_add_u8(&b, "accept-reconf-nonce", c->accept_fr_nonce);
+			blobmsg_add_u8(&b, "accept-reconf", c->accept_fr_nonce);
 
 			if (c->reqopts_len > 0) {
 				buf = blobmsg_alloc_string_buffer(&b, "reqopts", c->reqopts_len * 4 + 1);

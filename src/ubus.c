@@ -18,6 +18,7 @@ static struct blob_attr *dump = NULL;
 static uint32_t objid = 0;
 static struct ubus_request req_dump = { .list = LIST_HEAD_INIT(req_dump.list) };
 
+#ifdef DHCPV4_SUPPORT
 static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_object *obj,
 		struct ubus_request_data *req, _unused const char *method,
 		_unused struct blob_attr *msg)
@@ -89,6 +90,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 
 	return 0;
 }
+#endif /* DHCPV4_SUPPORT */
 
 static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t pref,
 					uint32_t valid, _unused void *arg)
@@ -243,9 +245,11 @@ static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubu
 }
 
 static struct ubus_method main_object_methods[] = {
-	{.name = "ipv4leases", .handler = handle_dhcpv4_leases},
-	{.name = "ipv6leases", .handler = handle_dhcpv6_leases},
-	{.name = "ipv6ra", .handler = handle_ra_pio},
+#ifdef DHCPV4_SUPPORT
+	{ .name = "ipv4leases", .handler = handle_dhcpv4_leases },
+#endif /* DHCPV4_SUPPORT */
+	{ .name = "ipv6leases", .handler = handle_dhcpv6_leases },
+	{ .name = "ipv6ra", .handler = handle_ra_pio },
 	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
 };
 

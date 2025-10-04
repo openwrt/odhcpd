@@ -18,6 +18,7 @@ static struct blob_attr *dump = NULL;
 static uint32_t objid = 0;
 static struct ubus_request req_dump = { .list = LIST_HEAD_INIT(req_dump.list) };
 
+#ifdef DHCPV4_SUPPORT
 static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_object *obj,
 		struct ubus_request_data *req, _unused const char *method,
 		_unused struct blob_attr *msg)
@@ -48,7 +49,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
-			blobmsg_add_u8(&b, "accept-reconf-nonce", c->accept_fr_nonce);
+			blobmsg_add_u8(&b, "accept-reconf", c->accept_fr_nonce);
 
 			if (c->reqopts_len > 0) {
 				buf = blobmsg_alloc_string_buffer(&b, "reqopts", c->reqopts_len * 4 + 1);
@@ -89,6 +90,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 
 	return 0;
 }
+#endif /* DHCPV4_SUPPORT */
 
 static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t pref,
 					uint32_t valid, _unused void *arg)
@@ -159,7 +161,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 
 			m = blobmsg_open_array(&b, a->flags & OAF_DHCPV6_NA ? "ipv6-addr": "ipv6-prefix");
 			dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
-			blobmsg_close_table(&b, m);
+			blobmsg_close_array(&b, m);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(a->valid_until) ?
 						(uint32_t)-1 : (uint32_t)(a->valid_until - now));
@@ -243,9 +245,11 @@ static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubu
 }
 
 static struct ubus_method main_object_methods[] = {
-	{.name = "ipv4leases", .handler = handle_dhcpv4_leases},
-	{.name = "ipv6leases", .handler = handle_dhcpv6_leases},
-	{.name = "ipv6ra", .handler = handle_ra_pio},
+#ifdef DHCPV4_SUPPORT
+	{ .name = "ipv4leases", .handler = handle_dhcpv4_leases },
+#endif /* DHCPV4_SUPPORT */
+	{ .name = "ipv6leases", .handler = handle_dhcpv6_leases },
+	{ .name = "ipv6ra", .handler = handle_ra_pio },
 	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
 };
 

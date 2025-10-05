@@ -597,15 +597,16 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	};
 
 	uint8_t *cursor = reply.options;
-	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
 	uint8_t msg = DHCPV4_MSG_ACK;
 
-	uint32_t reqaddr = INADDR_ANY;
-	uint32_t leasetime = 0;
-	char hostname[256];
-	size_t hostname_len = 0;
+	/* Request variables */
+	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
 	uint8_t *reqopts = NULL;
 	size_t reqopts_len = 0;
+	uint32_t reqaddr = INADDR_ANY;
+	uint32_t leasetime = 0;
+	char *hostname = NULL;
+	size_t hostname_len = 0;
 	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
@@ -622,8 +623,6 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
 		return;
 
-	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
-
 	debug("Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
@@ -631,56 +630,79 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		return;
 	}
 
+	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
+
 	dhcpv4_for_each_option(start, end, opt) {
-		if (opt->type == DHCPV4_OPT_MESSAGE && opt->len == 1)
-			reqmsg = opt->data[0];
-		else if (opt->type == DHCPV4_OPT_REQOPTS && opt->len > 0) {
-			reqopts_len = opt->len;
-			reqopts = alloca(reqopts_len);
-			memcpy(reqopts, opt->data, reqopts_len);
-		} else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
+		switch (opt->type) {
+		case DHCPV4_OPT_PAD:
+			break;
+		case DHCPV4_OPT_HOSTNAME:
+			hostname = (char *)opt->data;
 			hostname_len = opt->len;
-			memcpy(hostname, opt->data, hostname_len);
-			hostname[hostname_len] = 0;
-		} else if (opt->type == DHCPV4_OPT_IPADDRESS && opt->len == 4)
-			memcpy(&reqaddr, opt->data, 4);
-		else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
-			if (memcmp(opt->data, &iface->dhcpv4_local, 4))
+			break;
+		case DHCPV4_OPT_IPADDRESS:
+			if (opt->len == 4)
+				memcpy(&reqaddr, opt->data, 4);
+			break;
+		case DHCPV4_OPT_MESSAGE:
+			if (opt->len == 1)
+				reqmsg = opt->data[0];
+			break;
+		case DHCPV4_OPT_SERVERID:
+			if (opt->len == 4 && memcmp(opt->data, &iface->dhcpv4_local, 4))
 				return;
-		} else if (iface->filter_class && opt->type == DHCPV4_OPT_USER_CLASS) {
-			uint8_t *c = opt->data, *cend = &opt->data[opt->len];
-			for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
-				size_t elen = strlen(iface->filter_class);
-				if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
-					return; // Ignore from homenet
+			break;
+		case DHCPV4_OPT_REQOPTS:
+			reqopts = opt->data;
+			reqopts_len = opt->len;
+			break;
+		case DHCPV4_OPT_USER_CLASS:
+			if (iface->filter_class) {
+				uint8_t *c = opt->data, *cend = &opt->data[opt->len];
+				for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
+					size_t elen = strlen(iface->filter_class);
+					if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
+						return; // Ignore from homenet
+				}
 			}
-		} else if (opt->type == DHCPV4_OPT_LEASETIME && opt->len == 4)
-			memcpy(&leasetime, opt->data, 4);
-		else if (opt->type == DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE && opt->len > 0) {
+			break;
+		case DHCPV4_OPT_LEASETIME:
+			if (opt->len == 4)
+				memcpy(&leasetime, opt->data, 4);
+			break;
+		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
 			for (uint8_t i = 0; i < opt->len; i++) {
 				if (opt->data[i] == 1) {
 					accept_fr_nonce = true;
 					break;
 				}
 			}
-
+			break;
 		}
 	}
-
-	if (reqmsg != DHCPV4_MSG_DISCOVER && reqmsg != DHCPV4_MSG_REQUEST &&
-	    reqmsg != DHCPV4_MSG_INFORM && reqmsg != DHCPV4_MSG_DECLINE &&
-	    reqmsg != DHCPV4_MSG_RELEASE)
-		return;
 
 	struct dhcp_assignment *a = NULL;
 	uint32_t serverid = iface->dhcpv4_local.s_addr;
 	uint32_t fr_serverid = INADDR_ANY;
 
-	if (reqmsg != DHCPV4_MSG_INFORM)
+	switch (reqmsg) {
+	case DHCPV4_MSG_DISCOVER:
+		_fallthrough;
+	case DHCPV4_MSG_REQUEST:
+		_fallthrough;
+	case DHCPV4_MSG_DECLINE:
+		_fallthrough;
+	case DHCPV4_MSG_RELEASE:
 		a = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
 				 &leasetime, hostname, hostname_len,
 				 accept_fr_nonce, &incl_fr_opt, &fr_serverid,
 				 reqopts, reqopts_len);
+		break;
+	case DHCPV4_MSG_INFORM:
+		break;
+	default:
+		return;
+	}
 
 	if (!a) {
 		if (reqmsg == DHCPV4_MSG_REQUEST)

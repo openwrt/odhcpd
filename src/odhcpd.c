@@ -55,6 +55,23 @@ static void sighandler(_unused int signal)
 static void print_usage(const char *app)
 {
 	printf("== %s Usage ==\n"
+	       "Features: ra ndp dhcpv6"
+#ifdef DHCPV4_SUPPORT
+	       " dhcpv4"
+#else
+	       " no-dhcpv4"
+#endif /* DHCPV4_SUPPORT */
+#ifdef UBUS
+	       " ubus"
+#else
+	       " no-ubus"
+#endif /* UBUS */
+#ifdef EXT_CER_ID
+	       " cer"
+#else
+	       " no-cer"
+#endif /* EXT_CER_ID */
+	       "\n"
 	       "\n"
 	       "	-c <path>	Use an alternative configuration file\n"
 	       "	-l <int>	Specify log level 0..7 (default %d)\n"

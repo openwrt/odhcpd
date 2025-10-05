@@ -47,13 +47,30 @@ static void handle_addrlist_change(struct netevent_handler_info *info);
 static void start_reconf(struct dhcp_assignment *a);
 static void stop_reconf(struct dhcp_assignment *a);
 static void valid_until_cb(struct uloop_timeout *event);
-static uint32_t mask_high_for_hostid(uint8_t dhcpv6_hostid_len);
-static uint32_t mask_low_for_hostid(uint8_t dhcpv6_hostid_len);
 
 static struct netevent_handler dhcpv6_netevent_handler = { .cb = dhcpv6_netevent_cb, };
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
+
+static inline uint32_t mask_low_for_hostid(uint8_t dhcpv6_hostid_len)
+{
+	if (dhcpv6_hostid_len >= 32)
+		return UINT32_MAX;
+
+	return (1 << dhcpv6_hostid_len) - 1;
+}
+
+static inline uint32_t mask_high_for_hostid(uint8_t dhcpv6_hostid_len)
+{
+	if (dhcpv6_hostid_len >= 64)
+		return UINT32_MAX;
+
+  if (dhcpv6_hostid_len >= 32)
+  	return (1 << (dhcpv6_hostid_len - 32)) - 1;
+
+	return 0;
+}
 
 int dhcpv6_ia_init(void)
 {
@@ -222,6 +239,8 @@ static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
+  uint32_t mask_low;
+  uint32_t mask_high;
 	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
 	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
 	size_t m = get_preferred_addr(addrs, addrlen);
@@ -251,8 +270,8 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			uint32_t mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
-			uint32_t mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
+			mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
+			mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
 			addr.s6_addr32[2] = htonl((
 					(c->assigned_host_id >> 32) & mask_high)
 					& (~mask_high & ntohl(addrs[i].addr.in6.s6_addr32[2])
@@ -842,23 +861,6 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 		return true;
 
 	return false;
-}
-
-static uint32_t mask_low_for_hostid(uint8_t dhcpv6_hostid_len) {
-	if (dhcpv6_hostid_len >= 32)
-		return UINT32_MAX;
-
-	return (1 << dhcpv6_hostid_len) - 1;
-}
-
-static uint32_t mask_high_for_hostid(uint8_t dhcpv6_hostid_len) {
-	if (dhcpv6_hostid_len >= 64)
-		return UINT32_MAX;
-
-  if (dhcpv6_hostid_len >= 32)
-    return (1 << (dhcpv6_hostid_len - 32)) - 1;
-
-	return 0;
 }
 
 static bool assign_na(struct interface *iface, struct dhcp_assignment *a)

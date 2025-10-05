@@ -105,7 +105,7 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	return fr_ip ? true : false;
 }
 
-static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
+static const char *dhcpv4_msg_to_string(uint8_t req_msg)
 {
 	static const char *dhcpv4_msg_names[] = {
 		[DHCPV4_MSG_DISCOVER]		= "DHCPV4_MSG_DISCOVER",
@@ -128,9 +128,9 @@ static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
 		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
 	};
 
-	if (reqmsg >= ARRAY_SIZE(dhcpv4_msg_names))
+	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names))
 		return "UNKNOWN";
-	return dhcpv4_msg_names[reqmsg];
+	return dhcpv4_msg_names[req_msg];
 }
 
 static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
@@ -598,21 +598,17 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	uint8_t *cursor = reply.options;
 	uint8_t msg = DHCPV4_MSG_ACK;
-
-	/* Request variables */
-	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
-	uint8_t *reqopts = NULL;
-	size_t reqopts_len = 0;
-	uint32_t reqaddr = INADDR_ANY;
-	uint32_t leasetime = 0;
-	char *hostname = NULL;
-	size_t hostname_len = 0;
-	bool accept_fr_nonce = false;
 	bool incl_fr_opt = false;
 
-	uint8_t *start = req->options;
-	uint8_t *end = ((uint8_t *)data) + len;
-	struct dhcpv4_option *opt;
+	/* Request variables */
+	uint8_t req_msg = DHCPV4_MSG_REQUEST;
+	uint8_t *req_opts = NULL;
+	size_t req_opts_len = 0;
+	uint32_t req_addr = INADDR_ANY;
+	uint32_t req_leasetime = 0;
+	char *req_hostname = NULL;
+	size_t req_hostname_len = 0;
+	bool req_accept_fr = false;
 
 	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
@@ -632,29 +628,30 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
-	dhcpv4_for_each_option(start, end, opt) {
+	struct dhcpv4_option *opt;
+	dhcpv4_for_each_option(req->options, (uint8_t *)data + len, opt) {
 		switch (opt->type) {
 		case DHCPV4_OPT_PAD:
 			break;
 		case DHCPV4_OPT_HOSTNAME:
-			hostname = (char *)opt->data;
-			hostname_len = opt->len;
+			req_hostname = (char *)opt->data;
+			req_hostname_len = opt->len;
 			break;
 		case DHCPV4_OPT_IPADDRESS:
 			if (opt->len == 4)
-				memcpy(&reqaddr, opt->data, 4);
+				memcpy(&req_addr, opt->data, 4);
 			break;
 		case DHCPV4_OPT_MESSAGE:
 			if (opt->len == 1)
-				reqmsg = opt->data[0];
+				req_msg = opt->data[0];
 			break;
 		case DHCPV4_OPT_SERVERID:
 			if (opt->len == 4 && memcmp(opt->data, &iface->dhcpv4_local, 4))
 				return;
 			break;
 		case DHCPV4_OPT_REQOPTS:
-			reqopts = opt->data;
-			reqopts_len = opt->len;
+			req_opts = opt->data;
+			req_opts_len = opt->len;
 			break;
 		case DHCPV4_OPT_USER_CLASS:
 			if (iface->filter_class) {
@@ -667,13 +664,15 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			}
 			break;
 		case DHCPV4_OPT_LEASETIME:
-			if (opt->len == 4)
-				memcpy(&leasetime, opt->data, 4);
+			if (opt->len == 4) {
+				memcpy(&req_leasetime, opt->data, 4);
+				req_leasetime = ntohl(req_leasetime);
+			}
 			break;
 		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
 			for (uint8_t i = 0; i < opt->len; i++) {
 				if (opt->data[i] == 1) {
-					accept_fr_nonce = true;
+					req_accept_fr = true;
 					break;
 				}
 			}
@@ -685,7 +684,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	uint32_t serverid = iface->dhcpv4_local.s_addr;
 	uint32_t fr_serverid = INADDR_ANY;
 
-	switch (reqmsg) {
+	switch (req_msg) {
 	case DHCPV4_MSG_DISCOVER:
 		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
@@ -693,10 +692,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	case DHCPV4_MSG_DECLINE:
 		_fallthrough;
 	case DHCPV4_MSG_RELEASE:
-		a = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
-				 &leasetime, hostname, hostname_len,
-				 accept_fr_nonce, &incl_fr_opt, &fr_serverid,
-				 reqopts, reqopts_len);
+		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
+				 &req_leasetime, req_hostname, req_hostname_len,
+				 req_accept_fr, &incl_fr_opt, &fr_serverid,
+				 req_opts, req_opts_len);
 		break;
 	case DHCPV4_MSG_INFORM:
 		break;
@@ -705,14 +704,14 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	}
 
 	if (!a) {
-		if (reqmsg == DHCPV4_MSG_REQUEST)
+		if (req_msg == DHCPV4_MSG_REQUEST)
 			msg = DHCPV4_MSG_NAK;
-		else if (reqmsg == DHCPV4_MSG_DISCOVER)
+		else if (req_msg == DHCPV4_MSG_DISCOVER)
 			return;
-	} else if (reqmsg == DHCPV4_MSG_DISCOVER)
+	} else if (req_msg == DHCPV4_MSG_DISCOVER)
 		msg = DHCPV4_MSG_OFFER;
-	else if (reqmsg == DHCPV4_MSG_REQUEST &&
-			((reqaddr && reqaddr != a->addr) ||
+	else if (req_msg == DHCPV4_MSG_REQUEST &&
+			((req_addr && req_addr != a->addr) ||
 			 (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr))) {
 		msg = DHCPV4_MSG_NAK;
 		/*
@@ -742,10 +741,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	info("Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
+	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
-	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
+	if (req_msg == DHCPV4_MSG_DECLINE || req_msg == DHCPV4_MSG_RELEASE)
 		return;
 
 	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
@@ -756,14 +755,14 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 		reply.yiaddr.s_addr = a->addr;
 
-		val = htonl(leasetime);
+		val = htonl(req_leasetime);
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
 
-		if (leasetime != UINT32_MAX) {
-			val = htonl(500 * leasetime / 1000);
+		if (req_leasetime != UINT32_MAX) {
+			val = htonl(500 * req_leasetime / 1000);
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
 
-			val = htonl(875 * leasetime / 1000);
+			val = htonl(875 * req_leasetime / 1000);
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
 		}
 
@@ -778,7 +777,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
 
 		if (incl_fr_opt) {
-			if (reqmsg == DHCPV4_MSG_REQUEST) {
+			if (req_msg == DHCPV4_MSG_REQUEST) {
 				struct dhcpv4_auth_forcerenew auth = {
 					.protocol = DHCPV4_AUTH_PROTO_RKAP,
 					.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,

@@ -703,49 +703,54 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		return;
 	}
 
-	if (!a) {
-		if (req_msg == DHCPV4_MSG_REQUEST)
-			msg = DHCPV4_MSG_NAK;
-		else if (req_msg == DHCPV4_MSG_DISCOVER)
-			return;
-	} else if (req_msg == DHCPV4_MSG_DISCOVER)
-		msg = DHCPV4_MSG_OFFER;
-	else if (req_msg == DHCPV4_MSG_REQUEST &&
-			((req_addr && req_addr != a->addr) ||
-			 (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr))) {
-		msg = DHCPV4_MSG_NAK;
-		/*
-		 * DHCP client requested an IP which we can't offer to him. Probably the
-		 * client changed the network or the network has been changed. The reply
-		 * type is set to DHCPV4_MSG_NAK, because the client should not use that IP.
-		 *
-		 * For modern devices we build an answer that includes a valid IP, like
-		 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
-		 * perform additional DHCP round trips.
-		 *
-		 */
-
-		/*
-		 *
-		 * Buggy clients do serverid checking in nack messages; therefore set the
-		 * serverid in nack messages triggered by a previous force renew equal to
-		 * the server id in use at that time by the server
-		 *
-		 */
-		if (fr_serverid)
-			serverid = fr_serverid;
-
-		if (req->ciaddr.s_addr &&
-				((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
-				 (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
-			req->ciaddr.s_addr = INADDR_ANY;
-	}
-
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
-	if (req_msg == DHCPV4_MSG_DECLINE || req_msg == DHCPV4_MSG_RELEASE)
+	switch (req_msg) {
+	case DHCPV4_MSG_DISCOVER:
+		if (!a)
+			return;
+		msg = DHCPV4_MSG_OFFER;
+		break;
+
+	case DHCPV4_MSG_REQUEST:
+		if (!a) {
+			msg = DHCPV4_MSG_NAK;
+			break;
+		}
+
+		if ((req_addr && req_addr != a->addr) ||
+		    (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr)) {
+			msg = DHCPV4_MSG_NAK;
+			/*
+			 * DHCP client requested an IP which we can't offer to him. Probably the
+			 * client changed the network or the network has been changed. The reply
+			 * type is set to DHCPV4_MSG_NAK, because the client should not use that IP.
+			 *
+			 * For modern devices we build an answer that includes a valid IP, like
+			 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
+			 * perform additional DHCP round trips.
+			 *
+			 * Buggy clients do serverid checking in nack messages; therefore set the
+			 * serverid in nack messages triggered by a previous force renew equal to
+			 * the server id in use at that time by the server
+			 *
+			 */
+			if (fr_serverid)
+				serverid = fr_serverid;
+
+			if (req->ciaddr.s_addr &&
+					((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
+					 (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
+				req->ciaddr.s_addr = INADDR_ANY;
+		}
+		break;
+
+	case DHCPV4_MSG_RELEASE:
+		_fallthrough;
+	case DHCPV4_MSG_DECLINE:
 		return;
+	}
 
 	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
 	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);

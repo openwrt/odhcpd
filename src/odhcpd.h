@@ -48,6 +48,7 @@
 
 #define _unused __attribute__((unused))
 #define _packed __attribute__((packed))
+#define _fallthrough __attribute__((__fallthrough__))
 
 #define ALL_IPV6_NODES "ff02::1"
 #define ALL_IPV6_ROUTERS "ff02::2"

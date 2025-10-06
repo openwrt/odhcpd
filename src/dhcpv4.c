@@ -621,6 +621,10 @@ enum {
 	IOV_HEADER = 0,
 	IOV_MESSAGE,
 	IOV_SERVERID,
+	IOV_NETMASK,
+	IOV_HOSTNAME,
+	IOV_HOSTNAME_NAME,
+	IOV_BROADCAST,
 	IOV_NTP,
 	IOV_NTP_ADDR,
 	IOV_LEASETIME,
@@ -671,6 +675,17 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.len = sizeof(struct in_addr),
 		.data = iface->dhcpv4_local.s_addr,
 	};
+	struct dhcpv4_option_u32 reply_netmask = {
+		.code = DHCPV4_OPT_NETMASK,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option reply_hostname = {
+		.code = DHCPV4_OPT_HOSTNAME,
+	};
+	struct dhcpv4_option_u32 reply_broadcast = {
+		.code = DHCPV4_OPT_BROADCAST,
+		.len = sizeof(uint32_t),
+	};
 	struct dhcpv4_option reply_ntp = {
 		.code = DHCPV4_OPT_NTPSERVER,
 		.len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp),
@@ -695,17 +710,21 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	size_t reply_opts_len = 0;
 
 	struct iovec iov[IOV_TOTAL] = {
-		[IOV_HEADER]	= { &reply, 0 },
-		[IOV_MESSAGE]	= { &reply_msg, sizeof(reply_msg) },
-		[IOV_SERVERID]	= { &reply_serverid, sizeof(reply_serverid) },
-		[IOV_NTP]	= { &reply_ntp, 0 },
-		[IOV_NTP_ADDR]	= { iface->dhcpv4_ntp, 0 },
-		[IOV_LEASETIME]	= { &reply_leasetime, 0 },
-		[IOV_RENEW]	= { &reply_renew, 0 },
-		[IOV_REBIND]	= { &reply_rebind, 0 },
-		[IOV_DNR]	= { &reply_dnr, 0 },
-		[IOV_DNR_BODY]	= { NULL, 0 },
-		[IOV_END]	= { &reply_end, sizeof(reply_end) },
+		[IOV_HEADER]		= { &reply, 0 },
+		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
+		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
+		[IOV_NETMASK]		= { &reply_netmask, 0 },
+		[IOV_HOSTNAME]		= { &reply_hostname, 0 },
+		[IOV_HOSTNAME_NAME]	= { NULL, 0 },
+		[IOV_BROADCAST]		= { &reply_broadcast, 0 },
+		[IOV_NTP]		= { &reply_ntp, 0 },
+		[IOV_NTP_ADDR]		= { iface->dhcpv4_ntp, 0 },
+		[IOV_LEASETIME]		= { &reply_leasetime, 0 },
+		[IOV_RENEW]		= { &reply_renew, 0 },
+		[IOV_REBIND]		= { &reply_rebind, 0 },
+		[IOV_DNR]		= { &reply_dnr, 0 },
+		[IOV_DNR_BODY]		= { NULL, 0 },
+		[IOV_END]		= { &reply_end, sizeof(reply_end) },
 	};
 
 	/* Misc */
@@ -856,25 +875,15 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	reply_opts = alloca(req_opts_len + 32);
 
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
 
 	if (a) {
 		reply.yiaddr.s_addr = a->addr;
-
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
-				&iface->dhcpv4_mask.s_addr);
-		reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
-
-		if (a->hostname)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_HOSTNAME,
-					strlen(a->hostname), a->hostname);
-		reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
-
-		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
-		reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
 
 		if (incl_fr_opt) {
 			if (req_msg == DHCPV4_MSG_REQUEST) {
@@ -944,6 +953,29 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	/* Note: each option might get called more than once */
 	for (size_t i = 0; i < reply_opts_len; i++) {
 		switch (reply_opts[i]) {
+		case DHCPV4_OPT_NETMASK:
+			if (!a)
+				break;
+			reply_netmask.data = iface->dhcpv4_mask.s_addr;
+			iov[IOV_NETMASK].iov_len = sizeof(reply_netmask);
+			break;
+
+		case DHCPV4_OPT_HOSTNAME:
+			if (!a || !a->hostname)
+				break;
+			reply_hostname.len = strlen(a->hostname);
+			iov[IOV_HOSTNAME].iov_len = sizeof(reply_hostname);
+			iov[IOV_HOSTNAME_NAME].iov_base = a->hostname;
+			iov[IOV_HOSTNAME_NAME].iov_len = reply_hostname.len;
+			break;
+
+		case DHCPV4_OPT_BROADCAST:
+			if (!a || iface->dhcpv4_bcast.s_addr == INADDR_ANY)
+				break;
+			reply_broadcast.data = iface->dhcpv4_bcast.s_addr;
+			iov[IOV_BROADCAST].iov_len = sizeof(reply_broadcast);
+			break;
+
 		case DHCPV4_OPT_NTPSERVER:
 			if (!a)
 				break;

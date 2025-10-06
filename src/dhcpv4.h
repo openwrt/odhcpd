@@ -151,7 +151,7 @@ struct dhcpv4_option_u32 {
 	uint8_t code;
 	uint8_t len;
 	uint32_t data;
-};
+} _packed;
 
 /* DNR */
 struct dhcpv4_dnr {

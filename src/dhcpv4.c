@@ -621,6 +621,8 @@ enum {
 	IOV_HEADER = 0,
 	IOV_MESSAGE,
 	IOV_SERVERID,
+	IOV_NTP,
+	IOV_NTP_ADDR,
 	IOV_END,
 	IOV_TOTAL
 };
@@ -664,13 +666,19 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.len = sizeof(struct in_addr),
 		.data = iface->dhcpv4_local.s_addr,
 	};
+	struct dhcpv4_option reply_ntp = {
+		.code = DHCPV4_OPT_NTPSERVER,
+		.len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp),
+	};
 	uint8_t reply_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_TOTAL] = {
-		[IOV_HEADER] = { &reply, 0 },
-		[IOV_MESSAGE] = { &reply_msg, sizeof(reply_msg) },
-		[IOV_SERVERID] = { &reply_serverid, sizeof(reply_serverid) },
-		[IOV_END] = { &reply_end, sizeof(reply_end) },
+		[IOV_HEADER]	= { &reply, 0 },
+		[IOV_MESSAGE]	= { &reply_msg, sizeof(reply_msg) },
+		[IOV_SERVERID]	= { &reply_serverid, sizeof(reply_serverid) },
+		[IOV_NTP]	= { &reply_ntp, 0 },
+		[IOV_NTP_ADDR]	= { iface->dhcpv4_ntp, 0 },
+		[IOV_END]	= { &reply_end, sizeof(reply_end) },
 	};
 
 	/* Misc */
@@ -905,8 +913,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	for (size_t opt = 0; a && opt < req_opts_len; opt++) {
 		switch (req_opts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NTPSERVER,
-				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+			if (!a)
+				break;
+			iov[IOV_NTP].iov_len = sizeof(reply_ntp);
+			iov[IOV_NTP_ADDR].iov_len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp);
 			break;
 
 		case DHCPV4_OPT_DNR:

@@ -154,6 +154,25 @@ static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
 	memcpy(c, data, len);
 }
 
+static void dhcpv4_add_padding(struct iovec *iov, size_t iovlen)
+{
+	// Theoretical max padding = vendor-specific area, RFC951, §3
+	static uint8_t padding[64] = { 0 };
+	size_t len = 0;
+
+	if (!iov || !iovlen)
+		return;
+
+	iov[iovlen - 1].iov_base = padding;
+	iov[iovlen - 1].iov_len = 0;
+
+	for (size_t i = 0; i < iovlen; i++)
+		len += iov[i].iov_len;
+
+	if (len < DHCPV4_MIN_PACKET_SIZE)
+		iov[iovlen - 1].iov_len = DHCPV4_MIN_PACKET_SIZE - len;
+}
+
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
 	struct dhcpv4_message fr_msg = {
@@ -644,6 +663,7 @@ enum {
 	IOV_DNR,
 	IOV_DNR_BODY,
 	IOV_END,
+	IOV_PADDING,
 	IOV_TOTAL
 };
 
@@ -779,6 +799,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_DNR]		= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]		= { NULL, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
+		[IOV_PADDING]		= { NULL, 0 },
 	};
 
 	/* Misc */
@@ -1153,10 +1174,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		reply.yiaddr.s_addr = a->addr;
 
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
-
 	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
-
-	/* FIXME: check for DHCPV4_MIN_PACKET_SIZE */
+	dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 
 	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",

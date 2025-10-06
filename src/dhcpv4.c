@@ -398,7 +398,7 @@ static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
 	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
+	     uint32_t *fr_serverid)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
@@ -500,14 +500,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 							a->flags &= ~OAF_BROKEN_HOSTNAME;
 						else
 							a->flags |= OAF_BROKEN_HOSTNAME;
-					}
-				}
-
-				if (reqopts_len > 0) {
-					a->reqopts = realloc(a->reqopts, reqopts_len);
-					if (a->reqopts) {
-						memcpy(a->reqopts, reqopts, reqopts_len);
-						a->reqopts_len = reqopts_len;
 					}
 				}
 
@@ -650,8 +642,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				return;
 			break;
 		case DHCPV4_OPT_REQOPTS:
-			req_opts = opt->data;
-			req_opts_len = opt->len;
+			if (opt->len > 0) {
+				req_opts = opt->data;
+				req_opts_len = opt->len;
+			}
 			break;
 		case DHCPV4_OPT_USER_CLASS:
 			if (iface->filter_class) {
@@ -694,8 +688,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	case DHCPV4_MSG_RELEASE:
 		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
 				 &req_leasetime, req_hostname, req_hostname_len,
-				 req_accept_fr, &incl_fr_opt, &fr_serverid,
-				 req_opts, req_opts_len);
+				 req_accept_fr, &incl_fr_opt, &fr_serverid);
 		break;
 	case DHCPV4_MSG_INFORM:
 		break;
@@ -838,8 +831,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
-		switch (a->reqopts[opt]) {
+	for (size_t opt = 0; a && opt < req_opts_len; opt++) {
+		switch (req_opts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NTPSERVER,
 				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);

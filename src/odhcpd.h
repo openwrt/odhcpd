@@ -274,8 +274,6 @@ struct dhcp_assignment {
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
-	uint8_t *reqopts;
-	size_t reqopts_len;
 
 	uint8_t hwaddr[6];
 
@@ -465,7 +463,6 @@ inline static void free_assignment(struct dhcp_assignment *a)
 		a->dhcp_free_cb(a);
 
 	free(a->hostname);
-	free(a->reqopts);
 	free(a);
 }
 

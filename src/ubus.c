@@ -50,14 +50,6 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
 			blobmsg_add_u8(&b, "accept-reconf", c->accept_fr_nonce);
 
-			if (c->reqopts_len > 0) {
-				buf = blobmsg_alloc_string_buffer(&b, "reqopts", c->reqopts_len * 4 + 1);
-				for (size_t i = 0; i < c->reqopts_len; i++)
-					buf += snprintf(buf, 5, "%" PRIu8 ",", c->reqopts[i]);
-				buf[-1] = '\0';
-				blobmsg_add_string_buffer(&b);
-			}
-
 			m = blobmsg_open_array(&b, "flags");
 			if (c->flags & OAF_BOUND)
 				blobmsg_add_string(&b, NULL, "bound");

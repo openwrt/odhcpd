@@ -622,6 +622,10 @@ enum {
 	IOV_MESSAGE,
 	IOV_SERVERID,
 	IOV_NETMASK,
+	IOV_ROUTER,
+	IOV_ROUTER_ADDR,
+	IOV_DNSSERVER,
+	IOV_DNSSERVER_ADDR,
 	IOV_HOSTNAME,
 	IOV_HOSTNAME_NAME,
 	IOV_MTU,
@@ -682,6 +686,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_NETMASK,
 		.len = sizeof(uint32_t),
 	};
+	struct dhcpv4_option reply_router = {
+		.code = DHCPV4_OPT_ROUTER,
+	};
+	struct dhcpv4_option reply_dnsserver = {
+		.code = DHCPV4_OPT_DNSSERVER,
+	};
 	struct dhcpv4_option reply_hostname = {
 		.code = DHCPV4_OPT_HOSTNAME,
 	};
@@ -724,6 +734,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
 		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_NETMASK]		= { &reply_netmask, 0 },
+		[IOV_ROUTER]		= { &reply_router, 0 },
+		[IOV_ROUTER_ADDR]	= { NULL, 0 },
+		[IOV_DNSSERVER]		= { &reply_dnsserver, 0 },
+		[IOV_DNSSERVER_ADDR]	= { NULL, 0 },
 		[IOV_HOSTNAME]		= { &reply_hostname, 0 },
 		[IOV_HOSTNAME_NAME]	= { NULL, 0 },
 		[IOV_MTU]		= { &reply_mtu, 0 },
@@ -889,6 +903,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	reply_opts = alloca(req_opts_len + 32);
 
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_ROUTER;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_DNSSERVER;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_MTU;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
@@ -923,21 +939,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
-	if (iface->dhcpv4_router_cnt == 0)
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
-	else
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER,
-				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_ROUTER;
-
-	if (iface->dhcpv4_dns_cnt == 0) {
-		if (iface->dns_service)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
-	} else
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
-				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_DNSSERVER;
-
 	memcpy(&reply_opts[reply_opts_len], req_opts, req_opts_len);
 	reply_opts_len += req_opts_len;
 
@@ -949,6 +950,30 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				break;
 			reply_netmask.data = iface->dhcpv4_mask.s_addr;
 			iov[IOV_NETMASK].iov_len = sizeof(reply_netmask);
+			break;
+
+		case DHCPV4_OPT_ROUTER:
+			iov[IOV_ROUTER].iov_len = sizeof(reply_router);
+			if (iface->dhcpv4_router_cnt) {
+				reply_router.len = iface->dhcpv4_router_cnt * sizeof(*iface->dhcpv4_router);
+				iov[IOV_ROUTER_ADDR].iov_base = iface->dhcpv4_router;
+			} else {
+				reply_router.len = sizeof(iface->dhcpv4_local);
+				iov[IOV_ROUTER_ADDR].iov_base = &iface->dhcpv4_local;
+			}
+			iov[IOV_ROUTER_ADDR].iov_len = reply_router.len;
+			break;
+
+		case DHCPV4_OPT_DNSSERVER:
+			iov[IOV_DNSSERVER].iov_len = sizeof(reply_dnsserver);
+			if (iface->dhcpv4_dns_cnt) {
+				reply_dnsserver.len = iface->dhcpv4_dns_cnt * sizeof(*iface->dhcpv4_dns);
+				iov[IOV_DNSSERVER_ADDR].iov_base = iface->dhcpv4_dns;
+			} else {
+				reply_dnsserver.len = sizeof(iface->dhcpv4_local);
+				iov[IOV_DNSSERVER_ADDR].iov_base = &iface->dhcpv4_local;
+			}
+			iov[IOV_DNSSERVER_ADDR].iov_len = reply_dnsserver.len;
 			break;
 
 		case DHCPV4_OPT_HOSTNAME:

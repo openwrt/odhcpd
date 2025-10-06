@@ -623,6 +623,8 @@ enum {
 	IOV_SERVERID,
 	IOV_NTP,
 	IOV_NTP_ADDR,
+	IOV_DNR,
+	IOV_DNR_BODY,
 	IOV_END,
 	IOV_TOTAL
 };
@@ -670,6 +672,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_NTPSERVER,
 		.len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp),
 	};
+	struct dhcpv4_option reply_dnr = {
+		.code = DHCPV4_OPT_DNR,
+	};
 	uint8_t reply_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_TOTAL] = {
@@ -678,6 +683,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_SERVERID]	= { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_NTP]	= { &reply_ntp, 0 },
 		[IOV_NTP_ADDR]	= { iface->dhcpv4_ntp, 0 },
+		[IOV_DNR]	= { &reply_dnr, 0 },
+		[IOV_DNR_BODY]	= { NULL, 0 },
 		[IOV_END]	= { &reply_end, sizeof(reply_end) },
 	};
 
@@ -910,7 +917,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
 
-	for (size_t opt = 0; a && opt < req_opts_len; opt++) {
+	for (size_t opt = 0; opt < req_opts_len; opt++) {
 		switch (req_opts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
 			if (!a)
@@ -922,6 +929,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		case DHCPV4_OPT_DNR:
 			struct dhcpv4_dnr *dnrs;
 			size_t dnrs_len = 0;
+
+			if (!a || reply_dnr.len > 0)
+				break;
 
 			for (size_t i = 0; i < iface->dnr_cnt; i++) {
 				struct dnr_options *dnr = &iface->dnr[i];
@@ -938,6 +948,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 					dnrs_len += dnr->svc_len;
 				}
 			}
+
+			if (dnrs_len > UINT8_MAX)
+				break;
 
 			dnrs = alloca(dnrs_len);
 			uint8_t *pos = (uint8_t *)dnrs;
@@ -976,8 +989,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
 			}
 
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNR,
-				   dnrs_len, dnrs);
+			reply_dnr.len = dnrs_len;
+			iov[IOV_DNR].iov_len = sizeof(reply_dnr);
+			iov[IOV_DNR_BODY].iov_base = dnrs;
+			iov[IOV_DNR_BODY].iov_len = dnrs_len;
 			break;
 		}
 	}

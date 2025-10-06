@@ -270,6 +270,19 @@ struct dnr_options {
 	uint16_t svc_len;
 };
 
+// Generic DHCPv6 option
+struct dhcpv6_option {
+	uint16_t code;
+	uint16_t length;
+	uint8_t data[];
+};
+
+// Generic DHCPv4 option
+struct dhcpv4_option {
+	uint8_t type;
+	uint8_t len;
+	uint8_t data[];
+};
 
 // RA PIO - RFC9096
 struct ra_pio {
@@ -277,7 +290,6 @@ struct ra_pio {
 	uint8_t length;
 	time_t lifetime;
 };
-
 
 struct interface {
 	struct avl_node avl;
@@ -375,6 +387,8 @@ struct interface {
 	struct in_addr *dhcpv4_dns;
 	size_t dhcpv4_dns_cnt;
 	bool dhcpv4_forcereconf;
+	struct dhcpv4_option **dhcpv4_options;
+	size_t dhcpv4_option_cnt;
 
 	// DNS
 	struct in6_addr *dns;
@@ -390,6 +404,8 @@ struct interface {
 	bool dhcpv6_na;
 	uint32_t dhcpv6_hostid_len;
 	uint32_t dhcpv6_pd_min_len; // minimum delegated prefix length
+	struct dhcpv6_option **dhcpv6_options;
+	size_t dhcpv6_option_cnt;
 
 	char *upstream;
 	size_t upstream_len;

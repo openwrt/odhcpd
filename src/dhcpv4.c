@@ -161,6 +161,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		.htype = ARPHRD_ETHER,
 		.hlen = ETH_ALEN,
 		.hops = 0,
+		.xid = 0,
 		.secs = 0,
 		.flags = 0,
 		.ciaddr = { INADDR_ANY },
@@ -664,15 +665,19 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	/* Reply variables */
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_OP_BOOTREPLY,
-		.htype = req->htype,
-		.hlen = req->hlen,
+		.htype = ARPHRD_ETHER,
+		.hlen = ETH_ALEN,
 		.hops = 0,
 		.xid = req->xid,
 		.secs = 0,
 		.flags = req->flags,
 		.ciaddr = { INADDR_ANY },
-		.giaddr = req->giaddr,
+		.yiaddr = { INADDR_ANY },
 		.siaddr = iface->dhcpv4_local,
+		.giaddr = req->giaddr,
+		.chaddr = { 0 },
+		.sname = { 0 },
+		.file = { 0 },
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
 	struct dhcpv4_option_u8 reply_msg = {
@@ -788,7 +793,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	/* FIXME: would checking the magic cookie value here break any clients? */
 
 	if (len < offsetof(struct dhcpv4_message, options) ||
-	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
+	    req->op != DHCPV4_OP_BOOTREQUEST ||
+	    req->htype != ARPHRD_ETHER ||
+	    req->hlen != ETH_ALEN)
 		return;
 
 	debug("Got DHCPv4 request on %s", iface->name);
@@ -797,8 +804,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		warn("No DHCP range available on %s", iface->name);
 		return;
 	}
-
-	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
 	struct dhcpv4_option *opt;
 	dhcpv4_for_each_option(req->options, (uint8_t *)data + len, opt) {
@@ -855,6 +860,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	}
 
 	switch (req_msg) {
+	case DHCPV4_MSG_INFORM:
+		break;
 	case DHCPV4_MSG_DISCOVER:
 		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
@@ -865,8 +872,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
 				 &req_leasetime, req_hostname, req_hostname_len,
 				 req_accept_fr, &incl_fr_opt, &fr_serverid);
-		break;
-	case DHCPV4_MSG_INFORM:
 		break;
 	default:
 		return;
@@ -909,8 +914,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				reply_serverid.data = fr_serverid;
 
 			if (req->ciaddr.s_addr &&
-					((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
-					 (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
+			    ((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
+			     (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
 				req->ciaddr.s_addr = INADDR_ANY;
 		}
 		break;
@@ -934,10 +939,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_AUTHENTICATION;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE;
-
-	if (a)
-		reply.yiaddr.s_addr = a->addr;
-
 	memcpy(&reply_opts[reply_opts_len], req_opts, req_opts_len);
 	reply_opts_len += req_opts_len;
 
@@ -1147,6 +1148,11 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 		}
 	}
+
+	if (a)
+		reply.yiaddr.s_addr = a->addr;
+
+	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 
 	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
 

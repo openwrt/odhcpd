@@ -556,18 +556,80 @@ static ssize_t dhcpv4_send_reply(struct iovec *iov, size_t iov_len,
 	return sendmsg(*sock, &msg, MSG_DONTWAIT);
 }
 
+static void dhcpv4_set_dest_addr(const struct interface *iface,
+				 uint8_t reply_msg,
+				 const struct dhcpv4_message *req,
+				 const struct dhcpv4_message *reply,
+				 const struct sockaddr_in *src,
+				 struct sockaddr_in *dest)
+{
+	*dest = *src;
+
+	//struct sockaddr_in dest = *((struct sockaddr_in*)addr);
+	if (req->giaddr.s_addr) {
+		/*
+		 * relay agent is configured, send reply to the agent
+		 */
+		dest->sin_addr = req->giaddr;
+		dest->sin_port = htons(DHCPV4_SERVER_PORT);
+
+	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest->sin_addr.s_addr) {
+		/*
+		 * client has existing configuration (ciaddr is set) AND this
+		 * address is not the address it used for the dhcp message
+		 */
+		dest->sin_addr = req->ciaddr;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else if (ntohs(req->flags) & DHCPV4_FLAG_BROADCAST ||
+		   req->hlen != reply->hlen || !reply->yiaddr.s_addr) {
+		/*
+		 * client requests a broadcast reply OR we can't offer an IP
+		 */
+		dest->sin_addr.s_addr = INADDR_BROADCAST;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else if (!req->ciaddr.s_addr && reply_msg == DHCPV4_MSG_NAK) {
+		/*
+		 * client has no previous configuration -> no IP, so we need to
+		 * reply with a broadcast packet
+		 */
+		dest->sin_addr.s_addr = INADDR_BROADCAST;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else {
+		/*
+		 * send reply to the newly allocated IP
+		 */
+		dest->sin_addr = reply->yiaddr;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+		if (!(iface->ifflags & IFF_NOARP)) {
+			struct arpreq arp = { .arp_flags = ATF_COM };
+
+			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
+			memcpy(&arp.arp_pa, dest, sizeof(arp.arp_pa));
+			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
+
+			if (ioctl(iface->dhcpv4_event.uloop.fd, SIOCSARP, &arp) < 0)
+				error("ioctl(SIOCSARP): %m");
+		}
+	}
+}
+
 enum {
 	IOV_HEADER = 0,
 	IOV_END,
 	IOV_TOTAL
 };
 
-void dhcpv4_handle_msg(void *addr, void *data, size_t len,
-		struct interface *iface, _unused void *dest_addr,
+void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
+		struct interface *iface, _unused void *our_dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
 	struct dhcpv4_message *req = data;
 	int sock = iface->dhcpv4_event.uloop.fd;
+	struct sockaddr_in dest_addr;
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = req->htype,
@@ -901,67 +963,22 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		}
 	}
 
-	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
-	if (req->giaddr.s_addr) {
-		/*
-		 * relay agent is configured, send reply to the agent
-		 */
-		dest.sin_addr = req->giaddr;
-		dest.sin_port = htons(DHCPV4_SERVER_PORT);
-	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest.sin_addr.s_addr) {
-		/*
-		 * client has existing configuration (ciaddr is set) AND this address is
-		 * not the address it used for the dhcp message
-		 */
-		dest.sin_addr = req->ciaddr;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else if ((ntohs(req->flags) & DHCPV4_FLAG_BROADCAST) ||
-			req->hlen != reply.hlen || !reply.yiaddr.s_addr) {
-		/*
-		 * client requests a broadcast reply OR we can't offer an IP
-		 */
-		dest.sin_addr.s_addr = INADDR_BROADCAST;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else if (!req->ciaddr.s_addr && msg == DHCPV4_MSG_NAK) {
-		/*
-		 * client has no previous configuration -> no IP, so we need to reply
-		 * with a broadcast packet
-		 */
-		dest.sin_addr.s_addr = INADDR_BROADCAST;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else {
-		struct arpreq arp = {.arp_flags = ATF_COM};
-
-		/*
-		 * send reply to the newly (in this process) allocated IP
-		 */
-		dest.sin_addr = reply.yiaddr;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-
-		if (!(iface->ifflags & IFF_NOARP)) {
-			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
-			memcpy(&arp.arp_pa, &dest, sizeof(arp.arp_pa));
-			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
-
-			if (ioctl(sock, SIOCSARP, &arp) < 0)
-				error("ioctl(SIOCSARP): %m");
-		}
-	}
+	dhcpv4_set_dest_addr(iface, msg, req, &reply, src_addr, &dest_addr);
 
 	iov[IOV_HEADER].iov_len = PACKET_SIZE(&reply, cursor);
 
-	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest), opaque) < 0)
+	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",
 		      dhcpv4_msg_to_string(msg),
-		      dest.sin_addr.s_addr == INADDR_BROADCAST ?
+		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-		      inet_ntoa(dest.sin_addr));
+		      inet_ntoa(dest_addr.sin_addr));
 	else
-		debug("Sent %s to %s - %s",
+		error("Sent %s to %s - %s",
 		      dhcpv4_msg_to_string(msg),
-		      dest.sin_addr.s_addr == INADDR_BROADCAST ?
+		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-		      inet_ntoa(dest.sin_addr));
+		      inet_ntoa(dest_addr.sin_addr));
 
 	if (msg == DHCPV4_MSG_ACK && a)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,

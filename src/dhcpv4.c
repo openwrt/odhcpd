@@ -624,12 +624,15 @@ enum {
 	IOV_NETMASK,
 	IOV_HOSTNAME,
 	IOV_HOSTNAME_NAME,
+	IOV_MTU,
 	IOV_BROADCAST,
 	IOV_NTP,
 	IOV_NTP_ADDR,
 	IOV_LEASETIME,
 	IOV_RENEW,
 	IOV_REBIND,
+	IOV_SRCH_DOMAIN,
+	IOV_SRCH_DOMAIN_NAME,
 	IOV_DNR,
 	IOV_DNR_BODY,
 	IOV_END,
@@ -682,6 +685,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	struct dhcpv4_option reply_hostname = {
 		.code = DHCPV4_OPT_HOSTNAME,
 	};
+	struct dhcpv4_option_u16 reply_mtu = {
+		.code = DHCPV4_OPT_MTU,
+		.len = sizeof(uint16_t),
+	};
 	struct dhcpv4_option_u32 reply_broadcast = {
 		.code = DHCPV4_OPT_BROADCAST,
 		.len = sizeof(uint32_t),
@@ -702,6 +709,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_REBIND,
 		.len = sizeof(uint32_t),
 	};
+	struct dhcpv4_option reply_srch_domain = {
+		.code = DHCPV4_OPT_SEARCH_DOMAIN,
+	};
 	struct dhcpv4_option reply_dnr = {
 		.code = DHCPV4_OPT_DNR,
 	};
@@ -716,12 +726,15 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_NETMASK]		= { &reply_netmask, 0 },
 		[IOV_HOSTNAME]		= { &reply_hostname, 0 },
 		[IOV_HOSTNAME_NAME]	= { NULL, 0 },
+		[IOV_MTU]		= { &reply_mtu, 0 },
 		[IOV_BROADCAST]		= { &reply_broadcast, 0 },
 		[IOV_NTP]		= { &reply_ntp, 0 },
 		[IOV_NTP_ADDR]		= { iface->dhcpv4_ntp, 0 },
 		[IOV_LEASETIME]		= { &reply_leasetime, 0 },
 		[IOV_RENEW]		= { &reply_renew, 0 },
 		[IOV_REBIND]		= { &reply_rebind, 0 },
+		[IOV_SRCH_DOMAIN]	= { &reply_srch_domain, 0 },
+		[IOV_SRCH_DOMAIN_NAME]	= { NULL, 0 },
 		[IOV_DNR]		= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]		= { NULL, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
@@ -877,10 +890,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_MTU;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
 
 	if (a) {
 		reply.yiaddr.s_addr = a->addr;
@@ -907,30 +922,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			}
 		}
 	}
-
-	struct ifreq ifr;
-
-	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
-
-	if (!ioctl(iface->dhcpv4_event.uloop.fd, SIOCGIFMTU, &ifr)) {
-		uint16_t mtu = htons(ifr.ifr_mtu);
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
-		reply_opts[reply_opts_len++] = DHCPV4_OPT_MTU;
-	}
-
-	if (iface->search && iface->search_len <= 255)
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
-				iface->search_len, iface->search);
-	else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-		uint8_t search_buf[256];
-		int len = dn_comp(_res.dnsrch[0], search_buf,
-						sizeof(search_buf), NULL, NULL);
-		if (len > 0)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
-					len, search_buf);
-	}
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
 
 	if (iface->dhcpv4_router_cnt == 0)
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
@@ -969,6 +960,19 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_HOSTNAME_NAME].iov_len = reply_hostname.len;
 			break;
 
+		case DHCPV4_OPT_MTU:
+			if (iov[IOV_MTU].iov_len)
+				break;
+
+			struct ifreq ifr = { .ifr_name = { 0x0, } };
+
+			strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
+			if (!ioctl(iface->dhcpv4_event.uloop.fd, SIOCGIFMTU, &ifr)) {
+				reply_mtu.data = htons(ifr.ifr_mtu);
+				iov[IOV_MTU].iov_len = sizeof(reply_mtu);
+			}
+			break;
+
 		case DHCPV4_OPT_BROADCAST:
 			if (!a || iface->dhcpv4_bcast.s_addr == INADDR_ANY)
 				break;
@@ -1002,6 +1006,33 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				break;
 			reply_rebind.data = htonl(875 * req_leasetime / 1000);
 			iov[IOV_REBIND].iov_len = sizeof(reply_rebind);
+			break;
+
+		case DHCPV4_OPT_SEARCH_DOMAIN:
+			if (iov[IOV_SRCH_DOMAIN].iov_len || iface->search_len > UINT8_MAX)
+				break;
+
+			if (iface->search) {
+				reply_srch_domain.len = iface->search_len;
+				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
+				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->search;
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->search_len;
+			} else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
+				int len;
+
+				if (!iov[IOV_SRCH_DOMAIN_NAME].iov_base)
+					iov[IOV_SRCH_DOMAIN_NAME].iov_base = alloca(DNS_MAX_NAME_LEN);
+
+				len = dn_comp(_res.dnsrch[0],
+					      iov[IOV_SRCH_DOMAIN_NAME].iov_base,
+					      DNS_MAX_NAME_LEN, NULL, NULL);
+				if (len < 0)
+					break;
+
+				reply_srch_domain.len = len;
+				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = len;
+			}
 			break;
 
 		case DHCPV4_OPT_DNR:

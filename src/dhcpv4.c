@@ -635,8 +635,11 @@ enum {
 	IOV_LEASETIME,
 	IOV_RENEW,
 	IOV_REBIND,
+	IOV_AUTH,
+	IOV_AUTH_BODY,
 	IOV_SRCH_DOMAIN,
 	IOV_SRCH_DOMAIN_NAME,
+	IOV_FR_NONCE_CAP,
 	IOV_DNR,
 	IOV_DNR_BODY,
 	IOV_END,
@@ -719,8 +722,24 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_REBIND,
 		.len = sizeof(uint32_t),
 	};
+	struct dhcpv4_auth_forcerenew reply_auth_body = {
+		.protocol = DHCPV4_AUTH_PROTO_RKAP,
+		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+		.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
+		.key = { 0 },
+	};
+	struct dhcpv4_option reply_auth = {
+		.code = DHCPV4_OPT_AUTHENTICATION,
+		.len = sizeof(reply_auth_body),
+	};
 	struct dhcpv4_option reply_srch_domain = {
 		.code = DHCPV4_OPT_SEARCH_DOMAIN,
+	};
+	struct dhcpv4_option_u8 reply_fr_nonce_cap = {
+		.code = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+		.len = sizeof(uint8_t),
+		.data = 1,
 	};
 	struct dhcpv4_option reply_dnr = {
 		.code = DHCPV4_OPT_DNR,
@@ -730,7 +749,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	size_t reply_opts_len = 0;
 
 	struct iovec iov[IOV_TOTAL] = {
-		[IOV_HEADER]		= { &reply, 0 },
+		[IOV_HEADER]		= { &reply, offsetof(typeof(reply), options) },
 		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
 		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_NETMASK]		= { &reply_netmask, 0 },
@@ -747,8 +766,11 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_LEASETIME]		= { &reply_leasetime, 0 },
 		[IOV_RENEW]		= { &reply_renew, 0 },
 		[IOV_REBIND]		= { &reply_rebind, 0 },
+		[IOV_AUTH]		= { &reply_auth, 0 },
+		[IOV_AUTH_BODY]		= { &reply_auth_body, 0 },
 		[IOV_SRCH_DOMAIN]	= { &reply_srch_domain, 0 },
 		[IOV_SRCH_DOMAIN_NAME]	= { NULL, 0 },
+		[IOV_FR_NONCE_CAP]	= { &reply_fr_nonce_cap, 0 },
 		[IOV_DNR]		= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]		= { NULL, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
@@ -756,7 +778,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	/* Misc */
 	struct sockaddr_in dest_addr;
-	uint8_t *cursor = reply.options;
 	bool incl_fr_opt = false;
 	struct dhcp_assignment *a = NULL;
 	uint32_t fr_serverid = INADDR_ANY;
@@ -901,7 +922,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	}
 
 	reply_opts = alloca(req_opts_len + 32);
-
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_ROUTER;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_DNSSERVER;
@@ -911,33 +931,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_AUTHENTICATION;
 	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE;
 
-	if (a) {
+	if (a)
 		reply.yiaddr.s_addr = a->addr;
-
-		if (incl_fr_opt) {
-			if (req_msg == DHCPV4_MSG_REQUEST) {
-				struct dhcpv4_auth_forcerenew auth = {
-					.protocol = DHCPV4_AUTH_PROTO_RKAP,
-					.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
-					.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
-					.replay = { htonl(time(NULL)), htonl(++serial) },
-					.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
-					.key = { 0 },
-				};
-
-				memcpy(auth.key, a->key, sizeof(auth.key));
-				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-				reply_opts[reply_opts_len++] = DHCPV4_OPT_AUTHENTICATION;
-			} else {
-				uint8_t one = 1;
-				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
-					sizeof(one), &one);
-				reply_opts[reply_opts_len++] = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE;
-			}
-		}
-	}
 
 	memcpy(&reply_opts[reply_opts_len], req_opts, req_opts_len);
 	reply_opts_len += req_opts_len;
@@ -1033,6 +1032,17 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_REBIND].iov_len = sizeof(reply_rebind);
 			break;
 
+		case DHCPV4_OPT_AUTHENTICATION:
+			if (!a || !incl_fr_opt || req_msg != DHCPV4_MSG_REQUEST)
+				break;
+
+			memcpy(reply_auth_body.key, a->key, sizeof(reply_auth_body.key));
+			reply_auth_body.replay[0] = htonl(time(NULL));
+			reply_auth_body.replay[1] = htonl(++serial);
+			iov[IOV_AUTH].iov_len = sizeof(reply_auth);
+			iov[IOV_AUTH_BODY].iov_len = sizeof(reply_auth_body);
+			break;
+
 		case DHCPV4_OPT_SEARCH_DOMAIN:
 			if (iov[IOV_SRCH_DOMAIN].iov_len || iface->search_len > UINT8_MAX)
 				break;
@@ -1058,6 +1068,13 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
 				iov[IOV_SRCH_DOMAIN_NAME].iov_len = len;
 			}
+			break;
+
+		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
+			if (!a || !incl_fr_opt || req_msg == DHCPV4_MSG_REQUEST)
+				break;
+
+			iov[IOV_FR_NONCE_CAP].iov_len = sizeof(reply_fr_nonce_cap);
 			break;
 
 		case DHCPV4_OPT_DNR:
@@ -1134,7 +1151,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
 
 	/* FIXME: check for DHCPV4_MIN_PACKET_SIZE */
-	iov[IOV_HEADER].iov_len = (size_t)(cursor - (uint8_t *)&reply);
 
 	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",

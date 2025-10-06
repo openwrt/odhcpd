@@ -676,6 +676,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_DNR,
 	};
 	uint8_t reply_end = DHCPV4_OPT_END;
+	uint8_t *reply_opts;
+	size_t reply_opts_len = 0;
 
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HEADER]	= { &reply, 0 },
@@ -834,6 +836,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		return;
 	}
 
+	reply_opts = alloca(req_opts_len + 32);
+
 	if (a) {
 		uint32_t val;
 
@@ -841,24 +845,30 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 		val = htonl(req_leasetime);
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
+		reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
 
 		if (req_leasetime != UINT32_MAX) {
 			val = htonl(500 * req_leasetime / 1000);
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
+			reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
 
 			val = htonl(875 * req_leasetime / 1000);
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
+			reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
 		}
 
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
 				&iface->dhcpv4_mask.s_addr);
+		reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
 
 		if (a->hostname)
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_HOSTNAME,
 					strlen(a->hostname), a->hostname);
+		reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
 
 		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
+		reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
 
 		if (incl_fr_opt) {
 			if (req_msg == DHCPV4_MSG_REQUEST) {
@@ -873,10 +883,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 				memcpy(auth.key, a->key, sizeof(auth.key));
 				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+				reply_opts[reply_opts_len++] = DHCPV4_OPT_AUTHENTICATION;
 			} else {
 				uint8_t one = 1;
 				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 					sizeof(one), &one);
+				reply_opts[reply_opts_len++] = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE;
 			}
 		}
 	}
@@ -889,6 +901,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	if (!ioctl(iface->dhcpv4_event.uloop.fd, SIOCGIFMTU, &ifr)) {
 		uint16_t mtu = htons(ifr.ifr_mtu);
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
+		reply_opts[reply_opts_len++] = DHCPV4_OPT_MTU;
 	}
 
 	if (iface->search && iface->search_len <= 255)
@@ -902,13 +915,14 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
 					len, search_buf);
 	}
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
 
 	if (iface->dhcpv4_router_cnt == 0)
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
 	else
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER,
 				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
-
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_ROUTER;
 
 	if (iface->dhcpv4_dns_cnt == 0) {
 		if (iface->dns_service)
@@ -916,9 +930,14 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	} else
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
 				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_DNSSERVER;
 
-	for (size_t opt = 0; opt < req_opts_len; opt++) {
-		switch (req_opts[opt]) {
+	memcpy(&reply_opts[reply_opts_len], req_opts, req_opts_len);
+	reply_opts_len += req_opts_len;
+
+	/* Note: each option might get called more than once */
+	for (size_t i = 0; i < reply_opts_len; i++) {
+		switch (reply_opts[i]) {
 		case DHCPV4_OPT_NTPSERVER:
 			if (!a)
 				break;

@@ -623,6 +623,9 @@ enum {
 	IOV_SERVERID,
 	IOV_NTP,
 	IOV_NTP_ADDR,
+	IOV_LEASETIME,
+	IOV_RENEW,
+	IOV_REBIND,
 	IOV_DNR,
 	IOV_DNR_BODY,
 	IOV_END,
@@ -672,6 +675,18 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_NTPSERVER,
 		.len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp),
 	};
+	struct dhcpv4_option_u32 reply_leasetime = {
+		.code = DHCPV4_OPT_LEASETIME,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option_u32 reply_renew = {
+		.code = DHCPV4_OPT_RENEW,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option_u32 reply_rebind = {
+		.code = DHCPV4_OPT_REBIND,
+		.len = sizeof(uint32_t),
+	};
 	struct dhcpv4_option reply_dnr = {
 		.code = DHCPV4_OPT_DNR,
 	};
@@ -685,6 +700,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_SERVERID]	= { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_NTP]	= { &reply_ntp, 0 },
 		[IOV_NTP_ADDR]	= { iface->dhcpv4_ntp, 0 },
+		[IOV_LEASETIME]	= { &reply_leasetime, 0 },
+		[IOV_RENEW]	= { &reply_renew, 0 },
+		[IOV_REBIND]	= { &reply_rebind, 0 },
 		[IOV_DNR]	= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]	= { NULL, 0 },
 		[IOV_END]	= { &reply_end, sizeof(reply_end) },
@@ -838,24 +856,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	reply_opts = alloca(req_opts_len + 32);
 
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
+	reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
+
 	if (a) {
-		uint32_t val;
-
 		reply.yiaddr.s_addr = a->addr;
-
-		val = htonl(req_leasetime);
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
-		reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
-
-		if (req_leasetime != UINT32_MAX) {
-			val = htonl(500 * req_leasetime / 1000);
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
-			reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
-
-			val = htonl(875 * req_leasetime / 1000);
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
-			reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
-		}
 
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
 				&iface->dhcpv4_mask.s_addr);
@@ -945,6 +951,27 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_NTP_ADDR].iov_len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp);
 			break;
 
+		case DHCPV4_OPT_LEASETIME:
+			if (!a)
+				break;
+			reply_leasetime.data = htonl(req_leasetime);
+			iov[IOV_LEASETIME].iov_len = sizeof(reply_leasetime);
+			break;
+
+		case DHCPV4_OPT_RENEW:
+			if (!a || req_leasetime == UINT32_MAX)
+				break;
+			reply_renew.data = htonl(500 * req_leasetime / 1000);
+			iov[IOV_RENEW].iov_len = sizeof(reply_renew);
+			break;
+
+		case DHCPV4_OPT_REBIND:
+			if (!a || req_leasetime == UINT32_MAX)
+				break;
+			reply_rebind.data = htonl(875 * req_leasetime / 1000);
+			iov[IOV_REBIND].iov_len = sizeof(reply_rebind);
+			break;
+
 		case DHCPV4_OPT_DNR:
 			struct dhcpv4_dnr *dnrs;
 			size_t dnrs_len = 0;
@@ -1018,7 +1045,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
 
-	iov[IOV_HEADER].iov_len = PACKET_SIZE(&reply, cursor);
+	/* FIXME: check for DHCPV4_MIN_PACKET_SIZE */
+	iov[IOV_HEADER].iov_len = (size_t)(cursor - (uint8_t *)&reply);
 
 	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",

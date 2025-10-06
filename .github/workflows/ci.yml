@@ -1,0 +1,166 @@
+name: odhcpd
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            gcc: /usr/bin/aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+          - arch: arm
+            gcc: /usr/bin/arm-linux-gnueabi-gcc
+            packages: gcc-arm-linux-gnueabi
+          - arch: mips
+            gcc: /usr/bin/mips-linux-gnu-gcc
+            packages: gcc-mips-linux-gnu
+          - arch: x86_64
+            gcc: /usr/bin/x86_64-linux-gnu-gcc
+            packages: gcc-x86-64-linux-gnu
+
+    steps:
+      - name: Checkout odhcpd
+        uses: actions/checkout@v5
+
+      - name: Checkout json-c
+        uses: actions/checkout@v5
+        with:
+          repository: json-c/json-c
+          path: depends/json-c
+
+      - name: Checkout libnl-tiny
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/libnl-tiny
+          path: depends/libnl-tiny
+
+      - name: Checkout libubox
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/libubox
+          path: depends/libubox
+
+      - name: Checkout ubus
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/ubus
+          path: depends/ubus
+
+      - name: Checkout uci
+        uses: actions/checkout@v5
+        with:
+          repository: openwrt/uci
+          path: depends/uci
+
+      - name: Install dependencies
+        run: |
+          sudo apt install ${{ matrix.packages }}
+
+      - name: Prepare build
+        run: |
+          mkdir -p ${GITHUB_WORKSPACE}/build
+
+      - name: Build json-c
+        working-directory: depends/json-c
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_SHARED_LIBS=OFF -DDISABLE_EXTRA_LIBS=ON  \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build libnl-tiny
+        working-directory: depends/libnl-tiny
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build libubox
+        working-directory: depends/libubox
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build ubus
+        working-directory: depends/ubus
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build uci
+        working-directory: depends/uci
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DBUILD_LUA=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build
+          make
+          make install
+
+      - name: Build odhcpd (basic)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -B build/odhcpd-basic
+          make -C build/odhcpd-basic
+
+      - name: Build odhcpd (DHCPv4)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DDHCPV4_SUPPORT=ON \
+            -B build/odhcpd-dhcpv4
+          make -C build/odhcpd-dhcpv4
+
+      - name: Build odhcpd (UBUS)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DUBUS=ON \
+            -B build/odhcpd-ubus
+          make -C build/odhcpd-ubus
+
+      - name: Build odhcpd (full)
+        run: |
+          cmake \
+            -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.packages }} \
+            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
+            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            -DDHCPV4_SUPPORT=ON -DUBUS=ON \
+            -B build/odhcpd-full
+          make -C build/odhcpd-full

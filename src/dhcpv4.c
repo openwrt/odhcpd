@@ -627,8 +627,18 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		struct interface *iface, _unused void *our_dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
+	/* Request variables */
 	struct dhcpv4_message *req = data;
-	struct sockaddr_in dest_addr;
+	uint8_t req_msg = DHCPV4_MSG_REQUEST;
+	uint8_t *req_opts = NULL;
+	size_t req_opts_len = 0;
+	uint32_t req_addr = INADDR_ANY;
+	uint32_t req_leasetime = 0;
+	char *req_hostname = NULL;
+	size_t req_hostname_len = 0;
+	bool req_accept_fr = false;
+
+	/* Reply variables */
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = req->htype,
@@ -642,26 +652,21 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.siaddr = iface->dhcpv4_local,
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
-	uint8_t end_opt = DHCPV4_OPT_END;
+	uint8_t reply_msg = DHCPV4_MSG_ACK;
+	uint8_t reply_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HEADER] = { &reply, 0 },
-		[IOV_END] = { &end_opt, sizeof(end_opt) },
+		[IOV_END] = { &reply_end, sizeof(reply_end) },
 	};
 
+	/* Misc */
+	struct sockaddr_in dest_addr;
 	uint8_t *cursor = reply.options;
-	uint8_t msg = DHCPV4_MSG_ACK;
 	bool incl_fr_opt = false;
-
-	/* Request variables */
-	uint8_t req_msg = DHCPV4_MSG_REQUEST;
-	uint8_t *req_opts = NULL;
-	size_t req_opts_len = 0;
-	uint32_t req_addr = INADDR_ANY;
-	uint32_t req_leasetime = 0;
-	char *req_hostname = NULL;
-	size_t req_hostname_len = 0;
-	bool req_accept_fr = false;
+	struct dhcp_assignment *a = NULL;
+	uint32_t serverid = iface->dhcpv4_local.s_addr;
+	uint32_t fr_serverid = INADDR_ANY;
 
 	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
@@ -735,10 +740,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
-	struct dhcp_assignment *a = NULL;
-	uint32_t serverid = iface->dhcpv4_local.s_addr;
-	uint32_t fr_serverid = INADDR_ANY;
-
 	switch (req_msg) {
 	case DHCPV4_MSG_DISCOVER:
 		_fallthrough;
@@ -764,18 +765,18 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_DISCOVER:
 		if (!a)
 			return;
-		msg = DHCPV4_MSG_OFFER;
+		reply_msg = DHCPV4_MSG_OFFER;
 		break;
 
 	case DHCPV4_MSG_REQUEST:
 		if (!a) {
-			msg = DHCPV4_MSG_NAK;
+			reply_msg = DHCPV4_MSG_NAK;
 			break;
 		}
 
 		if ((req_addr && req_addr != a->addr) ||
 		    (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr)) {
-			msg = DHCPV4_MSG_NAK;
+			reply_msg = DHCPV4_MSG_NAK;
 			/*
 			 * DHCP client requested an IP which we can't offer to him. Probably the
 			 * client changed the network or the network has been changed. The reply
@@ -806,7 +807,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		return;
 	}
 
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
+	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &reply_msg);
 	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);
 
 	if (a) {
@@ -962,24 +963,24 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
-	dhcpv4_set_dest_addr(iface, msg, req, &reply, src_addr, &dest_addr);
+	dhcpv4_set_dest_addr(iface, reply_msg, req, &reply, src_addr, &dest_addr);
 
 	iov[IOV_HEADER].iov_len = PACKET_SIZE(&reply, cursor);
 
 	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",
-		      dhcpv4_msg_to_string(msg),
+		      dhcpv4_msg_to_string(reply_msg),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 		      inet_ntoa(dest_addr.sin_addr));
 	else
 		error("Sent %s to %s - %s",
-		      dhcpv4_msg_to_string(msg),
+		      dhcpv4_msg_to_string(reply_msg),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 		      inet_ntoa(dest_addr.sin_addr));
 
-	if (msg == DHCPV4_MSG_ACK && a)
+	if (reply_msg == DHCPV4_MSG_ACK && a)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
 				      (struct in_addr *)&a->addr,
 				      a->hostname, iface->ifname);

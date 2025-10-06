@@ -29,6 +29,10 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+/* RFC 1035, §2.3.4, with one extra byte for buffers */
+#define DNS_MAX_NAME_LEN 256
+#define DNS_MAX_LABEL_LEN 63
+
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
 #define ND_OPT_RECURSIVE_DNS 25

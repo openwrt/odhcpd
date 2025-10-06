@@ -148,6 +148,12 @@ struct dhcpv4_option_u8 {
 	uint8_t data;
 };
 
+struct dhcpv4_option_u16 {
+	uint8_t code;
+	uint8_t len;
+	uint16_t data;
+};
+
 struct dhcpv4_option_u32 {
 	uint8_t code;
 	uint8_t len;

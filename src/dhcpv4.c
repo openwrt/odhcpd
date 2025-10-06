@@ -628,7 +628,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	        send_reply_cb_t send_reply, void *opaque)
 {
 	struct dhcpv4_message *req = data;
-	int sock = iface->dhcpv4_event.uloop.fd;
 	struct sockaddr_in dest_addr;
 	struct dhcpv4_message reply = {
 		.op = DHCPV4_OP_BOOTREPLY,
@@ -862,7 +861,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
 
-	if (!ioctl(sock, SIOCGIFMTU, &ifr)) {
+	if (!ioctl(iface->dhcpv4_event.uloop.fd, SIOCGIFMTU, &ifr)) {
 		uint16_t mtu = htons(ifr.ifr_mtu);
 		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
 	}

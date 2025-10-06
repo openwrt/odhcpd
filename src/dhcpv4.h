@@ -136,9 +136,21 @@ enum dhcpv4_auth_rkap_ai_type {
 };
 
 struct dhcpv4_option {
-	uint8_t type;
+	uint8_t code;
 	uint8_t len;
 	uint8_t data[];
+};
+
+struct dhcpv4_option_u8 {
+	uint8_t code;
+	uint8_t len;
+	uint8_t data;
+};
+
+struct dhcpv4_option_u32 {
+	uint8_t code;
+	uint8_t len;
+	uint32_t data;
 };
 
 /* DNR */

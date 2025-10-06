@@ -619,6 +619,8 @@ static void dhcpv4_set_dest_addr(const struct interface *iface,
 
 enum {
 	IOV_HEADER = 0,
+	IOV_MESSAGE,
+	IOV_SERVERID,
 	IOV_END,
 	IOV_TOTAL
 };
@@ -652,11 +654,22 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.siaddr = iface->dhcpv4_local,
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
-	uint8_t reply_msg = DHCPV4_MSG_ACK;
+	struct dhcpv4_option_u8 reply_msg = {
+		.code = DHCPV4_OPT_MESSAGE,
+		.len = sizeof(uint8_t),
+		.data = DHCPV4_MSG_ACK,
+	};
+	struct dhcpv4_option_u32 reply_serverid = {
+		.code = DHCPV4_OPT_SERVERID,
+		.len = sizeof(struct in_addr),
+		.data = iface->dhcpv4_local.s_addr,
+	};
 	uint8_t reply_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HEADER] = { &reply, 0 },
+		[IOV_MESSAGE] = { &reply_msg, sizeof(reply_msg) },
+		[IOV_SERVERID] = { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_END] = { &reply_end, sizeof(reply_end) },
 	};
 
@@ -665,7 +678,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint8_t *cursor = reply.options;
 	bool incl_fr_opt = false;
 	struct dhcp_assignment *a = NULL;
-	uint32_t serverid = iface->dhcpv4_local.s_addr;
 	uint32_t fr_serverid = INADDR_ANY;
 
 	if (iface->dhcpv4 == MODE_DISABLED)
@@ -688,7 +700,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	struct dhcpv4_option *opt;
 	dhcpv4_for_each_option(req->options, (uint8_t *)data + len, opt) {
-		switch (opt->type) {
+		switch (opt->code) {
 		case DHCPV4_OPT_PAD:
 			break;
 		case DHCPV4_OPT_HOSTNAME:
@@ -765,18 +777,18 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_DISCOVER:
 		if (!a)
 			return;
-		reply_msg = DHCPV4_MSG_OFFER;
+		reply_msg.data = DHCPV4_MSG_OFFER;
 		break;
 
 	case DHCPV4_MSG_REQUEST:
 		if (!a) {
-			reply_msg = DHCPV4_MSG_NAK;
+			reply_msg.data = DHCPV4_MSG_NAK;
 			break;
 		}
 
 		if ((req_addr && req_addr != a->addr) ||
 		    (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr)) {
-			reply_msg = DHCPV4_MSG_NAK;
+			reply_msg.data = DHCPV4_MSG_NAK;
 			/*
 			 * DHCP client requested an IP which we can't offer to him. Probably the
 			 * client changed the network or the network has been changed. The reply
@@ -792,7 +804,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			 *
 			 */
 			if (fr_serverid)
-				serverid = fr_serverid;
+				reply_serverid.data = fr_serverid;
 
 			if (req->ciaddr.s_addr &&
 					((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
@@ -806,9 +818,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_DECLINE:
 		return;
 	}
-
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &reply_msg);
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);
 
 	if (a) {
 		uint32_t val;
@@ -963,24 +972,24 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
-	dhcpv4_set_dest_addr(iface, reply_msg, req, &reply, src_addr, &dest_addr);
+	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
 
 	iov[IOV_HEADER].iov_len = PACKET_SIZE(&reply, cursor);
 
 	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
 		error("Failed to send %s to %s - %s: %m",
-		      dhcpv4_msg_to_string(reply_msg),
+		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 		      inet_ntoa(dest_addr.sin_addr));
 	else
 		error("Sent %s to %s - %s",
-		      dhcpv4_msg_to_string(reply_msg),
+		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 		      inet_ntoa(dest_addr.sin_addr));
 
-	if (reply_msg == DHCPV4_MSG_ACK && a)
+	if (reply_msg.data == DHCPV4_MSG_ACK && a)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
 				      (struct in_addr *)&a->addr,
 				      a->hostname, iface->ifname);

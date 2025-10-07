@@ -94,7 +94,7 @@ struct dhcpv4_message {
 	char sname[64];
 	char file[128];
 	uint32_t cookie;
-	uint8_t options[308];
+	uint8_t options[];
 } _packed;
 
 // RFC2131, §3

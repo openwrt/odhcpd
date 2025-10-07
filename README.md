@@ -42,6 +42,7 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
 
 5. IPv6 PxE Support
 
+
 ## Compiling
 
 odhcpd uses cmake:
@@ -135,3 +136,28 @@ and may also receive information from ubus
 | :------------ | :---- | :----	| :---------- |
 | url		|string	| yes	| e.g. `tftp://[fd11::1]/pxe.efi` |
 | arch		|integer| no	| the arch code. `07` is EFI. If not present, this boot6 will be the default. |
+
+
+## ubus Interface
+
+odhcpd currently exposes the following methods under the `dhcp` object path:
+
+| Method	| Arguments	| Description |
+| :------------ | :------------ | :---------- |
+| `ipv4leases`  | `none`	| Lists all currently active DHCPv4 leases per interface |
+| `ipv6leases`	| `none`	| Lists all currently active DHCPv6 leases per interface |
+| `ipv6ra`	| `none`	| Lists announced IPv6 prefixes per interface |
+| `add_lease`	| options as in the cfg `host` section | Creates a new static lease, the arguments need to be formatted as a valid JSON string |
+
+These can be called by running e.g. `ubus call dhcp ipv6leases` on your OpenWrt
+device.
+
+odhcpd currently broadcasts the following events via ubus:
+
+| Name		| Parameters			| Description	|
+| :------------ | :----------------------------	| :------------ |
+| `dhcp.ack`	| `mac,ip,name,interface`	| A new DHCPv4 lease has been created |
+| `dhcp.release`| `mac,ip,name,interface`	| A DHCPv4 lease has been released by a client |
+| `dhcp.expire`	| `mac,ip,name,interface`	| A DHCPv4 lease has expired |
+
+These can be observed by running e.g. `ubus listen dhcp` on your OpenWrt device.

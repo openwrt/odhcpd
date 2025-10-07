@@ -703,13 +703,11 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	syslog(LOG_INFO, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
 			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
-#ifdef WITH_UBUS
 	if (reqmsg == DHCPV4_MSG_RELEASE) {
 		struct in_addr ciaddr = req->ciaddr; // ensure pointer alignment
 		ubus_bcast_dhcp_event("dhcp.release", req->chaddr, req->hlen,
-					&ciaddr, a ? a->hostname : NULL, iface->ifname);
+				      &ciaddr, a ? a->hostname : NULL, iface->ifname);
 	}
-#endif
 
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
@@ -933,13 +931,11 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 			inet_ntoa(dest.sin_addr));
 
-#ifdef WITH_UBUS
 	if (msg == DHCPV4_MSG_ACK) {
 		struct in_addr yiaddr = reply.yiaddr; // ensure pointer alignment
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &yiaddr,
-					a ? a->hostname : NULL, iface->ifname);
+				      a ? a->hostname : NULL, iface->ifname);
 	}
-#endif
 }
 
 /* Handler for DHCPv4 messages */

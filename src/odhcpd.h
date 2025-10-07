@@ -519,9 +519,28 @@ int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
-void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t mac_len,
-		const struct in_addr *addr, const char *name, const char *interface);
-#endif
+void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
+			   const size_t mac_len, const struct in_addr *addr,
+			   const char *name, const char *interface);
+#else
+static inline int ubus_init(void)
+{
+	return 0;
+}
+
+static inline void ubus_apply_network(void)
+{
+	return;
+}
+
+static inline
+void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
+			   const size_t mac_len, const struct in_addr *addr,
+			   const char *name, const char *interface)
+{
+	return;
+}
+#endif /* WITH_UBUS */
 
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);

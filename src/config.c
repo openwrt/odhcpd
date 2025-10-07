@@ -2100,9 +2100,7 @@ void odhcpd_reload(void)
 
 	vlist_flush(&leases);
 
-#ifdef WITH_UBUS
 	ubus_apply_network();
-#endif
 
 	bool any_dhcpv6_slave = false, any_ra_slave = false, any_ndp_slave = false;
 
@@ -2210,10 +2208,8 @@ void odhcpd_run(void)
 	signal(SIGINT, handle_signal);
 	signal(SIGHUP, handle_signal);
 
-#ifdef WITH_UBUS
 	while (ubus_init())
 		sleep(1);
-#endif
 
 	odhcpd_reload();
 	uloop_run();

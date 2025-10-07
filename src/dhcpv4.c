@@ -528,8 +528,11 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		}
 
 	} else if (msg == DHCPV4_MSG_RELEASE && a) {
-		a->flags &= ~OAF_BOUND;
-		a->valid_until = now - 1;
+		ubus_bcast_dhcp_event("dhcp.release", mac,
+				      (struct in_addr *)&a->addr,
+                                      a->hostname, iface->ifname);
+                free_assignment(a);
+                a = NULL;
 
 	} else if (msg == DHCPV4_MSG_DECLINE && a) {
 		a->flags &= ~OAF_BOUND;
@@ -702,12 +705,6 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	syslog(LOG_INFO, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
 			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
-
-	if (reqmsg == DHCPV4_MSG_RELEASE) {
-		struct in_addr ciaddr = req->ciaddr; // ensure pointer alignment
-		ubus_bcast_dhcp_event("dhcp.release", req->chaddr,
-				      &ciaddr, a ? a->hostname : NULL, iface->ifname);
-	}
 
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
@@ -931,11 +928,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
 			inet_ntoa(dest.sin_addr));
 
-	if (msg == DHCPV4_MSG_ACK) {
-		struct in_addr yiaddr = reply.yiaddr; // ensure pointer alignment
-		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, &yiaddr,
-				      a ? a->hostname : NULL, iface->ifname);
-	}
+	if (msg == DHCPV4_MSG_ACK && a)
+		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
+				      (struct in_addr *)&a->addr,
+				      a->hostname, iface->ifname);
 }
 
 /* Handler for DHCPv4 messages */

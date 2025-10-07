@@ -61,11 +61,11 @@ static void print_usage(const char *app)
 #else
 	       " no-dhcpv4"
 #endif /* DHCPV4_SUPPORT */
-#ifdef UBUS
+#ifdef WITH_UBUS
 	       " ubus"
 #else
 	       " no-ubus"
-#endif /* UBUS */
+#endif /* WITH_UBUS */
 #ifdef EXT_CER_ID
 	       " cer"
 #else

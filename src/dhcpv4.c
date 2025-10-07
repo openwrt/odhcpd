@@ -780,8 +780,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_DNR,
 	};
 	uint8_t reply_end = DHCPV4_OPT_END;
-	uint8_t *reply_opts;
-	size_t reply_opts_len = 0;
 
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HEADER]		= { &reply, sizeof(reply) },
@@ -810,6 +808,22 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_DNR_BODY]		= { NULL, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
 		[IOV_PADDING]		= { NULL, 0 },
+	};
+
+	/* Options which *might* be included in the reply unrequested */
+	uint8_t std_opts[] = {
+		DHCPV4_OPT_NETMASK,
+		DHCPV4_OPT_ROUTER,
+		DHCPV4_OPT_DNSSERVER,
+		DHCPV4_OPT_HOSTNAME,
+		DHCPV4_OPT_MTU,
+		DHCPV4_OPT_BROADCAST,
+		DHCPV4_OPT_LEASETIME,
+		DHCPV4_OPT_RENEW,
+		DHCPV4_OPT_REBIND,
+		DHCPV4_OPT_AUTHENTICATION,
+		DHCPV4_OPT_SEARCH_DOMAIN,
+		DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 	};
 
 	/* Misc */
@@ -957,25 +971,11 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		return;
 	}
 
-	reply_opts = alloca(req_opts_len + 32);
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_NETMASK;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_ROUTER;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_DNSSERVER;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_HOSTNAME;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_MTU;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_BROADCAST;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_LEASETIME;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_RENEW;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_REBIND;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_AUTHENTICATION;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_SEARCH_DOMAIN;
-	reply_opts[reply_opts_len++] = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE;
-	memcpy(&reply_opts[reply_opts_len], req_opts, req_opts_len);
-	reply_opts_len += req_opts_len;
-
 	/* Note: each option might get called more than once */
-	for (size_t i = 0; i < reply_opts_len; i++) {
-		switch (reply_opts[i]) {
+	for (size_t i = 0; i < sizeof(std_opts) + req_opts_len; i++) {
+		uint8_t opt = i < sizeof(std_opts) ? std_opts[i] : req_opts[i - sizeof(std_opts)];
+
+		switch (opt) {
 		case DHCPV4_OPT_NETMASK:
 			if (!a)
 				break;

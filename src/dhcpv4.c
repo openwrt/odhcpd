@@ -219,7 +219,7 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 	uint8_t fr_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_FR_TOTAL] = {
-		[IOV_FR_HEADER]		= { &fr, offsetof(typeof(fr), options) },
+		[IOV_FR_HEADER]		= { &fr, sizeof(fr) },
 		[IOV_FR_MESSAGE]	= { &fr_msg, sizeof(fr_msg) },
 		[IOV_FR_AUTH]		= { &fr_auth, 0 },
 		[IOV_FR_AUTH_BODY]	= { &fr_auth_body, 0 },
@@ -784,7 +784,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	size_t reply_opts_len = 0;
 
 	struct iovec iov[IOV_TOTAL] = {
-		[IOV_HEADER]		= { &reply, offsetof(typeof(reply), options) },
+		[IOV_HEADER]		= { &reply, sizeof(reply) },
 		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
 		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
 		[IOV_NETMASK]		= { &reply_netmask, 0 },

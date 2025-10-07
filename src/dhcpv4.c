@@ -1192,8 +1192,12 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->dhcpv4_assignments, head) {
-			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (!INFINITE_VALID(a->valid_until) && a->valid_until < now) {
+				ubus_bcast_dhcp_event("dhcp.expire", a->hwaddr,
+						      (struct in_addr *)&a->addr,
+						      a->hostname, iface->ifname);
 				free_assignment(a);
+			}
 		}
 	}
 	uloop_timeout_set(event, 1000);

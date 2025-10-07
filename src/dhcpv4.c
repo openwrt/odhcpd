@@ -36,8 +36,6 @@
 #include "dhcpv4.h"
 #include "dhcpv6.h"
 
-#define PACKET_SIZE(start, end) (((uint8_t *)end - (uint8_t *)start) < DHCPV4_MIN_PACKET_SIZE ? \
-				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
 static uint32_t serial = 0;
@@ -133,25 +131,19 @@ static const char *dhcpv4_msg_to_string(uint8_t req_msg)
 	return dhcpv4_msg_names[req_msg];
 }
 
-static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
-		uint8_t type, uint8_t len, const void *data)
+static ssize_t dhcpv4_send_reply(struct iovec *iov, size_t iov_len,
+				 struct sockaddr *dest, socklen_t dest_len,
+				 void *opaque)
 {
-	uint8_t *c = *cursor;
-	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
-	bool tag_only = type == DHCPV4_OPT_PAD || type == DHCPV4_OPT_END;
-	int total_len = tag_only ? 1 : 2 + len;
+	int *sock = opaque;
+	struct msghdr msg = {
+		.msg_name = dest,
+		.msg_namelen = dest_len,
+		.msg_iov = iov,
+		.msg_iovlen = iov_len,
+	};
 
-	if (*cursor + total_len > end)
-		return;
-
-	*cursor += total_len;
-	*c++ = type;
-
-	if (tag_only)
-		return;
-
-	*c++ = len;
-	memcpy(c, data, len);
+	return sendmsg(*sock, &msg, MSG_DONTWAIT);
 }
 
 static void dhcpv4_add_padding(struct iovec *iov, size_t iovlen)
@@ -173,9 +165,20 @@ static void dhcpv4_add_padding(struct iovec *iov, size_t iovlen)
 		iov[iovlen - 1].iov_len = DHCPV4_MIN_PACKET_SIZE - len;
 }
 
+enum {
+	IOV_FR_HEADER = 0,
+	IOV_FR_MESSAGE,
+	IOV_FR_AUTH,
+	IOV_FR_AUTH_BODY,
+	IOV_FR_SERVERID,
+	IOV_FR_END,
+	IOV_FR_PADDING,
+	IOV_FR_TOTAL
+};
+
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
-	struct dhcpv4_message fr_msg = {
+	struct dhcpv4_message fr = {
 		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = ARPHRD_ETHER,
 		.hlen = ETH_ALEN,
@@ -192,44 +195,67 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		.file = { 0 },
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
-	struct dhcpv4_auth_forcerenew *auth_o, auth = {
+	struct dhcpv4_option_u8 fr_msg = {
+		.code = DHCPV4_OPT_MESSAGE,
+		.len = sizeof(uint8_t),
+		.data = DHCPV4_MSG_FORCERENEW,
+	};
+	struct dhcpv4_auth_forcerenew fr_auth_body = {
 		.protocol = DHCPV4_AUTH_PROTO_RKAP,
 		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
 		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
-		.replay = { htonl(time(NULL)), htonl(++serial) },
 		.type = DHCPV4_AUTH_RKAP_AI_TYPE_MD5_DIGEST,
 		.key = { 0 },
 	};
-	struct interface *iface = a->iface;
-	uint8_t *cursor = fr_msg.options;
-	uint8_t msg = DHCPV4_MSG_FORCERENEW;
+	struct dhcpv4_option fr_auth = {
+		.code = DHCPV4_OPT_AUTHENTICATION,
+		.len = sizeof(fr_auth_body),
+	};
+	struct dhcpv4_option_u32 fr_serverid = {
+		.code = DHCPV4_OPT_SERVERID,
+		.len = sizeof(struct in_addr),
+		.data = a->fr_ip->addr.addr.in.s_addr,
+	};
+	uint8_t fr_end = DHCPV4_OPT_END;
+
+	struct iovec iov[IOV_FR_TOTAL] = {
+		[IOV_FR_HEADER]		= { &fr, offsetof(typeof(fr), options) },
+		[IOV_FR_MESSAGE]	= { &fr_msg, sizeof(fr_msg) },
+		[IOV_FR_AUTH]		= { &fr_auth, 0 },
+		[IOV_FR_AUTH_BODY]	= { &fr_auth_body, 0 },
+		[IOV_FR_SERVERID]	= { &fr_serverid, 0 },
+		[IOV_FR_END]		= { &fr_end, sizeof(fr_end) },
+		[IOV_FR_PADDING]	= { NULL, 0 },
+	};
+
 	struct sockaddr_in dest = {
 		.sin_family = AF_INET,
 		.sin_port = htons(DHCPV4_CLIENT_PORT),
 		.sin_addr = { a->addr },
 	};
 
-	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
-	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
+	odhcpd_urandom(&fr.xid, sizeof(fr.xid));
+	memcpy(fr.chaddr, a->hwaddr, fr.hlen);
 
-	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
-		auth_o = (struct dhcpv4_auth_forcerenew *)cursor;
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
-
+		uint8_t secretbytes[64] = { 0 };
 		md5_ctx_t md5;
-		uint8_t secretbytes[64];
-		memset(secretbytes, 0, sizeof(secretbytes));
-		memcpy(secretbytes, a->key, sizeof(a->key));
 
+		fr_auth_body.replay[0] = htonl(time(NULL));
+		fr_auth_body.replay[1] = htonl(++serial);
+		iov[IOV_FR_AUTH].iov_len = sizeof(fr_auth);
+		iov[IOV_FR_AUTH_BODY].iov_len = sizeof(fr_auth_body);
+		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
+
+		memcpy(secretbytes, a->key, sizeof(a->key));
 		for (size_t i = 0; i < sizeof(secretbytes); ++i)
 			secretbytes[i] ^= 0x36;
 
 		md5_begin(&md5);
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		md5_hash(&fr_msg, sizeof(fr_msg), &md5);
-		md5_end(auth_o->key, &md5);
+		for (size_t i = 0; i < ARRAY_SIZE(iov); i++)
+			md5_hash(iov[i].iov_base, iov[i].iov_len, &md5);
+		md5_end(fr_auth_body.key, &md5);
 
 		for (size_t i = 0; i < sizeof(secretbytes); ++i) {
 			secretbytes[i] ^= 0x36;
@@ -238,20 +264,19 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 
 		md5_begin(&md5);
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
-		md5_end(auth_o->key, &md5);
+		md5_hash(fr_auth_body.key, sizeof(fr_auth_body.key), &md5);
+		md5_end(fr_auth_body.key, &md5);
 	} else {
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_SERVERID, 4,
-				&a->fr_ip->addr.addr.in.s_addr);
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
+		iov[IOV_FR_SERVERID].iov_len = sizeof(fr_serverid);
+		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 	}
 
-	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
-		   MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
-		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
+	if (dhcpv4_send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest),
+			      &a->iface->dhcpv4_event.uloop.fd) < 0)
+		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
-		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
+		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
@@ -559,21 +584,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	dhcpv6_ia_write_statefile();
 
 	return a;
-}
-
-static ssize_t dhcpv4_send_reply(struct iovec *iov, size_t iov_len,
-				 struct sockaddr *dest, socklen_t dest_len,
-				 void *opaque)
-{
-	int *sock = opaque;
-	struct msghdr msg = {
-		.msg_name = dest,
-		.msg_namelen = dest_len,
-		.msg_iov = iov,
-		.msg_iovlen = iov_len,
-	};
-
-	return sendmsg(*sock, &msg, MSG_DONTWAIT);
 }
 
 static void dhcpv4_set_dest_addr(const struct interface *iface,

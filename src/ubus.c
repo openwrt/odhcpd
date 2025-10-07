@@ -401,15 +401,15 @@ static const struct blobmsg_policy obj_attrs[OBJ_ATTR_MAX] = {
 };
 
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-		const size_t mlen, const struct in_addr *addr, const char *name,
-		const char *interface)
+			   const struct in_addr *addr, const char *name,
+			   const char *interface)
 {
 	if (!ubus || !main_object.has_subscribers)
 		return;
 
 	blob_buf_init(&b, 0);
 	if (mac)
-		blobmsg_add_string(&b, "mac", odhcpd_print_mac(mac, mlen));
+		blobmsg_add_string(&b, "mac", odhcpd_print_mac(mac, ETH_ALEN));
 	if (addr)
 		blobmsg_add_string(&b, "ip", inet_ntoa(*addr));
 	if (name)

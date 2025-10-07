@@ -705,7 +705,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	if (reqmsg == DHCPV4_MSG_RELEASE) {
 		struct in_addr ciaddr = req->ciaddr; // ensure pointer alignment
-		ubus_bcast_dhcp_event("dhcp.release", req->chaddr, req->hlen,
+		ubus_bcast_dhcp_event("dhcp.release", req->chaddr,
 				      &ciaddr, a ? a->hostname : NULL, iface->ifname);
 	}
 
@@ -933,7 +933,7 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 
 	if (msg == DHCPV4_MSG_ACK) {
 		struct in_addr yiaddr = reply.yiaddr; // ensure pointer alignment
-		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, req->hlen, &yiaddr,
+		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, &yiaddr,
 				      a ? a->hostname : NULL, iface->ifname);
 	}
 }

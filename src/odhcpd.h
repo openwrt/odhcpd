@@ -69,6 +69,22 @@ struct nl_sock;
 extern struct vlist_tree leases;
 extern struct config config;
 
+#define __iflog(lvl, fmt, ...)						\
+	do {								\
+		if (lvl <= config.log_level)				\
+			syslog(lvl, fmt __VA_OPT__(, ) __VA_ARGS__);	\
+	} while(0)
+
+#define debug(fmt, ...)     __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define info(fmt, ...)      __iflog(LOG_INFO, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define notice(fmt, ...)    __iflog(LOG_NOTICE, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define warn(fmt, ...)      __iflog(LOG_WARNING, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define error(fmt, ...)     __iflog(LOG_ERR, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define critical(fmt, ...)  __iflog(LOG_CRIT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define alert(fmt, ...)     __iflog(LOG_ALERT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define emergency(fmt, ...) __iflog(LOG_EMERG, fmt __VA_OPT__(, ) __VA_ARGS__)
+
+
 struct odhcpd_event {
 	struct uloop_fd uloop;
 	void (*handle_dgram)(void *addr, void *data, size_t len,

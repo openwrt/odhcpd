@@ -1,4 +1,3 @@
-#include <syslog.h>
 #include <libubus.h>
 #include <libubox/uloop.h>
 #include <netinet/in.h>
@@ -501,7 +500,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 int ubus_init(void)
 {
 	if (!(ubus = ubus_connect(NULL))) {
-		syslog(LOG_ERR, "Unable to connect to ubus: %m");
+		error("Unable to connect to ubus: %m");
 		return -1;
 	}
 

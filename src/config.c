@@ -8,7 +8,6 @@
 #include <net/if.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <syslog.h>
 
 #include <uci.h>
 #include <uci_blob.h>
@@ -479,14 +478,14 @@ static bool parse_duid(struct duid *duid, struct blob_attr *c)
 
 		/* IAID = uint32, RFC8415, §21.4, §21.5, §21.21 */
 		if (iaid_str_len < 1 || iaid_str_len > 2 * sizeof(uint32_t)) {
-			syslog(LOG_ERR, "Invalid IAID length '%s'", iaid_str);
+			error("Invalid IAID length '%s'", iaid_str);
 			return false;
 		}
 
 		errno = 0;
 		duid->iaid = strtoul(iaid_str, &end, 16);
 		if (errno || *end != '\0') {
-			syslog(LOG_ERR, "Invalid IAID '%s'", iaid_str);
+			error("Invalid IAID '%s'", iaid_str);
 			return false;
 		}
 
@@ -495,13 +494,13 @@ static bool parse_duid(struct duid *duid, struct blob_attr *c)
 	}
 
 	if (duid_str_len < 2 || duid_str_len > DUID_MAX_LEN * 2 || duid_str_len % 2) {
-		syslog(LOG_ERR, "Invalid DUID length '%.*s'", (int)duid_str_len, duid_str);
+		error("Invalid DUID length '%.*s'", (int)duid_str_len, duid_str);
 		return false;
 	}
 
 	duid_len = odhcpd_unhexlify(duid->id, duid_str_len / 2, duid_str);
 	if (duid_len < 0) {
-		syslog(LOG_ERR, "Invalid DUID '%.*s'", (int)duid_str_len, duid_str);
+		error("Invalid DUID '%.*s'", (int)duid_str_len, duid_str);
 		return false;
 	}
 
@@ -690,10 +689,10 @@ static int parse_dnr_str(char *str, struct interface *iface)
 	if (!priority) {
 		goto err;
 	} else if (sscanf(priority, "%" SCNu16, &dnr.priority) != 1) {
-		syslog(LOG_ERR, "Unable to parse priority '%s'", priority);
+		error("Unable to parse priority '%s'", priority);
 		goto err;
 	} else if (dnr.priority == 0) {
-		syslog(LOG_ERR, "Invalid priority '%s'", priority);
+		error("Invalid priority '%s'", priority);
 		goto err;
 	}
 
@@ -707,13 +706,13 @@ static int parse_dnr_str(char *str, struct interface *iface)
 		adn[adn_len - 1] = '\0';
 
 	if (adn_len >= sizeof(adn_buf)) {
-		syslog(LOG_ERR, "Hostname '%s' too long", adn);
+		error("Hostname '%s' too long", adn);
 		goto err;
 	}
 
 	adn_len = dn_comp(adn, adn_buf, sizeof(adn_buf), NULL, NULL);
 	if (adn_len <= 0) {
-		syslog(LOG_ERR, "Unable to parse hostname '%s'", adn);
+		error("Unable to parse hostname '%s'", adn);
 		goto err;
 	}
 
@@ -757,7 +756,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			dnr.addr4_cnt++;
 
 		} else {
-			syslog(LOG_ERR, "Unable to parse IP address '%s'", addr);
+			error("Unable to parse IP address '%s'", addr);
 			goto err;
 		}
 	}
@@ -774,7 +773,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			uint32_t lifetime;
 
 			if (!svc_val || sscanf(svc_val, "%" SCNu32, &lifetime) != 1) {
-				syslog(LOG_ERR, "Invalid value '%s' for _lifetime", svc_val ? svc_val : "");
+				error("Invalid value '%s' for _lifetime", svc_val ? svc_val : "");
 				goto err;
 			}
 
@@ -788,7 +787,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 				break;
 
 		if (svc_id >= DNR_SVC_MAX) {
-			syslog(LOG_ERR, "Invalid SvcParam '%s'", svc_key);
+			error("Invalid SvcParam '%s'", svc_key);
 			goto err;
 		}
 
@@ -818,7 +817,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 						break;
 
 				if (mkey >= DNR_SVC_MAX || !svc_vals[mkey]) {
-					syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'mandatory'", mkey_str);
+					error("Invalid value '%s' for SvcParam 'mandatory'", mkey_str);
 					goto err;
 				}
 
@@ -858,7 +857,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 
 				alpn_id_len = strlen(alpn_id_str);
 				if (alpn_id_len > UINT8_MAX) {
-					syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'alpn'", alpn_id_str);
+					error("Invalid value '%s' for SvcParam 'alpn'", alpn_id_str);
 					goto err;
 				}
 
@@ -881,7 +880,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			uint16_t port;
 
 			if (sscanf(svc_val_str, "%" SCNu16, &port) != 1) {
-				syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'port'", svc_val_str);
+				error("Invalid value '%s' for SvcParam 'port'", svc_val_str);
 				goto err;
 			}
 
@@ -904,7 +903,7 @@ static int parse_dnr_str(char *str, struct interface *iface)
 
 		case DNR_SVC_OHTTP:
 			if (strlen(svc_val_str) > 0) {
-				syslog(LOG_ERR, "Invalid value '%s' for SvcParam 'port'", svc_val_str);
+				error("Invalid value '%s' for SvcParam 'port'", svc_val_str);
 				goto err;
 			}
 			/* fall through */
@@ -927,14 +926,14 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			break;
 
 		case DNR_SVC_ECH:
-			syslog(LOG_ERR, "SvcParam 'ech' is not implemented");
+			error("SvcParam 'ech' is not implemented");
 			goto err;
 
 		case DNR_SVC_IPV4HINT:
 			/* fall through */
 
 		case DNR_SVC_IPV6HINT:
-			syslog(LOG_ERR, "SvcParam '%s' is not allowed", svc_param_key_names[svc_key]);
+			error("SvcParam '%s' is not allowed", svc_param_key_names[svc_key]);
 			goto err;
 		}
 	}
@@ -1066,8 +1065,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (time > 0)
 			iface->dhcp_leasetime = time;
 		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_LEASETIME].name, iface->name);
+			error("Invalid %s value configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_LEASETIME].name, iface->name);
 
 	}
 
@@ -1077,9 +1076,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (time > 0)
 			iface->max_preferred_lifetime = time;
 		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-			       iface_attrs[IFACE_ATTR_MAX_PREFERRED_LIFETIME].name, iface->name);
-
+			error("Invalid %s value configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_MAX_PREFERRED_LIFETIME].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_MAX_VALID_LIFETIME])) {
@@ -1088,9 +1086,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (time > 0)
 			iface->max_valid_lifetime = time;
 		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-			       iface_attrs[IFACE_ATTR_MAX_VALID_LIFETIME].name, iface->name);
-
+			error("Invalid %s value configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_MAX_VALID_LIFETIME].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {
@@ -1134,8 +1131,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->ra != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA].name, iface->name);
+			error("Invalid %s mode configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_RA].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
@@ -1147,8 +1144,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					iface->ignore = false;
 			}
 		} else
-			syslog(LOG_ERR, "Invalid %s mode configured for interface %s",
-					iface_attrs[IFACE_ATTR_DHCPV4].name, iface->name);
+			error("Invalid %s mode configured for interface %s",
+			      iface_attrs[IFACE_ATTR_DHCPV4].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6])) {
@@ -1158,8 +1155,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->dhcpv6 != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_DHCPV6].name, iface->name);
+			error("Invalid %s mode configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_DHCPV6].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_NDP])) {
@@ -1169,8 +1166,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (iface->ndp != MODE_DISABLED)
 				iface->ignore = false;
 		} else
-			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_NDP].name, iface->name);
+			error("Invalid %s mode configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_NDP].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_ROUTER])) {
@@ -1191,8 +1188,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dhcpv4_router[iface->dhcpv4_router_cnt - 1] = addr4;
 			} else
-				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-						iface_attrs[IFACE_ATTR_ROUTER].name, iface->name);
+				error("Invalid %s value configured for interface '%s'",
+				      iface_attrs[IFACE_ATTR_ROUTER].name, iface->name);
 		}
 	}
 
@@ -1210,9 +1207,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
 				if (addr4.s_addr == INADDR_ANY) {
-					syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-							iface_attrs[IFACE_ATTR_DNS].name, iface->name);
-
+					error("Invalid %s value configured for interface '%s'",
+					      iface_attrs[IFACE_ATTR_DNS].name, iface->name);
 					continue;
 				}
 
@@ -1224,9 +1220,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				iface->dhcpv4_dns[iface->dhcpv4_dns_cnt - 1] = addr4;
 			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
 				if (IN6_IS_ADDR_UNSPECIFIED(&addr6)) {
-					syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-							iface_attrs[IFACE_ATTR_DNS].name, iface->name);
-
+					error("Invalid %s value configured for interface '%s'",
+					      iface_attrs[IFACE_ATTR_DNS].name, iface->name);
 					continue;
 				}
 
@@ -1237,8 +1232,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 				iface->dns[iface->dns_cnt - 1] = addr6;
 			} else
-				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-						iface_attrs[IFACE_ATTR_DNS].name, iface->name);
+				error("Invalid %s value configured for interface '%s'",
+				      iface_attrs[IFACE_ATTR_DNS].name, iface->name);
 		}
 	}
 
@@ -1266,9 +1261,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 			len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
 			if (len <= 0) {
-				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-						iface_attrs[IFACE_ATTR_DOMAIN].name, iface->name);
-
+				error("Invalid %s value configured for interface '%s'",
+				      iface_attrs[IFACE_ATTR_DOMAIN].name, iface->name);
 				continue;
 			}
 
@@ -1307,8 +1301,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			iface->dhcpv6_pd_min_len = PD_MIN_LEN_MAX;
 		iface->dhcpv6_pd_min_len = pd_min_len;
 		if (pd_min_len >= PD_MIN_LEN_MAX)
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-					iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, iface->dhcpv6_pd_min_len);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, iface->dhcpv6_pd_min_len);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
@@ -1326,8 +1320,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv6_hostid_len = hostid_len;
 
 		if (original_hostid_len != hostid_len) {
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-				   iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name, iface->dhcpv6_hostid_len);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name, iface->dhcpv6_hostid_len);
 		}
 	}
 
@@ -1359,8 +1353,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ra_flags = 0;
 
 		if (parse_ra_flags(&iface->ra_flags, c) < 0)
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_FLAGS].name, iface->name);
+			error("Invalid %s value configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_RA_FLAGS].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
@@ -1371,8 +1365,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		 */
 		iface->ra_reachabletime = ra_reachabletime <= AdvReachableTime ? ra_reachabletime : AdvReachableTime;
 		if(ra_reachabletime > AdvReachableTime)
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-					iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name, iface->ra_reachabletime);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name, iface->ra_reachabletime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {
@@ -1380,8 +1374,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->ra_retranstime = ra_retranstime <= RETRANS_TIMER_MAX ? ra_retranstime : RETRANS_TIMER_MAX;
 		if (ra_retranstime > RETRANS_TIMER_MAX)
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-					iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name, iface->ra_retranstime);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name, iface->ra_retranstime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
@@ -1390,8 +1384,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		/* RFC4861 §6.2.1 : AdvCurHopLimit */
 		iface->ra_hoplimit = ra_hoplimit <= AdvCurHopLimit ? ra_hoplimit : AdvCurHopLimit;
 		if(ra_hoplimit > AdvCurHopLimit)
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-					iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name, iface->ra_hoplimit);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name, iface->ra_hoplimit);
 
 	}
 
@@ -1405,8 +1399,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ra_mtu = ra_mtu;
 
 		if (original_ra_mtu != ra_mtu) {
-			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
-				iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
+			warn("Clamped invalid %s value configured for interface '%s' to %d",
+			     iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
 		}
 	}
 
@@ -1476,8 +1470,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				continue;
 
 			if (parse_dnr_str(blobmsg_get_string(cur), iface))
-				syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-				       iface_attrs[IFACE_ATTR_DNR].name, iface->name);
+				error("Invalid %s value configured for interface '%s'",
+				      iface_attrs[IFACE_ATTR_DNR].name, iface->name);
 		}
 	}
 
@@ -1520,8 +1514,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			iface->pref64_prefix[2] = 0;
 			break;
 		default:
-			syslog(LOG_WARNING, "Invalid PREF64 prefix size (%d), "
-			       "ignoring ra_pref64 option!", iface->pref64_length);
+			warn("Invalid PREF64 prefix size (%d), ignoring ra_pref64 option!",
+			     iface->pref64_length);
 			iface->pref64_length = 0;
 		}
 	}
@@ -1536,8 +1530,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		else if (!strcmp(prio, "medium") || !strcmp(prio, "default"))
 			iface->route_preference = 0;
 		else
-			syslog(LOG_ERR, "Invalid %s mode configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
+			error("Invalid %s mode configured for interface '%s'",
+			      iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
 	}
 
 	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
@@ -1546,8 +1540,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_PD_CER]) &&
 			inet_pton(AF_INET6, blobmsg_get_string(c), &iface->dhcpv6_pd_cer) < 1)
-		syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-				iface_attrs[IFACE_ATTR_PD_CER].name, iface->name);
+		error("Invalid %s value configured for interface '%s'",
+		      iface_attrs[IFACE_ATTR_PD_CER].name, iface->name);
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);
@@ -1813,7 +1807,7 @@ struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr)
 void reload_services(struct interface *iface)
 {
 	if (iface->ifflags & IFF_RUNNING) {
-		syslog(LOG_DEBUG, "Enabling services with %s running", iface->ifname);
+		debug("Enabling services with %s running", iface->ifname);
 		router_setup_interface(iface, iface->ra != MODE_DISABLED);
 		dhcpv6_setup_interface(iface, iface->dhcpv6 != MODE_DISABLED);
 		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
@@ -1821,7 +1815,7 @@ void reload_services(struct interface *iface)
 		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
 #endif
 	} else {
-		syslog(LOG_DEBUG, "Disabling services with %s not running", iface->ifname);
+		debug("Disabling services with %s not running", iface->ifname);
 		router_setup_interface(iface, false);
 		dhcpv6_setup_interface(iface, false);
 		ndp_setup_interface(iface, false);
@@ -1923,10 +1917,9 @@ static json_object *config_load_ra_pio_json(struct interface *iface)
 	close(fd);
 
 	if (!json)
-		syslog(LOG_ERR,
-			"rfc9096: %s: json read error %s",
-			iface->ifname,
-			json_util_get_last_err());
+		error("rfc9096: %s: json read error %s",
+		      iface->ifname,
+		      json_util_get_last_err());
 
 	return json;
 }
@@ -1989,12 +1982,11 @@ void config_load_ra_pio(struct interface *iface)
 		inet_pton(AF_INET6, pio_str, &pio->prefix);
 		pio->length = pio_len;
 		pio->lifetime = pio_lt;
-		syslog(LOG_INFO,
-			"rfc9096: %s: load %s/%u (%u)",
-			iface->ifname,
-			pio_str,
-			pio_len,
-			ra_pio_lifetime(pio, now));
+		info("rfc9096: %s: load %s/%u (%u)",
+		     iface->ifname,
+		     pio_str,
+		     pio_len,
+		     ra_pio_lifetime(pio, now));
 
 		iface->pio_cnt++;
 	}
@@ -2024,18 +2016,16 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 		O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC,
 		0644);
 	if (fd < 0) {
-		syslog(LOG_ERR,
-			"rfc9096: %s: error %m creating temporary json file",
-			iface->ifname);
+		error("rfc9096: %s: error %m creating temporary json file",
+		      iface->ifname);
 		return;
 	}
 
 	ret = json_object_to_fd(fd, json, JSON_C_TO_STRING_PLAIN);
 	if (ret) {
-		syslog(LOG_ERR,
-			"rfc9096: %s: json write error %s",
-			iface->ifname,
-			json_util_get_last_err());
+		error("rfc9096: %s: json write error %s",
+		      iface->ifname,
+		      json_util_get_last_err());
 		close(fd);
 		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
 		return;
@@ -2043,10 +2033,9 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 
 	ret = fsync(fd);
 	if (ret) {
-		syslog(LOG_ERR,
-			"rfc9096: %s: error %m syncing %s",
-			iface->ifname,
-			tmp_piofile);
+		error("rfc9096: %s: error %m syncing %s",
+		      iface->ifname,
+		      tmp_piofile);
 		close(fd);
 		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
 		return;
@@ -2054,10 +2043,9 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 
 	ret = close(fd);
 	if (ret) {
-		syslog(LOG_ERR,
-			"rfc9096: %s: error %m closing %s",
-			iface->ifname,
-			tmp_piofile);
+		error("rfc9096: %s: error %m closing %s",
+		      iface->ifname,
+		      tmp_piofile);
 		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
 		return;
 	}
@@ -2067,20 +2055,17 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 		config.ra_piofolder_fd,
 		iface->ifname);
 	if (ret) {
-		syslog(LOG_ERR,
-			"rfc9096: %s: error %m renaming piofile: %s -> %s",
-			iface->ifname,
-			tmp_piofile,
-			iface->ifname);
+		error("rfc9096: %s: error %m renaming piofile: %s -> %s",
+		      iface->ifname,
+		      tmp_piofile,
+		      iface->ifname);
 		close(fd);
 		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
 		return;
 	}
 
 	iface->pio_update = false;
-	syslog(LOG_WARNING,
-		"rfc9096: %s: piofile updated",
-		iface->ifname);
+	warn("rfc9096: %s: piofile updated", iface->ifname);
 }
 
 void config_save_ra_pio(struct interface *iface)
@@ -2219,7 +2204,7 @@ void odhcpd_reload(void)
 		close(config.ra_piofolder_fd);
 		config.ra_piofolder_fd = open(path, O_PATH | O_DIRECTORY | O_CLOEXEC);
 		if (config.ra_piofolder_fd < 0)
-			syslog(LOG_ERR, "Unable to open piofolder '%s': %m", path);
+			error("Unable to open piofolder '%s': %m", path);
 	}
 
 	vlist_flush(&leases);

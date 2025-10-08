@@ -50,13 +50,13 @@ int router_init(void)
 	int ret = 0;
 
 	if (!(fp_route = fopen("/proc/net/ipv6_route", "r"))) {
-		syslog(LOG_ERR, "fopen(/proc/net/ipv6_route): %m");
+		error("fopen(/proc/net/ipv6_route): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (netlink_add_netevent_handler(&router_netevent_handler) < 0) {
-		syslog(LOG_ERR, "Failed to add netevent handler");
+		error("Failed to add netevent handler");
 		ret = -1;
 	}
 
@@ -103,14 +103,14 @@ int router_setup_interface(struct interface *iface, bool enable)
 			iface->router_event.uloop.fd = socket(AF_INET6, SOCK_RAW | SOCK_CLOEXEC,
 								IPPROTO_ICMPV6);
 			if (iface->router_event.uloop.fd < 0) {
-				syslog(LOG_ERR, "socket(AF_INET6): %m");
+				error("socket(AF_INET6): %m");
 				ret = -1;
 				goto out;
 			}
 
 			if (setsockopt(iface->router_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
 						iface->ifname, strlen(iface->ifname)) < 0) {
-				syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+				error("setsockopt(SO_BINDTODEVICE): %m");
 				ret = -1;
 				goto out;
 			}
@@ -118,7 +118,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 			/* Let the kernel compute our checksums */
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_RAW, IPV6_CHECKSUM,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_CHECKSUM): %m");
+				error("setsockopt(IPV6_CHECKSUM): %m");
 				ret = -1;
 				goto out;
 			}
@@ -127,14 +127,14 @@ int router_setup_interface(struct interface *iface, bool enable)
 			val = 255;
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+				error("setsockopt(IPV6_MULTICAST_HOPS): %m");
 				ret = -1;
 				goto out;
 			}
 
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_UNICAST_HOPS): %m");
+				error("setsockopt(IPV6_UNICAST_HOPS): %m");
 				ret = -1;
 				goto out;
 			}
@@ -143,14 +143,14 @@ int router_setup_interface(struct interface *iface, bool enable)
 			val = 1;
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
+				error("setsockopt(IPV6_RECVPKTINFO): %m");
 				ret = -1;
 				goto out;
 			}
 
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_RECVHOPLIMIT): %m");
+				error("setsockopt(IPV6_RECVHOPLIMIT): %m");
 				ret = -1;
 				goto out;
 			}
@@ -159,7 +159,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 			val = 0;
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
 						&val, sizeof(val)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
+				error("setsockopt(IPV6_MULTICAST_LOOP): %m");
 				ret = -1;
 				goto out;
 			}
@@ -170,7 +170,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 			ICMP6_FILTER_SETPASS(ND_ROUTER_SOLICIT, &filt);
 			if (setsockopt(iface->router_event.uloop.fd, IPPROTO_ICMPV6, ICMP6_FILTER,
 						&filt, sizeof(filt)) < 0) {
-				syslog(LOG_ERR, "setsockopt(ICMP6_FILTER): %m");
+				error("setsockopt(ICMP6_FILTER): %m");
 				ret = -1;
 				goto out;
 			}
@@ -208,7 +208,7 @@ int router_setup_interface(struct interface *iface, bool enable)
 		if (setsockopt(iface->router_event.uloop.fd, IPPROTO_IPV6,
 					IPV6_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
 			ret = -1;
-			syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+			error("setsockopt(IPV6_ADD_MEMBERSHIP): %m");
 			goto out;
 		}
 	}
@@ -463,10 +463,10 @@ static void router_add_ra_pio(struct interface *iface,
 			pio->lifetime = 0;
 
 			iface->pio_update = true;
-			syslog(LOG_WARNING, "rfc9096: %s: renew %s/%u",
-				iface->ifname,
-				inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
-				pio->length);
+			warn("rfc9096: %s: renew %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     pio->length);
 		}
 
 		return;
@@ -485,10 +485,10 @@ static void router_add_ra_pio(struct interface *iface,
 	pio->lifetime = 0;
 
 	iface->pio_update = true;
-	syslog(LOG_INFO, "rfc9096: %s: add %s/%u",
-		iface->ifname,
-		inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
-		pio->length);
+	info("rfc9096: %s: add %s/%u",
+	     iface->ifname,
+	     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+	     pio->length);
 }
 
 static void router_clear_ra_pio(time_t now,
@@ -501,11 +501,10 @@ static void router_clear_ra_pio(time_t now,
 		struct ra_pio *cur_pio = &iface->pios[i];
 
 		if (ra_pio_expired(cur_pio, now)) {
-			syslog(LOG_INFO,
-				"rfc9096: %s: clear %s/%u",
-				iface->ifname,
-				inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str)),
-				cur_pio->length);
+			info("rfc9096: %s: clear %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     cur_pio->length);
 
 			if (i + 1 < iface->pio_cnt)
 				iface->pios[i] = iface->pios[iface->pio_cnt - 1];
@@ -540,10 +539,10 @@ static void router_stale_ra_pio(struct interface *iface,
 	pio->lifetime = now + iface->max_valid_lifetime;
 
 	iface->pio_update = true;
-	syslog(LOG_WARNING, "rfc9096: %s: stale %s/%u",
-		iface->ifname,
-		inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
-		pio->length);
+	warn("rfc9096: %s: stale %s/%u",
+	     iface->ifname,
+	     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+	     pio->length);
 }
 
 /* Router Advert server mode */
@@ -670,16 +669,16 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint32_t valid_lt = 0;
 
 		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
-			syslog(LOG_INFO, "Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
-				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
-				addr->valid_lt, iface->name);
+			info("Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
+			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
+			     addr->valid_lt, iface->name);
 			continue;
 		}
 
 		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
-			syslog(LOG_INFO, "Address %s filtered out as RA prefix on %s",
-					inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-					iface->name);
+			info("Address %s filtered out as RA prefix on %s",
+			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			     iface->name);
 			continue; /* PIO filtered out of this RA */
 		}
 
@@ -695,7 +694,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 			tmp = realloc(pfxs, sizeof(*pfxs) * (pfxs_cnt + 1));
 			if (!tmp) {
-				syslog(LOG_ERR, "Realloc failed for RA prefix option on %s", iface->name);
+				error("Realloc failed for RA prefix option on %s", iface->name);
 				continue;
 			}
 
@@ -783,7 +782,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		highest_found_lifetime = ra_lifetime;
 
 	if (!iface->have_link_local) {
-		syslog(LOG_NOTICE, "Skip sending a RA on %s as no link local address is available", iface->name);
+		notice("Skip sending a RA on %s as no link local address is available", iface->name);
 		goto out;
 	}
 
@@ -792,15 +791,14 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	} else {
 		adv.h.nd_ra_router_lifetime = 0;
 
-		if (default_route) {
-			syslog(LOG_WARNING, "A default route is present but there is no public prefix "
-						"on %s thus we announce no default route by setting ra_lifetime to 0!", iface->name);
-		} else {
-			syslog(LOG_WARNING, "No default route present, setting ra_lifetime to 0!");
-		}
+		if (default_route)
+			warn("A default route is present but there is no public prefix "
+			     "on %s thus we announce no default route by setting ra_lifetime to 0!", iface->name);
+		else
+			warn("No default route present, setting ra_lifetime to 0!");
 	}
 
-	syslog(LOG_DEBUG, "Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
+	debug("Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 
 	/* DNS options */
 	if (iface->ra_dns) {
@@ -938,17 +936,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint32_t valid_lt;
 
 		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
-			syslog(LOG_INFO, "Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
-				inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-				addr->dprefix, addr->valid_lt, iface->name);
+			info("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
+			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			     addr->dprefix, addr->valid_lt, iface->name);
 
 			continue; /* Address not suitable */
 		}
 
 		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
-			syslog(LOG_INFO, "Address %s filtered out as RA route on %s",
-					inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-					iface->name);
+			info("Address %s filtered out as RA route on %s",
+			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			     iface->name);
 			continue; /* PIO filtered out of this RA */
 		}
 
@@ -961,7 +959,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 		tmp = realloc(routes, sizeof(*routes) * (routes_cnt + 1));
 		if (!tmp) {
-			syslog(LOG_ERR, "Realloc failed for RA route option on %s", iface->name);
+			error("Realloc failed for RA route option on %s", iface->name);
 			continue;
 		}
 
@@ -1008,7 +1006,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	else
 		inet_pton(AF_INET6, ALL_IPV6_NODES, &dest.sin6_addr);
 
-	syslog(LOG_DEBUG, "Sending a RA on %s", iface->name);
+	debug("Sending a RA on %s", iface->name);
 
 	if (odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0) {
 		iface->ra_sent++;
@@ -1079,7 +1077,7 @@ static void forward_router_solicitation(const struct interface *iface)
 	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &all_routers.sin6_addr);
 	all_routers.sin6_scope_id = iface->ifindex;
 
-	syslog(LOG_NOTICE, "Sending RS to %s", iface->name);
+	notice("Sending RS to %s", iface->name);
 	odhcpd_send(iface->router_event.uloop.fd, &all_routers, &iov, 1, iface);
 }
 
@@ -1109,7 +1107,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		}
 	}
 
-	syslog(LOG_NOTICE, "Got a RA on %s", iface->name);
+	notice("Got a RA on %s", iface->name);
 
 	/* Indicate a proxy, however we don't follow the rest of RFC 4389 yet */
 	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
@@ -1148,7 +1146,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			}
 		}
 
-		syslog(LOG_NOTICE, "Forward a RA on %s", c->name);
+		notice("Forward a RA on %s", c->name);
 
 		odhcpd_send(c->router_event.uloop.fd, &all_nodes, &iov, 1, c);
 	}

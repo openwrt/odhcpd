@@ -14,7 +14,6 @@
 
 #include <errno.h>
 #include <string.h>
-#include <syslog.h>
 
 #include <linux/netlink.h>
 #include <linux/if_addr.h>
@@ -58,13 +57,13 @@ int netlink_init(void)
 {
 	rtnl_socket = create_socket(NETLINK_ROUTE);
 	if (!rtnl_socket) {
-		syslog(LOG_ERR, "Unable to open nl socket: %m");
+		error("Unable to open nl socket: %m");
 		goto err;
 	}
 
 	rtnl_event.sock = create_socket(NETLINK_ROUTE);
 	if (!rtnl_event.sock) {
-		syslog(LOG_ERR, "Unable to open nl event socket: %m");
+		error("Unable to open nl event socket: %m");
 		goto err;
 	}
 
@@ -352,8 +351,8 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 				return NL_SKIP;
 			}
 
-			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
-					buf, iface->name);
+			debug("Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+			      buf, iface->name);
 
 			event_info.iface = iface;
 			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
@@ -373,8 +372,8 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 			if (iface->ifindex != (int)ifa->ifa_index)
 				continue;
 
-			syslog(LOG_DEBUG, "Netlink %s %s on %s", add ? "newaddr" : "deladdr",
-					buf, iface->name);
+			debug("Netlink %s %s on %s", add ? "newaddr" : "deladdr",
+			      buf, iface->name);
 
 			event_info.iface = iface;
 			call_netevent_handler_list(add ? NETEV_ADDR_ADD : NETEV_ADDR_DEL,
@@ -417,8 +416,8 @@ static int handle_rtm_neigh(struct nlmsghdr *hdr, bool add)
 		if (iface->ifindex != ndm->ndm_ifindex)
 			continue;
 
-		syslog(LOG_DEBUG, "Netlink %s %s on %s", true ? "newneigh" : "delneigh",
-				buf, iface->name);
+		debug("Netlink %s %s on %s", true ? "newneigh" : "delneigh",
+		      buf, iface->name);
 
 		event_info.iface = iface;
 		event_info.neigh.state = ndm->ndm_state;

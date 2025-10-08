@@ -63,7 +63,7 @@ void ipv6_pxe_serve_boot_url(uint16_t arch, struct iovec* iov) {
 	else {
 		iov->iov_base = (void*)&(entry->bootfile_url);
 		iov->iov_len = 4 + ntohs(entry->bootfile_url.len);
-		syslog(LOG_INFO, "Serve IPv6 PxE, arch = %d, url = %s", arch, entry->bootfile_url.payload);
+		info("Serve IPv6 PxE, arch = %d, url = %s", arch, entry->bootfile_url.payload);
 	}
 }
 
@@ -79,14 +79,13 @@ void ipv6_pxe_dump(void) {
 	}
 
 	if (count) {
-		syslog(LOG_INFO, "IPv6 PxE URLs:\n");
+		info("IPv6 PxE URLs:\n");
 
-		list_for_each_entry(entry, &ipv6_pxe_list, list) {
-			syslog(LOG_INFO, "    arch %04d = %s\n", entry->arch, entry->bootfile_url.payload);
-		}
+		list_for_each_entry(entry, &ipv6_pxe_list, list)
+			info("    arch %04d = %s\n", entry->arch, entry->bootfile_url.payload);
 
 		if (ipv6_pxe_default)
-			syslog(LOG_INFO, "    Default   = %s\n", ipv6_pxe_default->bootfile_url.payload);
+			info("    Default   = %s\n", ipv6_pxe_default->bootfile_url.payload);
 	}
 }
 

@@ -67,7 +67,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 		iface->dhcpv6_event.uloop.fd = socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (iface->dhcpv6_event.uloop.fd < 0) {
-			syslog(LOG_ERR, "socket(AF_INET6): %m");
+			error("socket(AF_INET6): %m");
 			ret = -1;
 			goto out;
 		}
@@ -75,28 +75,28 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 		/* Basic IPv6 configuration */
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
 					iface->ifname, strlen(iface->ifname)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+			error("setsockopt(SO_BINDTODEVICE): %m");
 			ret = -1;
 			goto out;
 		}
 
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_V6ONLY,
 					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IPV6_V6ONLY): %m");
+			error("setsockopt(IPV6_V6ONLY): %m");
 			ret = -1;
 			goto out;
 		}
 
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
 					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+			error("setsockopt(SO_REUSEADDR): %m");
 			ret = -1;
 			goto out;
 		}
 
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_RECVPKTINFO,
 					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IPV6_RECVPKTINFO): %m");
+			error("setsockopt(IPV6_RECVPKTINFO): %m");
 			ret = -1;
 			goto out;
 		}
@@ -104,7 +104,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 		val = DHCPV6_HOP_COUNT_LIMIT;
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS,
 					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_HOPS): %m");
+			error("setsockopt(IPV6_MULTICAST_HOPS): %m");
 			ret = -1;
 			goto out;
 		}
@@ -112,14 +112,14 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 		val = 0;
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP,
 					&val, sizeof(val)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IPV6_MULTICAST_LOOP): %m");
+			error("setsockopt(IPV6_MULTICAST_LOOP): %m");
 			ret = -1;
 			goto out;
 		}
 
 		if (bind(iface->dhcpv6_event.uloop.fd, (struct sockaddr*)&bind_addr,
 					sizeof(bind_addr)) < 0) {
-			syslog(LOG_ERR, "bind(): %m");
+			error("bind(): %m");
 			ret = -1;
 			goto out;
 		}
@@ -130,7 +130,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 		if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
 					&mreq, sizeof(mreq)) < 0) {
-			syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+			error("setsockopt(IPV6_ADD_MEMBERSHIP): %m");
 			ret = -1;
 			goto out;
 		}
@@ -142,7 +142,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 			if (setsockopt(iface->dhcpv6_event.uloop.fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP,
 						&mreq, sizeof(mreq)) < 0) {
-				syslog(LOG_ERR, "setsockopt(IPV6_ADD_MEMBERSHIP): %m");
+				error("setsockopt(IPV6_ADD_MEMBERSHIP): %m");
 				ret = -1;
 				goto out;
 			}
@@ -260,7 +260,7 @@ static int send_reply(_unused const void *buf, size_t len,
 	struct dhcpv4_msg_data *reply = opaque;
 
 	if (len > reply->maxsize) {
-		syslog(LOG_ERR, "4o6: reply too large, %zu > %zu", len, reply->maxsize);
+		error("4o6: reply too large, %zu > %zu", len, reply->maxsize);
 		reply->len = -1;
 	} else {
 		memcpy(reply->msg, buf, len);
@@ -290,7 +290,7 @@ static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
 	}
 
 	if (!msgv4_data || msgv4_len == 0) {
-		syslog(LOG_ERR, "4o6: missing DHCPv4 message option (%d)", DHCPV6_OPT_DHCPV4_MSG);
+		error("4o6: missing DHCPv4 message option (%d)", DHCPV6_OPT_DHCPV4_MSG);
 		return -1;
 	}
 
@@ -318,7 +318,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
-	syslog(LOG_DEBUG, "Got a DHCPv6-request on %s", iface->name);
+	debug("Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
 	struct __attribute__((packed)) {
@@ -709,7 +709,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		msglen = dhcpv6_4o6_query(msg_opt->msg, sizeof(pdbuf) - sizeof(*msg_opt) + 1,
 						iface, addr, (const void *)hdr, opts_end);
 		if (msglen <= 0) {
-			syslog(LOG_ERR, "4o6: query failed");
+			error("4o6: query failed");
 			return;
 		}
 
@@ -741,7 +741,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
 				      (4 + opts_end - opts));
 
-	syslog(LOG_DEBUG, "Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
+	debug("Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, addr, iov, ARRAY_SIZE(iov), iface);
 }
@@ -776,7 +776,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	/* Relay DHCPv6 reply from server to client */
 	struct dhcpv6_relay_header *h = (void*)data;
 
-	syslog(LOG_DEBUG, "Got a DHCPv6-relay-reply");
+	debug("Got a DHCPv6-relay-reply");
 
 	if (len < sizeof(*h) || h->msg_type != DHCPV6_MSG_RELAY_REPL)
 		return;
@@ -846,7 +846,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 
 	struct iovec iov = {payload_data, payload_len};
 
-	syslog(LOG_DEBUG, "Sending a DHCPv6-reply on %s", iface->name);
+	debug("Sending a DHCPv6-reply on %s", iface->name);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
 }
@@ -897,7 +897,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	    h->msg_type == DHCPV6_MSG_ADVERTISE)
 		return; /* Invalid message types for client */
 
-	syslog(LOG_DEBUG, "Got a DHCPv6-request on %s", iface->name);
+	debug("Got a DHCPv6-request on %s", iface->name);
 
 	if (h->msg_type == DHCPV6_MSG_RELAY_FORW) { /* handle relay-forward */
 		if (h->hop_count >= DHCPV6_HOP_COUNT_LIMIT)
@@ -938,7 +938,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 			ip = NULL;
 		}
 
-		syslog(LOG_DEBUG, "Sending a DHCPv6-relay-forward on %s", c->name);
+		debug("Sending a DHCPv6-relay-forward on %s", c->name);
 
 		odhcpd_send(c->dhcpv6_event.uloop.fd, &s, iov, 2, c);
 	}

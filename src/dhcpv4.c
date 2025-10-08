@@ -474,7 +474,36 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		dhcpv4_fr_stop(a);
 	}
 
-	if (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST) {
+	switch (msg) {
+	case DHCPV4_MSG_RELEASE:
+		if (!a)
+			return NULL;
+
+		ubus_bcast_dhcp_event("dhcp.release", mac,
+				      (struct in_addr *)&a->addr,
+				      a->hostname, iface->ifname);
+		free_assignment(a);
+		a = NULL;
+		break;
+
+	case DHCPV4_MSG_DECLINE:
+		if (!a)
+			return NULL;
+
+		a->flags &= ~OAF_BOUND;
+
+		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
+			memset(a->hwaddr, 0, sizeof(a->hwaddr));
+			a->valid_until = now + 3600; /* Block address for 1h */
+		} else {
+			a->valid_until = now - 1;
+		}
+		break;
+
+	case DHCPV4_MSG_DISCOVER:
+		_fallthrough;
+
+	case DHCPV4_MSG_REQUEST:
 		bool assigned = !!a;
 
 		if (!a) {
@@ -564,22 +593,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			free_assignment(a);
 			a = NULL;
 		}
+		break;
 
-	} else if (msg == DHCPV4_MSG_RELEASE && a) {
-		ubus_bcast_dhcp_event("dhcp.release", mac,
-				      (struct in_addr *)&a->addr,
-                                      a->hostname, iface->ifname);
-                free_assignment(a);
-                a = NULL;
-
-	} else if (msg == DHCPV4_MSG_DECLINE && a) {
-		a->flags &= ~OAF_BOUND;
-
-		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
-			memset(a->hwaddr, 0, sizeof(a->hwaddr));
-			a->valid_until = now + 3600; /* Block address for 1h */
-		} else
-			a->valid_until = now - 1;
+	default:
+		return NULL;
 	}
 
 	dhcpv6_ia_write_statefile();

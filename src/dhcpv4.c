@@ -228,11 +228,11 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 
 	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
 		   MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
-		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
-			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
+		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
+		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_DEBUG, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
-			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
+		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
+		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
 static void dhcpv4_fr_stop(struct dhcp_assignment *a)
@@ -331,8 +331,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, a->addr);
 
 		if (assigned)
-			syslog(LOG_DEBUG, "Assigning static IP: %s",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+			debug("Assigning static IP: %s",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 
 		return assigned;
 	}
@@ -344,8 +344,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, raddr);
 
 		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+			debug("Assigning the IP the client asked for: %s",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 			return true;
 		}
 	}
@@ -370,15 +370,15 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, n_try);
 
 		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
-			       i + 1, count);
+			debug("Assigning mapped IP: %s (try %u of %u)",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
+			      i + 1, count);
 
 			return true;
 		}
 	}
 
-	syslog(LOG_NOTICE, "Can't assign any IP address -> address space is full");
+	notice("Can't assign any IP address -> address space is full");
 
 	return false;
 }
@@ -436,8 +436,8 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				/* Create new binding */
 				a = alloc_assignment(0);
 				if (!a) {
-					syslog(LOG_WARNING, "Failed to alloc assignment on interface %s",
-							    iface->ifname);
+					warn("Failed to alloc assignment on interface %s",
+					     iface->ifname);
 					return NULL;
 				}
 				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
@@ -573,10 +573,10 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
 		return;
 
-	syslog(LOG_DEBUG, "Got DHCPv4 request on %s", iface->name);
+	debug("Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
+		warn("No DHCP range available on %s", iface->name);
 		return;
 	}
 
@@ -703,8 +703,8 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			req->ciaddr.s_addr = INADDR_ANY;
 	}
 
-	syslog(LOG_INFO, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
-			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
+	info("Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
+	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
 	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
 		return;
@@ -910,23 +910,23 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
 
 			if (ioctl(sock, SIOCSARP, &arp) < 0)
-				syslog(LOG_ERR, "ioctl(SIOCSARP): %m");
+				error("ioctl(SIOCSARP): %m");
 		}
 	}
 
 	if (send_reply(&reply, PACKET_SIZE(&reply, cursor),
 		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
-		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
-			dhcpv4_msg_to_string(msg),
-			dest.sin_addr.s_addr == INADDR_BROADCAST ?
-			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-			inet_ntoa(dest.sin_addr));
+		error("Failed to send %s to %s - %s: %m",
+		      dhcpv4_msg_to_string(msg),
+		      dest.sin_addr.s_addr == INADDR_BROADCAST ?
+		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_DEBUG, "Sent %s to %s - %s",
-			dhcpv4_msg_to_string(msg),
-			dest.sin_addr.s_addr == INADDR_BROADCAST ?
-			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-			inet_ntoa(dest.sin_addr));
+		debug("Sent %s to %s - %s",
+		      dhcpv4_msg_to_string(msg),
+		      dest.sin_addr.s_addr == INADDR_BROADCAST ?
+		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      inet_ntoa(dest.sin_addr));
 
 	if (msg == DHCPV4_MSG_ACK && a)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
@@ -955,12 +955,12 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
 	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
 	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		syslog(LOG_WARNING, "Invalid DHCP range for %s", iface->name);
+		warn("Invalid DHCP range for %s", iface->name);
 		return -1;
 	}
 
 	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
+		warn("No network(s) available on %s", iface->name);
 		return -1;
 	}
 
@@ -991,7 +991,8 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 
 	/* Don't allocate IP range for subnets smaller than /28 */
 	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
-		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s (prefix length must be < %d).", iface->name, MAX_PREFIX_LEN + 1);
+		warn("Auto allocation of DHCP range fails on %s (prefix length must be < %d).",
+		     iface->name, MAX_PREFIX_LEN + 1);
 		return -1;
 	}
 
@@ -1046,7 +1047,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 	iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (iface->dhcpv4_event.uloop.fd < 0) {
-		syslog(LOG_ERR, "socket(AF_INET): %m");
+		error("socket(AF_INET): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1054,21 +1055,21 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	/* Basic IPv4 configuration */
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+		error("setsockopt(SO_REUSEADDR): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
+		error("setsockopt(SO_BROADCAST): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
+		error("setsockopt(IP_PKTINFO): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1076,7 +1077,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	val = IPTOS_PREC_INTERNETCONTROL;
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS, &val,
 		       sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
+		error("setsockopt(IP_TOS): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1084,21 +1085,21 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	val = IP_PMTUDISC_DONT;
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
+		error("setsockopt(IP_MTU_DISCOVER): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
 		       iface->ifname, strlen(iface->ifname)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+		error("setsockopt(SO_BINDTODEVICE): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr *)&bind_addr,
 		 sizeof(bind_addr)) < 0) {
-		syslog(LOG_ERR, "bind(): %m");
+		error("bind(): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1147,7 +1148,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
 	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
-		syslog(LOG_WARNING, "Failed to add ip address on %s", iface->name);
+		warn("Failed to add ip address on %s", iface->name);
 		return;
 	}
 

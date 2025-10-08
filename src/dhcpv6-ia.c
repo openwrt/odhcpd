@@ -73,7 +73,7 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			border = alloc_assignment(0);
 
 			if (!border) {
-				syslog(LOG_WARNING, "Failed to alloc border on %s", iface->name);
+				warn("Failed to alloc border on %s", iface->name);
 				return -1;
 			}
 
@@ -235,9 +235,9 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		/* Filter Out Prefixes */
 		if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
 			char addrbuf[INET6_ADDRSTRLEN];
-			syslog(LOG_INFO, "Address %s filtered out on %s",
-				inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
-				iface->name);
+			info("Address %s filtered out on %s",
+			     inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
+			     iface->name);
 			continue;
 		}
 
@@ -755,7 +755,7 @@ static bool assign_pd(struct interface *iface, struct dhcp_assignment *assign)
 
 			/* Wait initial period of up to 250ms for immediate assignment */
 			if (poll(&pfd, 1, 250) < 0) {
-				syslog(LOG_ERR, "poll(): %m");
+				error("poll(): %m");
 				return false;
 			}
 
@@ -1074,9 +1074,9 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			/* Filter Out Prefixes */
 			if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
 				char addrbuf[INET6_ADDRSTRLEN];
-				syslog(LOG_INFO, "Address %s filtered out on %s",
-					inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
-					iface->name);
+				info("Address %s filtered out on %s",
+				     inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
+				     iface->name);
 				continue;
 			}
 
@@ -1338,8 +1338,8 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
-	syslog(LOG_INFO, "DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
-			 duidbuf, iface->name, status, leasebuf);
+	info("DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
+	     duidbuf, iface->name, status, leasebuf);
 }
 
 static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcp_assignment *a,
@@ -1484,8 +1484,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			 * 1/16 of our total address space.
 			 */
 			if (iface->dhcpv6_pd_min_len && reqlen < iface->dhcpv6_pd_min_len) {
-			    syslog(LOG_INFO, "clamping requested PD from %d to %d",
-				   reqlen, iface->dhcpv6_pd_min_len);
+			    info("clamping requested PD from %d to %d", reqlen,
+				 iface->dhcpv6_pd_min_len);
 			    reqlen = iface->dhcpv6_pd_min_len;
 			}
 		} else if (is_na) {

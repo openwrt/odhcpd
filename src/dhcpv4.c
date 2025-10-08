@@ -367,43 +367,48 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
 	uint32_t count = end - start + 1;
 	uint32_t seed = 0;
-	bool assigned;
 	char ipv4_str[INET_ADDRSTRLEN];
 
 	/* Preconfigured IP address by static lease */
 	if (a->addr) {
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, a->addr);
-
-		if (assigned)
-			debug("Assigning static IP: %s",
+		if (!dhcpv4_insert_assignment(&iface->dhcpv4_assignments, a, a->addr)) {
+			error("The static IP address is already assigned: %s",
 			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
-
-		return assigned;
-	}
-
-	/* try to assign the IP the client asked for */
-	if (start <= ntohl(raddr) && ntohl(raddr) <= end &&
-	    !config_find_lease_by_ipaddr(raddr)) {
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, raddr);
-
-		if (assigned) {
-			debug("Assigning the IP the client asked for: %s",
-			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
-			return true;
+			return false;
 		}
+
+		debug("Assigned static IP address: %s",
+		      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+		return true;
 	}
 
-	/* Seed RNG with checksum of hwaddress */
+	/* The client asked for a specific address, let's try... */
+	if (ntohl(raddr) < start || ntohl(raddr) > end) {
+		debug("The requested IP address is outside the pool: %s",
+		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
+	} else if (config_find_lease_by_ipaddr(raddr)) {
+		debug("The requested IP address is statically assigned: %s",
+		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
+	} else if (!dhcpv4_insert_assignment(&iface->dhcpv4_assignments, a, raddr)) {
+		debug("The requested IP address is already assigned: %s",
+		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
+	} else {
+		debug("Assigned the requested IP address: %s",
+		      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+		return true;
+	}
+
+	/* Ok, we'll have to pick an address for the client... */
 	for (size_t i = 0; i < sizeof(a->hwaddr); ++i) {
-		/* Knuth's multiplicative method */
+		/* ...hash the hwaddr (Knuth's multiplicative method)... */
 		uint8_t o = a->hwaddr[i];
-		seed += (o*2654435761) % UINT32_MAX;
+		seed += (o * 2654435761) % UINT32_MAX;
 	}
 
+	/* ...use it to seed the RNG... */
 	srand(seed);
 
+	/* ...and try a bunch of times to assign a randomly chosen address */
 	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
 	     ++i, try = (((try - start) + 1) % count) + start) {
 		uint32_t n_try = htonl(try);
@@ -411,14 +416,10 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 		if (config_find_lease_by_ipaddr(n_try))
 			continue;
 
-		assigned = dhcpv4_insert_assignment(&iface->dhcpv4_assignments,
-						    a, n_try);
-
-		if (assigned) {
-			debug("Assigning mapped IP: %s (try %u of %u)",
+		if (dhcpv4_insert_assignment(&iface->dhcpv4_assignments, a, n_try)) {
+			debug("Assigned IP adress from pool: %s (succeeded on attempt %u of %u)",
 			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
 			      i + 1, count);
-
 			return true;
 		}
 	}

@@ -74,6 +74,7 @@ static void print_usage(const char *app)
 	       "\n"
 	       "	-c <path>	Use an alternative configuration file\n"
 	       "	-l <int>	Specify log level 0..7 (default %d)\n"
+	       "	-f		Log to stderr instead of syslog\n"
 	       "	-h		Print this help text and exit\n",
 	       app, config.log_level);
 }
@@ -92,10 +93,9 @@ static bool ipv6_enabled(void)
 
 int main(int argc, char **argv)
 {
-	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
 
-	while ((opt = getopt(argc, argv, "c:l:h")) != -1) {
+	while ((opt = getopt(argc, argv, "c:l:fh")) != -1) {
 		switch (opt) {
 		case 'c':
 			config.uci_cfgfile = realpath(optarg, NULL);
@@ -103,14 +103,24 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			config.log_level = (atoi(optarg) & LOG_PRIMASK);
+			config.log_level_cmdline = true;
 			fprintf(stderr, "Log level set to %d\n", config.log_level);
+			break;
+		case 'f':
+			config.log_syslog = false;
+			fprintf(stderr, "Logging to stderr\n");
 			break;
 		case 'h':
 			print_usage(argv[0]);
 			return 0;
 		}
 	}
-	setlogmask(LOG_UPTO(config.log_level));
+
+	if (config.log_syslog) {
+		openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
+		setlogmask(LOG_UPTO(config.log_level));
+	}
+
 	uloop_init();
 
 	if (getuid() != 0) {

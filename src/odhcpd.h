@@ -69,10 +69,14 @@ struct nl_sock;
 extern struct vlist_tree leases;
 extern struct config config;
 
-#define __iflog(lvl, fmt, ...)						\
-	do {								\
-		if (lvl <= config.log_level)				\
-			syslog(lvl, fmt __VA_OPT__(, ) __VA_ARGS__);	\
+#define __iflog(lvl, fmt, ...)							\
+	do {									\
+		if (lvl > config.log_level)					\
+			break;							\
+		if (config.log_syslog)						\
+			syslog(lvl, fmt __VA_OPT__(, ) __VA_ARGS__);		\
+		else								\
+			fprintf(stderr, fmt "\n" __VA_OPT__(, ) __VA_ARGS__);	\
 	} while(0)
 
 #define debug(fmt, ...)     __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
@@ -194,6 +198,8 @@ struct config {
 
 	char *uci_cfgfile;
 	int log_level;
+	bool log_level_cmdline;
+	bool log_syslog;
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */

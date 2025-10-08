@@ -504,95 +504,99 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		_fallthrough;
 
 	case DHCPV4_MSG_REQUEST:
-		bool assigned = !!a;
+		if (!a && iface->no_dynamic_dhcp && !l)
+			return NULL;
 
-		if (!a) {
-			if (!iface->no_dynamic_dhcp || l) {
-				/* Create new binding */
-				a = alloc_assignment(0);
-				if (!a) {
-					warn("Failed to alloc assignment on interface %s",
-					     iface->ifname);
-					return NULL;
-				}
-				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
-				/* Set valid time to 0 for static lease indicating */
-				/* infinite lifetime otherwise current time        */
-				a->valid_until = l ? 0 : now;
-				a->dhcp_free_cb = dhcpv4_free_assignment;
-				a->iface = iface;
-				a->flags = OAF_DHCPV4;
-				a->addr = l ? l->ipaddr : INADDR_ANY;
-
-				assigned = dhcpv4_assign(iface, a, reqaddr);
-
-				if (l) {
-					a->flags |= OAF_STATIC;
-
-					if (l->hostname)
-						a->hostname = strdup(l->hostname);
-
-					if (l->leasetime)
-						a->leasetime = l->leasetime;
-
-					list_add(&a->lease_list, &l->assignments);
-					a->lease = l;
-				}
-			}
-		} else if (((a->addr & iface->dhcpv4_mask.s_addr) !=
-			    (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
-			    !(a->flags & OAF_STATIC)) {
+		/* Old assignment, but with an address that is out-of-scope? */
+		if (a && ((a->addr & iface->dhcpv4_mask.s_addr) !=
+		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
+		    !(a->flags & OAF_STATIC)) {
+			/* Try to reassign to an address that is in-scope */
 			list_del_init(&a->head);
 			a->addr = INADDR_ANY;
-
-			assigned = dhcpv4_assign(iface, a, reqaddr);
-		}
-
-		if (assigned) {
-			uint32_t my_leasetime;
-
-			if (a->leasetime)
-				my_leasetime = a->leasetime;
-			else
-				my_leasetime = iface->dhcp_leasetime;
-
-			if ((*leasetime == 0) || (my_leasetime < *leasetime))
-				*leasetime = my_leasetime;
-
-			if (msg == DHCPV4_MSG_DISCOVER) {
-				a->flags &= ~OAF_BOUND;
-
-				*incl_fr_opt = accept_fr_nonce;
-				a->valid_until = now;
-			} else {
-				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
-					a->hostname = realloc(a->hostname, hostname_len + 1);
-					if (a->hostname) {
-						memcpy(a->hostname, hostname, hostname_len);
-						a->hostname[hostname_len] = 0;
-
-						if (odhcpd_valid_hostname(a->hostname))
-							a->flags &= ~OAF_BROKEN_HOSTNAME;
-						else
-							a->flags |= OAF_BROKEN_HOSTNAME;
-					}
-				}
-
-				if (!(a->flags & OAF_BOUND)) {
-					a->accept_fr_nonce = accept_fr_nonce;
-					*incl_fr_opt = accept_fr_nonce;
-					odhcpd_urandom(a->key, sizeof(a->key));
-					a->flags |= OAF_BOUND;
-				} else
-					*incl_fr_opt = false;
-
-				a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
+			if (!dhcpv4_assign(iface, a, reqaddr)) {
+				free_assignment(a);
+				a = NULL;
+				break;
 			}
-		} else if (!assigned && a) {
-			/* Cleanup failed assignment */
-			free_assignment(a);
-			a = NULL;
 		}
+
+		if (!a) {
+			/* Create new binding */
+			a = alloc_assignment(0);
+			if (!a) {
+				warn("Failed to allocate memory for DHCPv4 lease on interface %s", iface->ifname);
+				return NULL;
+			}
+
+			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
+			a->dhcp_free_cb = dhcpv4_free_assignment;
+			a->iface = iface;
+			a->flags = OAF_DHCPV4;
+
+			/* static lease => infinite (0), else a placeholder */
+			a->valid_until = l ? 0 : now;
+			a->addr = l ? l->ipaddr : INADDR_ANY;
+
+			if (!dhcpv4_assign(iface, a, reqaddr)) {
+				free_assignment(a);
+				return NULL;
+			}
+
+			if (l) {
+				a->flags |= OAF_STATIC;
+
+				if (l->hostname)
+					a->hostname = strdup(l->hostname);
+
+				if (l->leasetime)
+					a->leasetime = l->leasetime;
+
+				list_add(&a->lease_list, &l->assignments);
+				a->lease = l;
+			}
+		}
+
+		uint32_t my_leasetime;
+		if (a->leasetime)
+			my_leasetime = a->leasetime;
+		else
+			my_leasetime = iface->dhcp_leasetime;
+
+		if ((*leasetime == 0) || (my_leasetime < *leasetime))
+			*leasetime = my_leasetime;
+
+		if (msg == DHCPV4_MSG_DISCOVER) {
+			a->flags &= ~OAF_BOUND;
+			*incl_fr_opt = accept_fr_nonce;
+			a->valid_until = now;
+			break;
+		}
+
+		if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
+			a->hostname = realloc(a->hostname, hostname_len + 1);
+			if (a->hostname) {
+				memcpy(a->hostname, hostname, hostname_len);
+				a->hostname[hostname_len] = 0;
+
+				if (odhcpd_valid_hostname(a->hostname))
+					a->flags &= ~OAF_BROKEN_HOSTNAME;
+				else
+					a->flags |= OAF_BROKEN_HOSTNAME;
+			}
+		}
+
+		if (!(a->flags & OAF_BOUND)) {
+			/* This is the client's first request for the address */
+			a->accept_fr_nonce = accept_fr_nonce;
+			*incl_fr_opt = accept_fr_nonce;
+			odhcpd_urandom(a->key, sizeof(a->key));
+			a->flags |= OAF_BOUND;
+		} else {
+			*incl_fr_opt = false;
+		}
+
+		a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
 		break;
 
 	default:
@@ -600,7 +604,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	}
 
 	dhcpv6_ia_write_statefile();
-
 	return a;
 }
 

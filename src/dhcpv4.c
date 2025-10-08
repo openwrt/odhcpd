@@ -440,14 +440,14 @@ static struct dhcp_assignment *find_assignment_by_hwaddr(struct interface *iface
 	return NULL;
 }
 
-static struct dhcp_assignment*
-dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
-	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
-	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
+static struct dhcp_assignment *
+dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
+	     const uint32_t req_addr, uint32_t *req_leasetime, const char *req_hostname,
+	     const size_t req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
 	     uint32_t *fr_serverid)
 {
-	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
-	struct lease *l = config_find_lease_by_mac(mac);
+	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, req_mac);
+	struct lease *l = config_find_lease_by_mac(req_mac);
 	time_t now = odhcpd_time();
 
 	/*
@@ -455,7 +455,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	 * hwaddr, we need to clear out any old assignments given to other
 	 * hwaddrs in order to take over the IP address.
 	 */
-	if (l && !a && (msg == DHCPV4_MSG_DISCOVER || msg == DHCPV4_MSG_REQUEST)) {
+	if (l && !a && (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
 		struct dhcp_assignment *c, *tmp;
 
 		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
@@ -474,12 +474,12 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 		dhcpv4_fr_stop(a);
 	}
 
-	switch (msg) {
+	switch (req_msg) {
 	case DHCPV4_MSG_RELEASE:
 		if (!a)
 			return NULL;
 
-		ubus_bcast_dhcp_event("dhcp.release", mac,
+		ubus_bcast_dhcp_event("dhcp.release", req_mac,
 				      (struct in_addr *)&a->addr,
 				      a->hostname, iface->ifname);
 		free_assignment(a);
@@ -514,7 +514,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			/* Try to reassign to an address that is in-scope */
 			list_del_init(&a->head);
 			a->addr = INADDR_ANY;
-			if (!dhcpv4_assign(iface, a, reqaddr)) {
+			if (!dhcpv4_assign(iface, a, req_addr)) {
 				free_assignment(a);
 				a = NULL;
 				break;
@@ -529,7 +529,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				return NULL;
 			}
 
-			memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
+			memcpy(a->hwaddr, req_mac, sizeof(a->hwaddr));
 			a->dhcp_free_cb = dhcpv4_free_assignment;
 			a->iface = iface;
 			a->flags = OAF_DHCPV4;
@@ -538,7 +538,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			a->valid_until = l ? 0 : now;
 			a->addr = l ? l->ipaddr : INADDR_ANY;
 
-			if (!dhcpv4_assign(iface, a, reqaddr)) {
+			if (!dhcpv4_assign(iface, a, req_addr)) {
 				free_assignment(a);
 				return NULL;
 			}
@@ -557,27 +557,29 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			}
 		}
 
+		/* See if we need to clamp the requested leasetime */
 		uint32_t my_leasetime;
 		if (a->leasetime)
 			my_leasetime = a->leasetime;
 		else
 			my_leasetime = iface->dhcp_leasetime;
 
-		if ((*leasetime == 0) || (my_leasetime < *leasetime))
-			*leasetime = my_leasetime;
+		if ((*req_leasetime == 0) || (my_leasetime < *req_leasetime))
+			*req_leasetime = my_leasetime;
 
-		if (msg == DHCPV4_MSG_DISCOVER) {
+		if (req_msg == DHCPV4_MSG_DISCOVER) {
 			a->flags &= ~OAF_BOUND;
-			*incl_fr_opt = accept_fr_nonce;
+			*reply_incl_fr = req_accept_fr;
 			a->valid_until = now;
 			break;
 		}
 
-		if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
-			a->hostname = realloc(a->hostname, hostname_len + 1);
-			if (a->hostname) {
-				memcpy(a->hostname, hostname, hostname_len);
-				a->hostname[hostname_len] = 0;
+		if ((!(a->flags & OAF_STATIC) || !a->hostname) && req_hostname_len > 0) {
+			char *new_name = realloc(a->hostname, req_hostname_len + 1);
+			if (new_name) {
+				a->hostname = new_name;
+				memcpy(a->hostname, req_hostname, req_hostname_len);
+				a->hostname[req_hostname_len] = 0;
 
 				if (odhcpd_valid_hostname(a->hostname))
 					a->flags &= ~OAF_BROKEN_HOSTNAME;
@@ -586,17 +588,21 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 			}
 		}
 
+		*reply_incl_fr = false;
 		if (!(a->flags & OAF_BOUND)) {
 			/* This is the client's first request for the address */
-			a->accept_fr_nonce = accept_fr_nonce;
-			*incl_fr_opt = accept_fr_nonce;
-			odhcpd_urandom(a->key, sizeof(a->key));
+			if (req_accept_fr) {
+				a->accept_fr_nonce = true;
+				*reply_incl_fr = true;
+				odhcpd_urandom(a->key, sizeof(a->key));
+			}
 			a->flags |= OAF_BOUND;
-		} else {
-			*incl_fr_opt = false;
 		}
 
-		a->valid_until = ((*leasetime == UINT32_MAX) ? 0 : (time_t)(now + *leasetime));
+		if (*req_leasetime == UINT32_MAX)
+			a->valid_until = 0;
+		else
+			a->valid_until = (time_t)(now + *req_leasetime);
 		break;
 
 	default:
@@ -849,7 +855,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	/* Misc */
 	struct sockaddr_in dest_addr;
-	bool incl_fr_opt = false;
+	bool reply_incl_fr = false;
 	struct dhcp_assignment *a = NULL;
 	uint32_t fr_serverid = INADDR_ANY;
 
@@ -936,14 +942,14 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_RELEASE:
 		dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
 			     &req_leasetime, req_hostname, req_hostname_len,
-			     req_accept_fr, &incl_fr_opt, &fr_serverid);
+			     req_accept_fr, &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
 		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
 		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
 				 &req_leasetime, req_hostname, req_hostname_len,
-				 req_accept_fr, &incl_fr_opt, &fr_serverid);
+				 req_accept_fr, &reply_incl_fr, &fr_serverid);
 		break;
 	default:
 		return;
@@ -1085,7 +1091,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 
 		case DHCPV4_OPT_AUTHENTICATION:
-			if (!a || !incl_fr_opt || req_msg != DHCPV4_MSG_REQUEST)
+			if (!a || !reply_incl_fr || req_msg != DHCPV4_MSG_REQUEST)
 				break;
 
 			memcpy(reply_auth_body.key, a->key, sizeof(reply_auth_body.key));
@@ -1123,7 +1129,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 
 		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
-			if (!a || !incl_fr_opt || req_msg == DHCPV4_MSG_REQUEST)
+			if (!a || !reply_incl_fr || req_msg == DHCPV4_MSG_REQUEST)
 				break;
 
 			iov[IOV_FR_NONCE_CAP].iov_len = sizeof(reply_fr_nonce_cap);

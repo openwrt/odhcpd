@@ -904,16 +904,22 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
+	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
+	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
+
 	switch (req_msg) {
 	case DHCPV4_MSG_INFORM:
 		break;
-	case DHCPV4_MSG_DISCOVER:
-		_fallthrough;
-	case DHCPV4_MSG_REQUEST:
-		_fallthrough;
 	case DHCPV4_MSG_DECLINE:
 		_fallthrough;
 	case DHCPV4_MSG_RELEASE:
+		dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
+			     &req_leasetime, req_hostname, req_hostname_len,
+			     req_accept_fr, &incl_fr_opt, &fr_serverid);
+		return;
+	case DHCPV4_MSG_DISCOVER:
+		_fallthrough;
+	case DHCPV4_MSG_REQUEST:
 		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
 				 &req_leasetime, req_hostname, req_hostname_len,
 				 req_accept_fr, &incl_fr_opt, &fr_serverid);
@@ -922,9 +928,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		return;
 	}
 
-	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
-	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
-
+	/* We are at the point where we know the client expects a reply */
 	switch (req_msg) {
 	case DHCPV4_MSG_DISCOVER:
 		if (!a)
@@ -964,11 +968,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				req->ciaddr.s_addr = INADDR_ANY;
 		}
 		break;
-
-	case DHCPV4_MSG_RELEASE:
-		_fallthrough;
-	case DHCPV4_MSG_DECLINE:
-		return;
 	}
 
 	/* Note: each option might get called more than once */

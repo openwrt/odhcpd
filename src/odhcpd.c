@@ -206,10 +206,10 @@ int odhcpd_get_flags(const struct interface *iface)
 }
 
 
-/* Forwards a packet on a specific interface */
-ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
+/* Forwards a packet on a specific interface with optional source address */
+ssize_t odhcpd_send_with_src(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
-		const struct interface *iface)
+		const struct interface *iface, const struct in6_addr *src_addr)
 {
 	/* Construct headers */
 	uint8_t cmsg_buf[CMSG_SPACE(sizeof(struct in6_pktinfo))] = {0};
@@ -231,6 +231,10 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 	struct in6_pktinfo *pktinfo = (struct in6_pktinfo*)CMSG_DATA(chdr);
 	pktinfo->ipi6_ifindex = iface->ifindex;
 
+	/* Set source address if provided */
+	if (src_addr)
+		pktinfo->ipi6_addr = *src_addr;
+
 	/* Also set scope ID if link-local */
 	if (IN6_IS_ADDR_LINKLOCAL(&dest->sin6_addr)
 			|| IN6_IS_ADDR_MC_LINKLOCAL(&dest->sin6_addr))
@@ -249,30 +253,75 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 	return sent;
 }
 
-
-static int odhcpd_get_linklocal_interface_address(int ifindex, struct in6_addr *lladdr)
+/* Forwards a packet on a specific interface */
+ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
+		struct iovec *iov, size_t iov_len,
+		const struct interface *iface)
 {
-	int ret = -1;
-	struct sockaddr_in6 addr;
-	socklen_t alen = sizeof(addr);
-	int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+	return odhcpd_send_with_src(socket, dest, iov, iov_len, iface, NULL);
+}
 
-	if (sock < 0)
-		return -1;
 
-	memset(&addr, 0, sizeof(addr));
-	addr.sin6_family = AF_INET6;
-	inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &addr.sin6_addr);
-	addr.sin6_scope_id = ifindex;
-
-	if (!connect(sock, (struct sockaddr*)&addr, sizeof(addr)) &&
-			!getsockname(sock, (struct sockaddr*)&addr, &alen)) {
-		*lladdr = addr.sin6_addr;
-		ret = 0;
+int odhcpd_get_interface_linklocal_addr(struct interface *iface, struct in6_addr *addr)
+{
+	/* Return cached address if valid */
+	if (iface->cached_linklocal_valid) {
+		*addr = iface->cached_linklocal_addr;
+		return 0;
 	}
 
-	close(sock);
-	return ret;
+	/* First try to get link-local address from interface addresses */
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		if (IN6_IS_ADDR_LINKLOCAL(&iface->addr6[i].addr.in6)) {
+			*addr = iface->addr6[i].addr.in6;
+			/* Cache the result for future use */
+			iface->cached_linklocal_addr = *addr;
+			iface->cached_linklocal_valid = true;
+			return 0;
+		}
+	}
+
+	/* Fallback to socket-based method */
+	struct sockaddr_in6 sockaddr;
+	socklen_t alen = sizeof(sockaddr);
+	int sock = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
+
+	if (sock >= 0) {
+		memset(&sockaddr, 0, sizeof(sockaddr));
+		sockaddr.sin6_family = AF_INET6;
+		inet_pton(AF_INET6, ALL_IPV6_ROUTERS, &sockaddr.sin6_addr);
+		sockaddr.sin6_scope_id = iface->ifindex;
+
+		if (!connect(sock, (struct sockaddr*)&sockaddr, sizeof(sockaddr)) &&
+				!getsockname(sock, (struct sockaddr*)&sockaddr, &alen)) {
+			*addr = sockaddr.sin6_addr;
+			/* Cache the result for future use */
+			iface->cached_linklocal_addr = *addr;
+			iface->cached_linklocal_valid = true;
+			close(sock);
+			return 0;
+		}
+		close(sock);
+	}
+
+	return -1;
+}
+
+/* Try to send with link-local source address for RFC 4861 compliance and macOS compatibility.
+ * RFC 4861, §4.2 mandates that Neighbor Advertisement source address MUST be
+ * the link-local address assigned to the interface from which this message is sent. */
+ssize_t odhcpd_try_send_with_src(int socket, struct sockaddr_in6 *dest,
+		struct iovec *iov, size_t iov_len,
+		struct interface *iface)
+{
+	struct in6_addr src_addr;
+
+	if (iface->ndp_from_link_local && odhcpd_get_interface_linklocal_addr(iface, &src_addr) == 0) {
+		return odhcpd_send_with_src(socket, dest, iov, iov_len, iface, &src_addr);
+	} else {
+		/* Fall back to default behavior if no link-local address is available or flag is disabled */
+		return odhcpd_send(socket, dest, iov, iov_len, iface);
+	}
 }
 
 /*
@@ -320,7 +369,7 @@ int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr
 		return 0;
 	}
 
-	return odhcpd_get_linklocal_interface_address(iface->ifindex, addr);
+	return odhcpd_get_interface_linklocal_addr(iface, addr);
 }
 
 struct interface* odhcpd_get_interface_by_index(int ifindex)

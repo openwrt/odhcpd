@@ -41,6 +41,8 @@ struct config config = {
 	.ra_piofolder_fd = -1,
 	.uci_cfgfile = "dhcp",
 	.log_level = LOG_WARNING,
+	.log_level_cmdline = false,
+	.log_syslog = true,
 };
 
 #define START_DEFAULT	100
@@ -423,9 +425,11 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_LOGLEVEL])) {
 		int log_level = (blobmsg_get_u32(c) & LOG_PRIMASK);
 
-		if (config.log_level != log_level) {
+		if (config.log_level != log_level && config.log_level_cmdline) {
 			config.log_level = log_level;
-			setlogmask(LOG_UPTO(config.log_level));
+			if (config.log_syslog)
+				setlogmask(LOG_UPTO(config.log_level));
+			notice("Log level set to %d\n", config.log_level);
 		}
 	}
 }

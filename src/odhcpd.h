@@ -364,7 +364,7 @@ struct interface {
 	int route_preference;
 	int ra_maxinterval;
 	int ra_mininterval;
-	int ra_lifetime;
+	uint32_t ra_lifetime;
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;

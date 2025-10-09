@@ -314,7 +314,7 @@ ssize_t odhcpd_try_send_with_src(int socket, struct sockaddr_in6 *dest,
  * - use an IPv6 ULA address if the already selected IPv6 address is not an ULA address
  * - use the IPv6 address with the longest preferred lifetime
  */
-int odhcpd_get_interface_dns_addr(const struct interface *iface, struct in6_addr *addr)
+int odhcpd_get_interface_dns_addr(struct interface *iface, struct in6_addr *addr)
 {
 	time_t now = odhcpd_time();
 	ssize_t m = -1;

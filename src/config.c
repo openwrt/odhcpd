@@ -672,7 +672,7 @@ int config_set_host_cfg_from_blobmsg(struct blob_attr *ba)
 		host_cfg->leasetime = time;
 	}
 
-	INIT_LIST_HEAD(&host_cfg->assignments);
+	INIT_LIST_HEAD(&host_cfg->dhcpv6_leases);
 	vlist_add(&host_cfgs, &host_cfg->node, host_cfg);
 	return 0;
 
@@ -1697,18 +1697,18 @@ static int set_interface(struct uci_section *s)
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
-static void host_cfg_delete_dhcpv6_assignments(struct host_cfg *host_cfg)
+static void host_cfg_delete_dhcpv6_leases(struct host_cfg *host_cfg)
 {
-	struct dhcp_assignment *a, *tmp;
+	struct dhcpv6_lease *lease, *tmp;
 
-	list_for_each_entry_safe(a, tmp, &host_cfg->assignments, host_cfg_list)
-		free_assignment(a);
+	list_for_each_entry_safe(lease, tmp, &host_cfg->dhcpv6_leases, host_cfg_list)
+		dhcpv6_free_lease(lease);
 }
 
-static void host_cfg_update_assignments(struct host_cfg *host_cfg)
+static void host_cfg_update_leases(struct host_cfg *host_cfg)
 {
 	struct dhcpv4_lease *a4 = host_cfg->dhcpv4_lease;
-	struct dhcp_assignment *a;
+	struct dhcpv6_lease *lease6;
 
 	if (a4) {
 		free(a4->hostname);
@@ -1718,14 +1718,14 @@ static void host_cfg_update_assignments(struct host_cfg *host_cfg)
 			a4->hostname = strdup(host_cfg->hostname);
 	}
 
-	list_for_each_entry(a, &host_cfg->assignments, host_cfg_list) {
-		free(a->hostname);
-		a->hostname = NULL;
+	list_for_each_entry(lease6, &host_cfg->dhcpv6_leases, host_cfg_list) {
+		free(lease6->hostname);
+		lease6->hostname = NULL;
 
 		if (host_cfg->hostname)
-			a->hostname = strdup(host_cfg->hostname);
+			lease6->hostname = strdup(host_cfg->hostname);
 
-		a->leasetime = host_cfg->leasetime;
+		lease6->leasetime = host_cfg->leasetime;
 	}
 }
 
@@ -1789,11 +1789,11 @@ static void host_cfg_change(struct host_cfg *host_cfg_old, struct host_cfg *host
 
 	if (host_cfg_old->hostid != host_cfg_new->hostid) {
 		host_cfg_old->hostid = host_cfg_new->hostid;
-		host_cfg_delete_dhcpv6_assignments(host_cfg_old);
+		host_cfg_delete_dhcpv6_leases(host_cfg_old);
 	}
 
 	if (update)
-		host_cfg_update_assignments(host_cfg_old);
+		host_cfg_update_leases(host_cfg_old);
 
 	free_host_cfg(host_cfg_new);
 }
@@ -1801,7 +1801,7 @@ static void host_cfg_change(struct host_cfg *host_cfg_old, struct host_cfg *host
 static void host_cfg_delete(struct host_cfg *host_cfg)
 {
 	dhcpv4_free_lease(host_cfg->dhcpv4_lease);
-	host_cfg_delete_dhcpv6_assignments(host_cfg);
+	host_cfg_delete_dhcpv6_leases(host_cfg);
 	free_host_cfg(host_cfg);
 }
 

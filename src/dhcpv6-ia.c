@@ -462,13 +462,13 @@ static void dhcpv6_ia_write_hostsfile(time_t now)
 		}
 
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
-			struct dhcp_assignment *c;
+			struct dhcpv4_lease *c;
 
-			list_for_each_entry(c, &ctxt.iface->dhcpv4_assignments, head) {
+			list_for_each_entry(c, &ctxt.iface->dhcpv4_leases, head) {
 				if (!(c->flags & OAF_BOUND))
 					continue;
 
-				char ipbuf[INET6_ADDRSTRLEN];
+				char ipbuf[INET_ADDRSTRLEN];
 				struct in_addr addr = {.s_addr = c->addr};
 				inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
@@ -585,9 +585,9 @@ void dhcpv6_ia_write_statefile(void)
 			}
 
 			if (ctxt.iface->dhcpv4 == MODE_SERVER) {
-				struct dhcp_assignment *c;
+				struct dhcpv4_lease *c;
 
-				list_for_each_entry(c, &ctxt.iface->dhcpv4_assignments, head) {
+				list_for_each_entry(c, &ctxt.iface->dhcpv4_leases, head) {
 					if (!(c->flags & OAF_BOUND))
 						continue;
 

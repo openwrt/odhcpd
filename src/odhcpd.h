@@ -177,9 +177,8 @@ enum odhcpd_assignment_flags {
 	OAF_BOUND		= (1 << 1),
 	OAF_STATIC		= (1 << 2),
 	OAF_BROKEN_HOSTNAME	= (1 << 3),
-	OAF_DHCPV4		= (1 << 4),
-	OAF_DHCPV6_NA		= (1 << 5),
-	OAF_DHCPV6_PD		= (1 << 6),
+	OAF_DHCPV6_NA		= (1 << 4),
+	OAF_DHCPV6_PD		= (1 << 5),
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
@@ -229,21 +228,43 @@ struct duid {
 	bool iaid_set;
 };
 
+struct odhcpd_ref_ip;
+
+struct dhcpv4_lease {
+	struct list_head head;			// struct interface->dhcpv4_assignments
+
+	struct interface *iface;		// assignment interface, non-null
+	struct lease_cfg *lease_cfg;		// host lease cfg, nullable
+
+	uint32_t addr;				// client IP address
+	unsigned int flags;			// OAF_*
+	time_t valid_until;			// CLOCK_MONOTONIC time, 0 = inf
+	char *hostname;				// client hostname
+	size_t hwaddr_len;			// hwaddr length
+	uint8_t hwaddr[6];			// hwaddr (only MAC supported)
+
+	// ForceRenew Nonce - RFC6704 §3.1.2
+	struct uloop_timeout fr_timer;		// FR message transmission timer
+	bool accept_fr_nonce;			// FR client support
+	unsigned fr_cnt;			// FR messages sent
+	uint8_t key[16];			// FR nonce
+	struct odhcpd_ref_ip *fr_ip;		// FR message old serverid/IP
+};
+
 /* This corresponds to a UCI host section, i.e. a static lease cfg */
 struct lease_cfg {
 	struct vlist_node node;
 	struct list_head assignments;
+	struct dhcpv4_lease *dhcpv4_lease;
 	uint32_t ipaddr;
 	uint64_t hostid;
 	size_t mac_count;
 	struct ether_addr *macs;
 	size_t duid_count;
 	struct duid *duids;
-	uint32_t leasetime;
+	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
 	char *hostname;
 };
-
-struct odhcpd_ref_ip;
 
 struct dhcp_assignment {
 	struct list_head head;
@@ -258,14 +279,12 @@ struct dhcp_assignment {
 	time_t valid_until;
 	time_t preferred_until;
 
-	// ForceRenew - RFC6704 §3.1.2 (IPv4), RFC8415 (IPv6), §20.4, §21.11
+	// ForceRenew Nonce - RFC8415 §20.4, §21.11
 	struct uloop_timeout fr_timer;
 	bool accept_fr_nonce;
 	int fr_cnt;
 	uint8_t key[16];
-	struct odhcpd_ref_ip *fr_ip;
 
-	uint32_t addr;
 	union {
 		uint64_t assigned_host_id;
 		uint32_t assigned_subnet_id;
@@ -281,12 +300,9 @@ struct dhcp_assignment {
 	uint32_t leasetime;
 	char *hostname;
 
-	uint8_t hwaddr[6];
-
 	uint16_t clid_len;
 	uint8_t clid_data[];
 };
-
 
 // DNR - RFC9463
 struct dnr_options {
@@ -348,7 +364,7 @@ struct interface {
 
 	// DHCPv4 runtime data
 	struct odhcpd_event dhcpv4_event;
-	struct list_head dhcpv4_assignments;
+	struct list_head dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
 
 	// Managed PD
@@ -619,14 +635,20 @@ int netlink_init(void);
 int router_init(void);
 int dhcpv6_init(void);
 int ndp_init(void);
+
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
-
+void dhcpv4_free_lease(struct dhcpv4_lease *a);
 int dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		       struct interface *iface, _unused void *dest_addr,
 		       send_reply_cb_t send_reply, void *opaque);
-#endif
+#else
+static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
+	error("Trying to free IPv4 assignment 0x%p", lease);
+}
+#endif /* DHCPV4_SUPPORT */
+
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 int ndp_setup_interface(struct interface *iface, bool enable);

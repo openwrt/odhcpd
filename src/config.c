@@ -1108,7 +1108,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
-		INIT_LIST_HEAD(&iface->dhcpv4_assignments);
+		INIT_LIST_HEAD(&iface->dhcpv4_leases);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
 		set_interface_defaults(iface);
@@ -1744,24 +1744,29 @@ static int set_interface(struct uci_section *s)
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
-static void lease_cfg_delete_assignments(struct lease_cfg *lease_cfg, bool v6)
+static void lease_cfg_delete_dhcpv6_assignments(struct lease_cfg *lease_cfg)
 {
 	struct dhcp_assignment *a, *tmp;
-	unsigned int flag = v6 ? OAF_DHCPV6 : OAF_DHCPV4;
 
-	list_for_each_entry_safe(a, tmp, &lease_cfg->assignments, lease_cfg_list) {
-		if (a->flags & flag)
-			free_assignment(a);
-	}
+	list_for_each_entry_safe(a, tmp, &lease_cfg->assignments, lease_cfg_list)
+		free_assignment(a);
 }
 
 static void lease_cfg_update_assignments(struct lease_cfg *lease_cfg)
 {
+	struct dhcpv4_lease *a4 = lease_cfg->dhcpv4_lease;
 	struct dhcp_assignment *a;
 
+	if (a4) {
+		free(a4->hostname);
+		a4->hostname = NULL;
+
+		if (lease_cfg->hostname)
+			a4->hostname = strdup(lease_cfg->hostname);
+	}
+
 	list_for_each_entry(a, &lease_cfg->assignments, lease_cfg_list) {
-		if (a->hostname)
-			free(a->hostname);
+		free(a->hostname);
 		a->hostname = NULL;
 
 		if (lease_cfg->hostname)
@@ -1827,12 +1832,12 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 
 	if (lease_cfg_old->ipaddr != lease_cfg_new->ipaddr) {
 		lease_cfg_old->ipaddr = lease_cfg_new->ipaddr;
-		lease_cfg_delete_assignments(lease_cfg_old, false);
+		dhcpv4_free_lease(lease_cfg_old->dhcpv4_lease);
 	}
 
 	if (lease_cfg_old->hostid != lease_cfg_new->hostid) {
 		lease_cfg_old->hostid = lease_cfg_new->hostid;
-		lease_cfg_delete_assignments(lease_cfg_old, true);
+		lease_cfg_delete_dhcpv6_assignments(lease_cfg_old);
 	}
 
 	if (update)
@@ -1843,11 +1848,8 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 
 static void lease_cfg_delete(struct lease_cfg *lease_cfg)
 {
-	struct dhcp_assignment *a, *tmp;
-
-	list_for_each_entry_safe(a, tmp, &lease_cfg->assignments, lease_cfg_list)
-		free_assignment(a);
-
+	dhcpv4_free_lease(lease_cfg->dhcpv4_lease);
+	lease_cfg_delete_dhcpv6_assignments(lease_cfg);
 	free_lease_cfg(lease_cfg);
 }
 

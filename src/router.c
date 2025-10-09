@@ -363,7 +363,7 @@ static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 {
 	uint32_t lifetime = iface->max_preferred_lifetime;
 
-	if (iface->ra_lifetime >= 0) {
+	if (iface->ra_lifetime > 0) {
 		lifetime = iface->ra_lifetime;
 	}
 

@@ -491,7 +491,7 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 ssize_t odhcpd_try_send_with_src(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		struct interface *iface);
-int odhcpd_get_interface_dns_addr(const struct interface *iface,
+int odhcpd_get_interface_dns_addr(struct interface *iface,
 		struct in6_addr *addr);
 int odhcpd_get_interface_linklocal_addr(struct interface *iface,
 		struct in6_addr *addr);

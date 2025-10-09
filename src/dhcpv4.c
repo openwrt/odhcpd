@@ -549,23 +549,20 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 				if (l->hostname)
 					a->hostname = strdup(l->hostname);
 
-				if (l->leasetime)
-					a->leasetime = l->leasetime;
-
 				list_add(&a->lease_list, &l->assignments);
 				a->lease = l;
 			}
 		}
 
 		/* See if we need to clamp the requested leasetime */
-		uint32_t my_leasetime;
-		if (a->leasetime)
-			my_leasetime = a->leasetime;
+		uint32_t max_leasetime;
+		if (a->lease && a->lease->leasetime)
+			max_leasetime = a->lease->leasetime;
 		else
-			my_leasetime = iface->dhcp_leasetime;
+			max_leasetime = iface->dhcp_leasetime;
 
-		if ((*req_leasetime == 0) || (my_leasetime < *req_leasetime))
-			*req_leasetime = my_leasetime;
+		if ((*req_leasetime == 0) || (max_leasetime < *req_leasetime))
+			*req_leasetime = max_leasetime;
 
 		if (req_msg == DHCPV4_MSG_DISCOVER) {
 			a->flags &= ~OAF_BOUND;

@@ -249,6 +249,11 @@ struct dhcpv4_lease {
 	unsigned fr_cnt;			// FR messages sent
 	uint8_t key[16];			// FR nonce
 	struct odhcpd_ref_ip *fr_ip;		// FR message old serverid/IP
+
+	// RFC4361
+	uint32_t iaid;
+	uint8_t duid_len;
+	uint8_t duid[];
 };
 
 struct dhcpv6_lease {

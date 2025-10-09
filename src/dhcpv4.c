@@ -348,14 +348,16 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 }
 
 static struct dhcpv4_lease *
-dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr, size_t hwaddr_len)
+dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
+		   size_t hwaddr_len, const uint8_t *duid, size_t duid_len,
+		   uint32_t iaid)
 {
 	struct dhcpv4_lease *lease;
 
 	if (!iface || !hwaddr || hwaddr_len == 0 || hwaddr_len > sizeof(lease->hwaddr))
 		return NULL;
 
-	lease = calloc(1, sizeof(*lease));
+	lease = calloc(1, sizeof(*lease) + duid_len);
 	if (!lease)
 		return NULL;
 
@@ -363,6 +365,11 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr, size_t hwaddr
 
 	lease->hwaddr_len = hwaddr_len;
 	memcpy(lease->hwaddr, hwaddr, hwaddr_len);
+	if (duid_len > 0) {
+		lease->duid_len = duid_len;
+		memcpy(lease->duid, duid, duid_len);
+		lease->iaid = iaid;
+	}
 	lease->iface = iface;
 
 	return lease;
@@ -477,14 +484,54 @@ static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const 
 }
 
 static struct dhcpv4_lease *
+find_lease_by_duid_iaid(struct interface *iface, const uint8_t *duid,
+			size_t duid_len, uint32_t iaid)
+{
+	struct dhcpv4_lease *lease;
+
+	list_for_each_entry(lease, &iface->dhcpv4_leases, head) {
+		if (lease->duid_len != duid_len || lease->iaid != iaid)
+			continue;
+		if (!memcmp(lease->duid, duid, duid_len))
+			return lease;
+	}
+
+	return NULL;
+}
+
+static struct dhcpv4_lease *
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
-	     const uint32_t req_addr, uint32_t *req_leasetime, const char *req_hostname,
-	     const size_t req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
+	     const uint8_t *clid, size_t clid_len, const uint32_t req_addr,
+	     uint32_t *req_leasetime, const char *req_hostname, const size_t
+	     req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
 	     uint32_t *fr_serverid)
 {
-	struct dhcpv4_lease *lease = find_lease_by_hwaddr(iface, req_mac);
-	struct lease_cfg *lease_cfg = config_find_lease_cfg_by_mac(req_mac);
+	struct dhcpv4_lease *lease = NULL;
+	struct lease_cfg *lease_cfg = NULL;
+	const uint8_t *duid = NULL;
+	size_t duid_len = 0;
+	uint32_t iaid = 0;
 	time_t now = odhcpd_time();
+
+	// RFC4361, §6.1, §6.3 - MUST use clid if provided, MAY use chaddr
+	if (clid && clid_len > (1 + sizeof(iaid) + DUID_MIN_LEN) &&
+	    clid[0] == DHCPV4_CLIENTID_TYPE_DUID_IAID &&
+	    clid_len <= (1 + sizeof(iaid) + DUID_MAX_LEN)) {
+		memcpy(&iaid, &clid[1], sizeof(uint32_t));
+		iaid = ntohl(iaid);
+
+		duid = &clid[1 + sizeof(iaid)];
+		duid_len = clid_len - (1 + sizeof(iaid));
+
+		lease = find_lease_by_duid_iaid(iface, duid, duid_len, iaid);
+		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, iaid);
+	}
+
+	if (!lease)
+		lease = find_lease_by_hwaddr(iface, req_mac);
+
+	if (!lease_cfg)
+		lease_cfg = config_find_lease_cfg_by_mac(req_mac);
 
 	/*
 	 * If we found a static lease cfg, but no old assignment for this
@@ -527,8 +574,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		if (!(lease->flags & OAF_STATIC) || lease->lease_cfg->ipaddr != lease->addr) {
 			memset(lease->hwaddr, 0, sizeof(lease->hwaddr));
 			lease->valid_until = now + 3600; /* Block address for 1h */
-		} else
+		} else {
 			lease->valid_until = now - 1;
+		}
 		break;
 
 	case DHCPV4_MSG_DISCOVER:
@@ -554,7 +602,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		if (!lease) {
 			/* Create new binding */
-			lease = dhcpv4_alloc_lease(iface, req_mac, ETH_ALEN);
+			lease = dhcpv4_alloc_lease(iface, req_mac, ETH_ALEN, duid, duid_len, iaid);
 			if (!lease) {
 				warn("Failed to allocate memory for DHCPv4 lease on interface %s", iface->ifname);
 				return NULL;
@@ -701,6 +749,8 @@ enum {
 	IOV_HEADER = 0,
 	IOV_MESSAGE,
 	IOV_SERVERID,
+	IOV_CLIENTID,
+	IOV_CLIENTID_DATA,
 	IOV_NETMASK,
 	IOV_ROUTER,
 	IOV_ROUTER_ADDR,
@@ -740,6 +790,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint32_t req_leasetime = 0;
 	char *req_hostname = NULL;
 	size_t req_hostname_len = 0;
+	uint8_t *req_clientid = NULL;
+	size_t req_clientid_len = 0;
 	bool req_accept_fr = false;
 
 	/* Reply variables */
@@ -769,6 +821,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.code = DHCPV4_OPT_SERVERID,
 		.len = sizeof(struct in_addr),
 		.data = iface->dhcpv4_local.s_addr,
+	};
+	struct dhcpv4_option reply_clientid = {
+		.code = DHCPV4_OPT_CLIENTID,
 	};
 	struct dhcpv4_option_u32 reply_netmask = {
 		.code = DHCPV4_OPT_NETMASK,
@@ -835,6 +890,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_HEADER]		= { &reply, sizeof(reply) },
 		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
 		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
+		[IOV_CLIENTID]		= { &reply_clientid, 0 },
+		[IOV_CLIENTID_DATA]	= { NULL, 0 },
 		[IOV_NETMASK]		= { &reply_netmask, 0 },
 		[IOV_ROUTER]		= { &reply_router, 0 },
 		[IOV_ROUTER_ADDR]	= { NULL, 0 },
@@ -871,6 +928,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		DHCPV4_OPT_LEASETIME,
 		DHCPV4_OPT_RENEW,
 		DHCPV4_OPT_REBIND,
+		DHCPV4_OPT_CLIENTID, // Must be in reply if present in req, RFC6842, §3
 		DHCPV4_OPT_AUTHENTICATION,
 		DHCPV4_OPT_SEARCH_DOMAIN,
 		DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
@@ -927,6 +985,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				req_opts_len = opt->len;
 			}
 			break;
+		case DHCPV4_OPT_CLIENTID:
+			if (opt->len >= 2) {
+				req_clientid = opt->data;
+				req_clientid_len = opt->len;
+			}
+			break;
 		case DHCPV4_OPT_LEASETIME:
 			if (opt->len == 4) {
 				memcpy(&req_leasetime, opt->data, 4);
@@ -953,16 +1017,18 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_DECLINE:
 		_fallthrough;
 	case DHCPV4_MSG_RELEASE:
-		dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
-			     &req_leasetime, req_hostname, req_hostname_len,
-			     req_accept_fr, &reply_incl_fr, &fr_serverid);
+		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
+			     req_clientid_len, req_addr, &req_leasetime,
+			     req_hostname, req_hostname_len, req_accept_fr,
+			     &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
 		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
-		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
-				     &req_leasetime, req_hostname, req_hostname_len,
-				     req_accept_fr, &reply_incl_fr, &fr_serverid);
+		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
+				     req_clientid_len, req_addr, &req_leasetime,
+				     req_hostname, req_hostname_len, req_accept_fr,
+				     &reply_incl_fr, &fr_serverid);
 		break;
 	default:
 		return;
@@ -1101,6 +1167,15 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				break;
 			reply_rebind.data = htonl(875 * req_leasetime / 1000);
 			iov[IOV_REBIND].iov_len = sizeof(reply_rebind);
+			break;
+
+		case DHCPV4_OPT_CLIENTID:
+			if (!req_clientid)
+				break;
+			reply_clientid.len = req_clientid_len;
+			iov[IOV_CLIENTID].iov_len = sizeof(reply_clientid);
+			iov[IOV_CLIENTID_DATA].iov_base = req_clientid;
+			iov[IOV_CLIENTID_DATA].iov_len = req_clientid_len;
 			break;
 
 		case DHCPV4_OPT_AUTHENTICATION:

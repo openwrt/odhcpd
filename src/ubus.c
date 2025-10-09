@@ -120,8 +120,9 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcp_assignment *a, *border = list_last_entry(
-				&iface->ia_assignments, struct dhcp_assignment, head);
+		struct dhcpv6_lease *a, *border;
+
+		border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
 
 		list_for_each_entry(a, &iface->ia_assignments, head) {
 			if (a == border || (!INFINITE_VALID(a->valid_until) &&

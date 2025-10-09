@@ -251,26 +251,9 @@ struct dhcpv4_lease {
 	struct odhcpd_ref_ip *fr_ip;		// FR message old serverid/IP
 };
 
-/* This corresponds to a UCI host section, i.e. a static lease cfg */
-struct lease_cfg {
-	struct vlist_node node;
-	struct list_head assignments;
-	struct dhcpv4_lease *dhcpv4_lease;
-	uint32_t ipaddr;
-	uint64_t hostid;
-	size_t mac_count;
-	struct ether_addr *macs;
-	size_t duid_count;
-	struct duid *duids;
-	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
-	char *hostname;
-};
-
-struct dhcp_assignment {
+struct dhcpv6_lease {
 	struct list_head head;
 	struct list_head lease_cfg_list;
-
-	void (*dhcp_free_cb)(struct dhcp_assignment *a);
 
 	struct interface *iface;
 	struct lease_cfg *lease_cfg;
@@ -302,6 +285,21 @@ struct dhcp_assignment {
 
 	uint16_t clid_len;
 	uint8_t clid_data[];
+};
+
+/* This corresponds to a UCI host section, i.e. a static lease cfg */
+struct lease_cfg {
+	struct vlist_node node;
+	struct list_head dhcpv6_leases;
+	struct dhcpv4_lease *dhcpv4_lease;
+	uint32_t ipaddr;
+	uint64_t hostid;
+	size_t mac_count;
+	struct ether_addr *macs;
+	size_t duid_count;
+	struct duid *duids;
+	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
+	char *hostname;
 };
 
 // DNR - RFC9463
@@ -487,31 +485,6 @@ enum {
 };
 extern const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX];
 
-inline static void free_assignment(struct dhcp_assignment *a)
-{
-	list_del(&a->head);
-	list_del(&a->lease_cfg_list);
-
-	if (a->dhcp_free_cb)
-		a->dhcp_free_cb(a);
-
-	free(a->hostname);
-	free(a);
-}
-
-inline static struct dhcp_assignment *alloc_assignment(size_t extra_len)
-{
-	struct dhcp_assignment *a = calloc(1, sizeof(*a) + extra_len);
-
-	if (!a)
-		return NULL;
-
-	INIT_LIST_HEAD(&a->head);
-	INIT_LIST_HEAD(&a->lease_cfg_list);
-
-	return a;
-}
-
 inline static bool ra_pio_expired(const struct ra_pio *pio, time_t now)
 {
 	return pio->lifetime && (now > pio->lifetime);
@@ -611,8 +584,9 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);
 int dhcpv6_ia_init(void);
 int dhcpv6_ia_setup_interface(struct interface *iface, bool enable);
-void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c, time_t now,
-				dhcpv6_binding_cb_handler_t func, void *arg);
+void dhcpv6_free_lease(struct dhcpv6_lease *lease);
+void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcpv6_lease *lease,
+			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg);
 void dhcpv6_ia_write_statefile(void);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);

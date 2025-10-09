@@ -1108,7 +1108,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
-		INIT_LIST_HEAD(&iface->dhcpv4_assignments);
+		INIT_LIST_HEAD(&iface->dhcpv4_leases);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
 		set_interface_defaults(iface);
@@ -1733,24 +1733,29 @@ static int set_interface(struct uci_section *s)
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
-static void host_cfg_delete_assignments(struct host_cfg *host_cfg, bool v6)
+static void host_cfg_delete_dhcpv6_assignments(struct host_cfg *host_cfg)
 {
 	struct dhcp_assignment *a, *tmp;
-	unsigned int flag = v6 ? OAF_DHCPV6 : OAF_DHCPV4;
 
-	list_for_each_entry_safe(a, tmp, &host_cfg->assignments, host_cfg_list) {
-		if (a->flags & flag)
-			free_assignment(a);
-	}
+	list_for_each_entry_safe(a, tmp, &host_cfg->assignments, host_cfg_list)
+		free_assignment(a);
 }
 
 static void host_cfg_update_assignments(struct host_cfg *host_cfg)
 {
+	struct dhcpv4_lease *a4 = host_cfg->dhcpv4_lease;
 	struct dhcp_assignment *a;
 
+	if (a4) {
+		free(a4->hostname);
+		a4->hostname = NULL;
+
+		if (host_cfg->hostname)
+			a4->hostname = strdup(host_cfg->hostname);
+	}
+
 	list_for_each_entry(a, &host_cfg->assignments, host_cfg_list) {
-		if (a->hostname)
-			free(a->hostname);
+		free(a->hostname);
 		a->hostname = NULL;
 
 		if (host_cfg->hostname)
@@ -1815,12 +1820,12 @@ static void host_cfg_change(struct host_cfg *host_cfg_old, struct host_cfg *host
 
 	if (host_cfg_old->ipaddr != host_cfg_new->ipaddr) {
 		host_cfg_old->ipaddr = host_cfg_new->ipaddr;
-		host_cfg_delete_assignments(host_cfg_old, false);
+		dhcpv4_free_lease(host_cfg_old->dhcpv4_lease);
 	}
 
 	if (host_cfg_old->hostid != host_cfg_new->hostid) {
 		host_cfg_old->hostid = host_cfg_new->hostid;
-		host_cfg_delete_assignments(host_cfg_old, true);
+		host_cfg_delete_dhcpv6_assignments(host_cfg_old);
 	}
 
 	if (update)
@@ -1831,11 +1836,8 @@ static void host_cfg_change(struct host_cfg *host_cfg_old, struct host_cfg *host
 
 static void host_cfg_delete(struct host_cfg *host_cfg)
 {
-	struct dhcp_assignment *a, *tmp;
-
-	list_for_each_entry_safe(a, tmp, &host_cfg->assignments, host_cfg_list)
-		free_assignment(a);
-
+	dhcpv4_free_lease(host_cfg->dhcpv4_lease);
+	host_cfg_delete_dhcpv6_assignments(host_cfg);
 	free_host_cfg(host_cfg);
 }
 

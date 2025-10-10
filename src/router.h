@@ -83,6 +83,12 @@ struct icmpv6_opt {
 		RETRANS_TIMER                 1,000 milliseconds
 */
 #define RETRANS_TIMER_MAX				60000
+/* RFC2460 §5
+   IPv6 requires that every link in the internet have an MTU of 1280
+   octets or greater. 
+*/
+#define RA_MTU_MIN						1280
+#define RA_MTU_MAX						65535
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

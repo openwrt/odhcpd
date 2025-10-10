@@ -1389,13 +1389,18 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
-		uint32_t ra_mtu = blobmsg_get_u32(c);
+		uint32_t original_ra_mtu, ra_mtu;
+		original_ra_mtu = ra_mtu = blobmsg_get_u32(c);
+		if (ra_mtu < RA_MTU_MIN)
+			ra_mtu = RA_MTU_MIN;
+		else if (ra_mtu > RA_MTU_MAX)
+			ra_mtu = RA_MTU_MAX;
+		iface->ra_mtu = ra_mtu;
 
-		if (ra_mtu >= 1280 || ra_mtu <= 65535)
-			iface->ra_mtu = ra_mtu;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name);
+		if (original_ra_mtu != ra_mtu) {
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+				iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_SLAAC]))

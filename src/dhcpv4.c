@@ -336,6 +336,9 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 	if (lease->fr_ip)
 		dhcpv4_fr_stop(lease);
 
+	if (lease->iface)
+		lease->iface->update_statefile = true;
+
 	list_del(&lease->head);
 	if (lease->lease_cfg)
 		lease->lease_cfg->dhcpv4_lease = NULL;
@@ -407,6 +410,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 
 		debug("Assigned static IP address: %s",
 		      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)));
+
+		iface->update_statefile = true;
 		return true;
 	}
 
@@ -423,6 +428,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 	} else {
 		debug("Assigned the requested IP address: %s",
 		      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)));
+		iface->update_statefile = true;
 		return true;
 	}
 
@@ -448,6 +454,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 			debug("Assigned IP adress from pool: %s (succeeded on attempt %u of %u)",
 			      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)),
 			      i + 1, count);
+
+			iface->update_statefile = true;
 			return true;
 		}
 	}
@@ -624,7 +632,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		return NULL;
 	}
 
-	dhcpv6_ia_write_statefile();
+	iface->update_statefile = true;
 	return lease;
 }
 
@@ -1498,6 +1506,7 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
+	bool update_statefile = false;
 
 	avl_for_each_element(&interfaces, iface, avl) {
 		struct dhcpv4_lease *lease, *tmp;
@@ -1511,10 +1520,20 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 						      (struct in_addr *)&lease->addr,
 						      lease->hostname, iface->ifname);
 				dhcpv4_free_lease(lease);
+				update_statefile = true;
 			}
 		}
+
+		if (iface->update_statefile) {
+			update_statefile = true;
+			iface->update_statefile = false;
+		}
 	}
-	uloop_timeout_set(event, 1000);
+
+	if (update_statefile)
+		dhcpv6_ia_write_statefile();
+
+	uloop_timeout_set(event, 5000);
 }
 
 /* Create socket and register events */

@@ -338,6 +338,7 @@ struct interface {
 	char *ifname;
 	const char *name;
 	uint32_t if_mtu;
+	bool update_statefile;
 
 	// IPv6 runtime data
 	struct odhcpd_ipaddr *addr6;

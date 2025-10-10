@@ -344,6 +344,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra_lifetime = 3 * iface->ra_maxinterval; /* RFC4861: AdvDefaultLifetime: Default: 3 * MaxRtrAdvInterval */
 	iface->ra_dns = true;
 	iface->pio_update = false;
+	iface->update_statefile = true;
 }
 
 static void clean_interface(struct interface *iface)

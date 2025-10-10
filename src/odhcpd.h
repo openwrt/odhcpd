@@ -202,6 +202,7 @@ struct lease {
 	struct duid *duids;
 	uint32_t leasetime;
 	char *hostname;
+	bool ignore;
 };
 
 enum {

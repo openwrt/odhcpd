@@ -191,10 +191,15 @@ static int send_reconf(struct dhcp_assignment *assign)
 		.key = { 0 },
 	};
 
-	uint8_t duid_ll_hdr[] = { 0x00, 0x03, 0x00, 0x01 };
-	memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
-	odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
-	serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+	if (config.default_duid_len > 0) {
+		memcpy(serverid.data, config.default_duid, config.default_duid_len);
+		serverid.len = htons(config.default_duid_len);
+	} else {
+		uint16_t duid_ll_hdr[] = { htons(DUID_TYPE_LL), htons(ARPHRD_ETHER) };
+		memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
+		odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
+		serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+	}
 
 	memcpy(clientid.data, assign->clid_data, assign->clid_len);
 

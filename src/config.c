@@ -1381,11 +1381,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
 		uint32_t ra_hoplimit = blobmsg_get_u32(c);
 
-		if (ra_hoplimit <= 255)
-			iface->ra_hoplimit = ra_hoplimit;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name);
+		/* RFC4861 §6.2.1 : AdvCurHopLimit */
+		iface->ra_hoplimit = ra_hoplimit <= AdvCurHopLimit ? ra_hoplimit : AdvCurHopLimit;
+		if(ra_hoplimit > AdvCurHopLimit)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name, iface->ra_hoplimit);
+
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {

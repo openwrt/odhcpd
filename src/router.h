@@ -70,6 +70,14 @@ struct icmpv6_opt {
  * MUST be no greater than 3,600,000 msec
  */
 #define AdvReachableTime				3600000
+/* RFC4861 §6.2.1 : AdvCurHopLimit 
+	The value should be set to the current
+	diameter of the Internet.  The value zero means
+	unspecified (by this router).
+
+	Note: this value is an 8 bit int, so max 255.
+*/
+#define AdvCurHopLimit					255
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

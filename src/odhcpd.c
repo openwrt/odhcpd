@@ -551,7 +551,7 @@ int odhcpd_urandom(void *data, size_t len)
 time_t odhcpd_time(void)
 {
 	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	clock_gettime(CLOCK_MONOTONIC_COARSE, &ts);
 	return ts.tv_sec;
 }
 

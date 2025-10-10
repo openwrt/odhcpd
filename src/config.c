@@ -1314,14 +1314,20 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv6_na = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_HOSTID_LEN])) {
-		uint32_t hostid_len = blobmsg_get_u32(c);
+		uint32_t original_hostid_len, hostid_len;
+		original_hostid_len = hostid_len = blobmsg_get_u32(c);
 
-		if (hostid_len >= HOSTID_LEN_MIN && hostid_len <= HOSTID_LEN_MAX)
-			iface->dhcpv6_hostid_len = hostid_len;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-				iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name);
+		if (hostid_len < HOSTID_LEN_MIN)
+			hostid_len = HOSTID_LEN_MIN;
+		else if (hostid_len > HOSTID_LEN_MAX)
+			hostid_len = HOSTID_LEN_MAX;
 
+		iface->dhcpv6_hostid_len = hostid_len;
+
+		if (original_hostid_len != hostid_len) {
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+				   iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name, iface->dhcpv6_hostid_len);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))

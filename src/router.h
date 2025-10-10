@@ -66,6 +66,10 @@ struct icmpv6_opt {
 	define is used to cap values to a sane ceiling, i.e. ND_VALID_LIMIT.
 */
 #define RouterLifetime					5400
+/* RFC4861 §6.2.1 : AdvReachableTime : 
+ * MUST be no greater than 3,600,000 msec
+ */
+#define AdvReachableTime				3600000
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

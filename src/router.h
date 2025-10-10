@@ -78,6 +78,11 @@ struct icmpv6_opt {
 	Note: this value is an 8 bit int, so max 255.
 */
 #define AdvCurHopLimit					255
+/* RFC4861 §10 - constants
+	Node constants:
+		RETRANS_TIMER                 1,000 milliseconds
+*/
+#define RETRANS_TIMER_MAX				60000
 
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)

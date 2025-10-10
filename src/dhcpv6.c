@@ -335,10 +335,15 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.serverid_buf = { 0 },
 	};
 
-	uint8_t duid_ll_hdr[] = { 0x00, 0x03, 0x00, 0x01 };
-	memcpy(dest.serverid_buf, duid_ll_hdr, sizeof(duid_ll_hdr));
-	odhcpd_get_mac(iface, &dest.serverid_buf[sizeof(duid_ll_hdr)]);
-	dest.serverid_length = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+	if (config.duid_len >= DUID_MIN_LEN) {
+		memcpy(dest.serverid_buf, config.duid, config.duid_len);
+		dest.serverid_length = config.duid_len;
+	} else {
+		uint8_t duid_ll_hdr[] = { 0x00, 0x03, 0x00, 0x01 };
+		memcpy(dest.serverid_buf, duid_ll_hdr, sizeof(duid_ll_hdr));
+		odhcpd_get_mac(iface, &dest.serverid_buf[sizeof(duid_ll_hdr)]);
+		dest.serverid_length = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+	}
 
 	struct _packed {
 		uint16_t type;

@@ -24,7 +24,6 @@
 #include <unistd.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <syslog.h>
 #include <alloca.h>
 #include <inttypes.h>
 
@@ -75,6 +74,7 @@ static void print_usage(const char *app)
 	       "\n"
 	       "	-c <path>	Use an alternative configuration file\n"
 	       "	-l <int>	Specify log level 0..7 (default %d)\n"
+	       "	-f		Log to stderr instead of syslog\n"
 	       "	-h		Print this help text and exit\n",
 	       app, config.log_level);
 }
@@ -93,10 +93,9 @@ static bool ipv6_enabled(void)
 
 int main(int argc, char **argv)
 {
-	openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 	int opt;
 
-	while ((opt = getopt(argc, argv, "c:l:h")) != -1) {
+	while ((opt = getopt(argc, argv, "c:l:fh")) != -1) {
 		switch (opt) {
 		case 'c':
 			config.uci_cfgfile = realpath(optarg, NULL);
@@ -104,18 +103,28 @@ int main(int argc, char **argv)
 			break;
 		case 'l':
 			config.log_level = (atoi(optarg) & LOG_PRIMASK);
+			config.log_level_cmdline = true;
 			fprintf(stderr, "Log level set to %d\n", config.log_level);
+			break;
+		case 'f':
+			config.log_syslog = false;
+			fprintf(stderr, "Logging to stderr\n");
 			break;
 		case 'h':
 			print_usage(argv[0]);
 			return 0;
 		}
 	}
-	setlogmask(LOG_UPTO(config.log_level));
+
+	if (config.log_syslog) {
+		openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
+		setlogmask(LOG_UPTO(config.log_level));
+	}
+
 	uloop_init();
 
 	if (getuid() != 0) {
-		syslog(LOG_ERR, "Must be run as root!");
+		error("Must be run as root!");
 		return 2;
 	}
 
@@ -245,11 +254,11 @@ ssize_t odhcpd_send_with_src(int socket, struct sockaddr_in6 *dest,
 
 	ssize_t sent = sendmsg(socket, &msg, MSG_DONTWAIT);
 	if (sent < 0)
-		syslog(LOG_ERR, "Failed to send to %s%%%s@%s (%m)",
-				ipbuf, iface->name, iface->ifname);
+		error("Failed to send to %s%%%s@%s (%m)",
+		      ipbuf, iface->name, iface->ifname);
 	else
-		syslog(LOG_DEBUG, "Sent %zd bytes to %s%%%s@%s",
-				sent, ipbuf, iface->name, iface->ifname);
+		debug("Sent %zd bytes to %s%%%s@%s",
+		      sent, ipbuf, iface->name, iface->ifname);
 	return sent;
 }
 
@@ -474,8 +483,7 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 
 		/* From netlink */
 		if (addr.nl.nl_family == AF_NETLINK) {
-			syslog(LOG_DEBUG, "Received %zd Bytes from %s%%netlink", len,
-					ipbuf);
+			debug("Received %zd Bytes from %s%%netlink", len, ipbuf);
 			e->handle_dgram(&addr, data_buf, len, NULL, dest);
 			return;
 		} else if (destiface != 0) {
@@ -485,8 +493,8 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int even
 				if (iface->ifindex != destiface)
 					continue;
 
-				syslog(LOG_DEBUG, "Received %zd Bytes from %s%%%s@%s", len,
-						ipbuf, iface->name, iface->ifname);
+				debug("Received %zd Bytes from %s%%%s@%s", len,
+				      ipbuf, iface->name, iface->ifname);
 
 				e->handle_dgram(&addr, data_buf, len, iface, dest);
 			}

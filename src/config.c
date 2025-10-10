@@ -1371,11 +1371,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {
 		uint32_t ra_retranstime = blobmsg_get_u32(c);
 
-		if (ra_retranstime <= 60000)
-			iface->ra_retranstime = ra_retranstime;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name);
+		iface->ra_retranstime = ra_retranstime <= RETRANS_TIMER_MAX ? ra_retranstime : RETRANS_TIMER_MAX;
+		if (ra_retranstime > RETRANS_TIMER_MAX)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name, iface->ra_retranstime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {

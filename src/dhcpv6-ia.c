@@ -137,43 +137,74 @@ static size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t
 	return m;
 }
 
+enum {
+	IOV_HDR = 0,
+	IOV_SERVERID,
+	IOV_CLIENTID,
+	IOV_MESSAGE,
+	IOV_AUTH,
+	IOV_TOTAL
+};
+
 static int send_reconf(struct dhcp_assignment *assign)
 {
-	struct {
-		struct dhcpv6_client_header hdr;
-		uint16_t srvid_type;
-		uint16_t srvid_len;
-		uint16_t duid_type;
-		uint16_t hardware_type;
-		uint8_t mac[6];
-		uint16_t msg_type;
-		uint16_t msg_len;
-		uint8_t msg_id;
-		struct dhcpv6_auth_reconfigure auth;
-		uint16_t clid_type;
-		uint16_t clid_len;
-		uint8_t clid_data[128];
-	} __attribute__((packed)) reconf_msg = {
-		.hdr = {DHCPV6_MSG_RECONFIGURE, {0, 0, 0}},
-		.srvid_type = htons(DHCPV6_OPT_SERVERID),
-		.srvid_len = htons(10),
-		.duid_type = htons(3),
-		.hardware_type = htons(1),
-		.msg_type = htons(DHCPV6_OPT_RECONF_MSG),
-		.msg_len = htons(1),
-		.msg_id = DHCPV6_MSG_RENEW,
-		.auth = {htons(DHCPV6_OPT_AUTH),
-				htons(sizeof(reconf_msg.auth) - 4), 3, 1, 0,
-				{htonl(time(NULL)), htonl(++serial)}, 2, {0}},
-		.clid_type = htons(DHCPV6_OPT_CLIENTID),
-		.clid_len = htons(assign->clid_len),
-		.clid_data = {0},
-	};
 	struct interface *iface = assign->iface;
+	struct dhcpv6_client_header hdr = {
+		.msg_type = DHCPV6_MSG_RECONFIGURE,
+		.transaction_id = { 0, 0, 0 },
+	};
+	struct {
+		uint16_t code;
+		uint16_t len;
+		uint8_t data[DUID_MAX_LEN];
+	} _packed serverid = {
+		.code = htons(DHCPV6_OPT_SERVERID),
+		.len = 0,
+		.data = { 0 },
+	};
+	struct {
+		uint16_t code;
+		uint16_t len;
+		uint8_t data[DUID_MAX_LEN];
+	} _packed clientid = {
+		.code = htons(DHCPV6_OPT_CLIENTID),
+		.len = htons(assign->clid_len),
+		.data = { 0 },
+	};
+	struct {
+		uint16_t code;
+		uint16_t len;
+		uint8_t id;
+	} _packed message = {
+		.code = htons(DHCPV6_OPT_RECONF_MSG),
+		.len = htons(1),
+		.id = DHCPV6_MSG_RENEW,
+	};
+	struct dhcpv6_auth_reconfigure auth =  {
+		.type = htons(DHCPV6_OPT_AUTH),
+		.len = htons(sizeof(struct dhcpv6_auth_reconfigure)),
+		.protocol = 3,
+		.algorithm = 1,
+		.rdm = 0,
+		.replay = { htonl(time(NULL)), htonl(++serial) },
+		.reconf_type = 2,
+		.key = { 0 },
+	};
 
-	odhcpd_get_mac(iface, reconf_msg.mac);
-	memcpy(reconf_msg.clid_data, assign->clid_data, assign->clid_len);
-	struct iovec iov = {&reconf_msg, sizeof(reconf_msg) - 128 + assign->clid_len};
+	uint8_t duid_ll_hdr[] = { 0x00, 0x03, 0x00, 0x01 };
+	memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
+	odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
+	serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+
+	memcpy(clientid.data, assign->clid_data, assign->clid_len);
+
+	struct iovec iov[IOV_MAX] = {
+		[IOV_HDR] = { &hdr, sizeof(hdr) },
+		[IOV_SERVERID] = { &serverid, sizeof(serverid) },
+		[IOV_CLIENTID] = { &clientid, sizeof(clientid) },
+		[IOV_MESSAGE] = { &message, sizeof(message) },
+		[IOV_AUTH] = { &auth, sizeof(auth) },
+	};
 
 	md5_ctx_t md5;
 	uint8_t secretbytes[64];
@@ -185,8 +216,9 @@ static int send_reconf(struct dhcp_assignment *assign)
 
 	md5_begin(&md5);
 	md5_hash(secretbytes, sizeof(secretbytes), &md5);
-	md5_hash(iov.iov_base, iov.iov_len, &md5);
-	md5_end(reconf_msg.auth.key, &md5);
+	for (size_t i = 0; i < ARRAY_SIZE(iov); i++)
+		md5_hash(iov[i].iov_base, iov[i].iov_len, &md5);
+	md5_end(auth.key, &md5);
 
 	for (size_t i = 0; i < sizeof(secretbytes); ++i) {
 		secretbytes[i] ^= 0x36;
@@ -195,10 +227,10 @@ static int send_reconf(struct dhcp_assignment *assign)
 
 	md5_begin(&md5);
 	md5_hash(secretbytes, sizeof(secretbytes), &md5);
-	md5_hash(reconf_msg.auth.key, 16, &md5);
-	md5_end(reconf_msg.auth.key, &md5);
+	md5_hash(auth.key, 16, &md5);
+	md5_end(auth.key, &md5);
 
-	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, &iov, 1, iface);
+	return odhcpd_send(iface->dhcpv6_event.uloop.fd, &assign->peer, iov, ARRAY_SIZE(iov), iface);
 }
 
 static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)

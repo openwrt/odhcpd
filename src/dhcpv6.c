@@ -166,6 +166,7 @@ out:
 enum {
 	IOV_NESTED = 0,
 	IOV_DEST,
+	IOV_CLIENTID,
 	IOV_MAXRT,
 #define IOV_STAT IOV_MAXRT
 	IOV_RAPID_COMMIT,
@@ -364,27 +365,33 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	debug("Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
-	struct __attribute__((packed)) {
+	struct _packed {
 		uint8_t msg_type;
 		uint8_t tr_id[3];
 		uint16_t serverid_type;
 		uint16_t serverid_length;
-		uint16_t duid_type;
-		uint16_t hardware_type;
-		uint8_t mac[6];
-		uint16_t clientid_type;
-		uint16_t clientid_length;
-		uint8_t clientid_buf[130];
+		uint8_t serverid_buf[DUID_MAX_LEN];
 	} dest = {
 		.msg_type = DHCPV6_MSG_REPLY,
 		.serverid_type = htons(DHCPV6_OPT_SERVERID),
-		.serverid_length = htons(10),
-		.duid_type = htons(3),
-		.hardware_type = htons(1),
-		.clientid_type = htons(DHCPV6_OPT_CLIENTID),
-		.clientid_buf = {0}
+		.serverid_length = 0,
+		.serverid_buf = { 0 },
 	};
-	odhcpd_get_mac(iface, dest.mac);
+
+	uint8_t duid_ll_hdr[] = { 0x00, 0x03, 0x00, 0x01 };
+	memcpy(dest.serverid_buf, duid_ll_hdr, sizeof(duid_ll_hdr));
+	odhcpd_get_mac(iface, &dest.serverid_buf[sizeof(duid_ll_hdr)]);
+	dest.serverid_length = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+
+	struct _packed {
+		uint16_t type;
+		uint16_t len;
+		uint8_t buf[DUID_MAX_LEN];
+	} clientid = {
+		.type = htons(DHCPV6_OPT_CLIENTID),
+		.len = 0,
+		.buf = { 0 },
+	};
 
 	struct __attribute__((packed)) {
 		uint16_t type;
@@ -623,7 +630,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	uint8_t pdbuf[512];
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_NESTED] = {NULL, 0},
-		[IOV_DEST] = {&dest, (uint8_t*)&dest.clientid_type - (uint8_t*)&dest},
+		[IOV_DEST] = {&dest, offsetof(typeof(dest), serverid_buf) + ntohs(dest.serverid_length) },
+		[IOV_CLIENTID] = {&clientid, 0},
 		[IOV_MAXRT] = {&maxrt, sizeof(maxrt)},
 		[IOV_RAPID_COMMIT] = {&rapid_commit, 0},
 		[IOV_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
@@ -659,13 +667,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	/* Go through options and find what we need */
 	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_CLIENTID && olen <= 130) {
-			dest.clientid_length = htons(olen);
-			memcpy(dest.clientid_buf, odata, olen);
-			iov[IOV_DEST].iov_len += 4 + olen;
+		if (otype == DHCPV6_OPT_CLIENTID && olen <= DUID_MAX_LEN) {
+			clientid.len = htons(olen);
+			memcpy(clientid.buf, odata, olen);
+			iov[IOV_CLIENTID].iov_len = offsetof(typeof(clientid), buf) + olen;
 		} else if (otype == DHCPV6_OPT_SERVERID) {
 			if (olen != ntohs(dest.serverid_length) ||
-					memcmp(odata, &dest.duid_type, olen))
+			    memcmp(odata, &dest.serverid_buf, olen))
 				return; /* Not for us */
 		} else if (iface->filter_class && otype == DHCPV6_OPT_USER_CLASS) {
 			uint8_t *c = odata, *cend = &odata[olen];

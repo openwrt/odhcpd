@@ -20,6 +20,7 @@
 #include <libubox/vlist.h>
 
 #include "odhcpd.h"
+#include "router.h"
 #include "dhcpv6-pxe.h"
 
 static struct blob_buf b;
@@ -289,8 +290,12 @@ static void set_interface_defaults(struct interface *iface)
 	iface->ra_flags = ND_RA_FLAG_OTHER;
 	iface->ra_slaac = true;
 	iface->ra_maxinterval = 600;
+	/*
+	 * RFC4861: MinRtrAdvInterval: Default: 0.33 * MaxRtrAdvInterval If
+	 * MaxRtrAdvInterval >= 9 seconds; otherwise, the Default is MaxRtrAdvInterval.
+	 */
 	iface->ra_mininterval = iface->ra_maxinterval/3;
-	iface->ra_lifetime = -1;
+	iface->ra_lifetime = 3 * iface->ra_maxinterval; /* RFC4861: AdvDefaultLifetime: Default: 3 * MaxRtrAdvInterval */
 	iface->ra_dns = true;
 	iface->pio_update = false;
 }
@@ -426,23 +431,19 @@ static void set_config(struct uci_section *s)
 	}
 }
 
-static double parse_leasetime(struct blob_attr *c) {
+static uint32_t parse_leasetime(struct blob_attr *c) {
 	char *val = blobmsg_get_string(c), *endptr = NULL;
-	double time = strcmp(val, "infinite") ? strtod(val, &endptr) : UINT32_MAX;
+	uint32_t time = strcmp(val, "infinite") ? (uint32_t)strtod(val, &endptr) : UINT32_MAX;
 
 	if (time && endptr && endptr[0]) {
-		if (endptr[0] == 's')
-			time *= 1;
-		else if (endptr[0] == 'm')
-			time *= 60;
-		else if (endptr[0] == 'h')
-			time *= 3600;
-		else if (endptr[0] == 'd')
-			time *= 24 * 3600;
-		else if (endptr[0] == 'w')
-			time *= 7 * 24 * 3600;
-		else
-			goto err;
+		switch(endptr[0]) {
+			case 's': break; /* seconds */
+			case 'm': time *= 60; break; /* minutes */
+			case 'h': time *= 3600; break; /* hours */
+			case 'd': time *= 24 * 3600; break; /* days */
+			case 'w': time *= 7 * 24 * 3600; break; /* weeks */
+			default: goto err;
+		}
 	}
 
 	if (time < 60)
@@ -451,7 +452,7 @@ static double parse_leasetime(struct blob_attr *c) {
 	return time;
 
 err:
-	return -1;
+	return 0;
 }
 
 static void free_lease(struct lease *l)
@@ -584,8 +585,8 @@ int set_lease_from_blobmsg(struct blob_attr *ba)
 	}
 
 	if ((c = tb[LEASE_ATTR_LEASETIME])) {
-		double time = parse_leasetime(c);
-		if (time < 0)
+		uint32_t time = parse_leasetime(c);
+		if (time == 0)
 			goto err;
 
 		l->leasetime = time;
@@ -1060,9 +1061,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->no_dynamic_dhcp = !blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_LEASETIME])) {
-		double time = parse_leasetime(c);
+		uint32_t time = parse_leasetime(c);
 
-		if (time >= 0)
+		if (time > 0)
 			iface->dhcp_leasetime = time;
 		else
 			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
@@ -1071,25 +1072,25 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_MAX_PREFERRED_LIFETIME])) {
-		double time = parse_leasetime(c);
+		uint32_t time = parse_leasetime(c);
 
-		if (time >= 0) {
+		if (time > 0)
 			iface->max_preferred_lifetime = time;
-		} else {
+		else
 			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
 			       iface_attrs[IFACE_ATTR_MAX_PREFERRED_LIFETIME].name, iface->name);
-		}
+
 	}
 
 	if ((c = tb[IFACE_ATTR_MAX_VALID_LIFETIME])) {
-		double time = parse_leasetime(c);
+		uint32_t time = parse_leasetime(c);
 
-		if (time >= 0) {
+		if (time > 0)
 			iface->max_valid_lifetime = time;
-		} else {
+		else
 			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
 			       iface_attrs[IFACE_ATTR_MAX_VALID_LIFETIME].name, iface->name);
-		}
+
 	}
 
 	if ((c = tb[IFACE_ATTR_START])) {
@@ -1302,25 +1303,32 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_PD_MIN_LEN])) {
 		uint32_t pd_min_len = blobmsg_get_u32(c);
-		if (pd_min_len != 0 && pd_min_len <= PD_MIN_LEN_MAX)
-			iface->dhcpv6_pd_min_len = pd_min_len;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name);
+		if (pd_min_len > PD_MIN_LEN_MAX)
+			iface->dhcpv6_pd_min_len = PD_MIN_LEN_MAX;
+		iface->dhcpv6_pd_min_len = pd_min_len;
+		if (pd_min_len >= PD_MIN_LEN_MAX)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, iface->dhcpv6_pd_min_len);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
 		iface->dhcpv6_na = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_HOSTID_LEN])) {
-		uint32_t hostid_len = blobmsg_get_u32(c);
+		uint32_t original_hostid_len, hostid_len;
+		original_hostid_len = hostid_len = blobmsg_get_u32(c);
 
-		if (hostid_len >= HOSTID_LEN_MIN && hostid_len <= HOSTID_LEN_MAX)
-			iface->dhcpv6_hostid_len = hostid_len;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-				iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name);
+		if (hostid_len < HOSTID_LEN_MIN)
+			hostid_len = HOSTID_LEN_MIN;
+		else if (hostid_len > HOSTID_LEN_MAX)
+			hostid_len = HOSTID_LEN_MAX;
 
+		iface->dhcpv6_hostid_len = hostid_len;
+
+		if (original_hostid_len != hostid_len) {
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+				   iface_attrs[IFACE_ATTR_DHCPV6_HOSTID_LEN].name, iface->name, iface->dhcpv6_hostid_len);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
@@ -1358,41 +1366,48 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);
 
-		if (ra_reachabletime <= 3600000)
-			iface->ra_reachabletime = ra_reachabletime;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name);
+		/* RFC4861 §6.2.1 : AdvReachableTime : 
+		 * MUST be no greater than 3,600,000 msec
+		 */
+		iface->ra_reachabletime = ra_reachabletime <= AdvReachableTime ? ra_reachabletime : AdvReachableTime;
+		if(ra_reachabletime > AdvReachableTime)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_REACHABLETIME].name, iface->name, iface->ra_reachabletime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_RETRANSTIME])) {
 		uint32_t ra_retranstime = blobmsg_get_u32(c);
 
-		if (ra_retranstime <= 60000)
-			iface->ra_retranstime = ra_retranstime;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name);
+		iface->ra_retranstime = ra_retranstime <= RETRANS_TIMER_MAX ? ra_retranstime : RETRANS_TIMER_MAX;
+		if (ra_retranstime > RETRANS_TIMER_MAX)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_RETRANSTIME].name, iface->name, iface->ra_retranstime);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_HOPLIMIT])) {
 		uint32_t ra_hoplimit = blobmsg_get_u32(c);
 
-		if (ra_hoplimit <= 255)
-			iface->ra_hoplimit = ra_hoplimit;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name);
+		/* RFC4861 §6.2.1 : AdvCurHopLimit */
+		iface->ra_hoplimit = ra_hoplimit <= AdvCurHopLimit ? ra_hoplimit : AdvCurHopLimit;
+		if(ra_hoplimit > AdvCurHopLimit)
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+					iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name, iface->ra_hoplimit);
+
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
-		uint32_t ra_mtu = blobmsg_get_u32(c);
+		uint32_t original_ra_mtu, ra_mtu;
+		original_ra_mtu = ra_mtu = blobmsg_get_u32(c);
+		if (ra_mtu < RA_MTU_MIN)
+			ra_mtu = RA_MTU_MIN;
+		else if (ra_mtu > RA_MTU_MAX)
+			ra_mtu = RA_MTU_MAX;
+		iface->ra_mtu = ra_mtu;
 
-		if (ra_mtu >= 1280 || ra_mtu <= 65535)
-			iface->ra_mtu = ra_mtu;
-		else
-			syslog(LOG_ERR, "Invalid %s value configured for interface '%s'",
-					iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name);
+		if (original_ra_mtu != ra_mtu) {
+			syslog(LOG_WARNING, "Clamped invalid %s value configured for interface '%s' to %d",
+				iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_SLAAC]))
@@ -1404,14 +1419,50 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_ADVROUTER]))
 		iface->ra_advrouter = blobmsg_get_bool(c);
 
-	if ((c = tb[IFACE_ATTR_RA_MININTERVAL]))
-		iface->ra_mininterval =  blobmsg_get_u32(c);
+	/*
+	 * RFC4861: MaxRtrAdvInterval: MUST be no less than 4 seconds and no greater than 1800 seconds.
+	 * RFC8319: MaxRtrAdvInterval: MUST be no less than 4 seconds and no greater than 65535 seconds.
+	 * Default: 600 seconds
+	 */
+	if ((c = tb[IFACE_ATTR_RA_MAXINTERVAL])){
+		uint32_t ra_maxinterval = blobmsg_get_u32(c);
+		if (ra_maxinterval < 4)
+			ra_maxinterval = 4;
+		else if (ra_maxinterval > MaxRtrAdvInterval) 
+				ra_maxinterval = MaxRtrAdvInterval;
+		iface->ra_maxinterval = ra_maxinterval;
+	}
 
-	if ((c = tb[IFACE_ATTR_RA_MAXINTERVAL]))
-		iface->ra_maxinterval = blobmsg_get_u32(c);
+	/*
+	 * RFC4861: MinRtrAdvInterval: MUST be no less than 3 seconds and no greater than .75 * MaxRtrAdvInterval.
+	 * Default: 0.33 * MaxRtrAdvInterval If MaxRtrAdvInterval >= 9 seconds; otherwise, the
+	 * Default is MaxRtrAdvInterval.
+	 */
+	if ((c = tb[IFACE_ATTR_RA_MININTERVAL])){
+		uint32_t ra_mininterval = blobmsg_get_u32(c);
+		if (ra_mininterval < MinRtrAdvInterval)
+			ra_mininterval = MinRtrAdvInterval; // clamp min
+		else if (ra_mininterval > (0.75 * iface->ra_maxinterval)) 
+				ra_mininterval = 0.75 * iface->ra_maxinterval; // clamp max
+		iface->ra_mininterval = ra_mininterval;
+	}
 
-	if ((c = tb[IFACE_ATTR_RA_LIFETIME]))
-		iface->ra_lifetime = blobmsg_get_u32(c);
+	/* 
+	 * RFC4861: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 9000 seconds.
+	 * RFC8319: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 65535 seconds.
+	 * Default: 3 * MaxRtrAdvInterval
+	 * i.e. 3 * 65535 => 65535 seconds.
+	 */
+	if ((c = tb[IFACE_ATTR_RA_LIFETIME])){
+		uint32_t ra_lifetime = blobmsg_get_u32(c);
+		if (ra_lifetime != 0){
+			if (ra_lifetime < iface->ra_maxinterval) 
+				ra_lifetime = iface->ra_maxinterval; // clamp min
+			else if (ra_lifetime > AdvDefaultLifetime)
+				ra_lifetime = AdvDefaultLifetime; // clamp max
+		}
+		iface->ra_lifetime = ra_lifetime;
+	}
 
 	if ((c = tb[IFACE_ATTR_RA_DNS]))
 		iface->ra_dns = blobmsg_get_bool(c);

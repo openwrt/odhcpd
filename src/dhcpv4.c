@@ -395,78 +395,91 @@ static bool dhcpv4_insert_lease(struct avl_tree *avl, struct dhcpv4_lease *lease
 		return false;
 }
 
+static bool dhcpv4_assign_random(struct interface *iface,
+				 struct dhcpv4_lease *lease)
+{
+	uint32_t pool_start = ntohl(iface->dhcpv4_start_ip.s_addr);
+	uint32_t pool_end = ntohl(iface->dhcpv4_end_ip.s_addr);
+	uint32_t pool_size = pool_end - pool_start + 1;
+	unsigned short xsubi[3];
+	uint32_t try;
+
+	/* Pick a random starting point, using hwaddr as seed... */
+	memcpy(xsubi, lease->hwaddr, sizeof(xsubi));
+	try = pool_start + nrand48(xsubi) % pool_size;
+
+	/* ...then loop over the whole pool from that point */
+	for (uint32_t i = 0; i < pool_size; i++, try++) {
+		struct in_addr in_try;
+
+		if (try > pool_end)
+			try = pool_start;
+
+		in_try.s_addr = htonl(try);
+
+		if (config_find_lease_cfg_by_ipv4(in_try))
+			continue;
+
+		if (dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, in_try))
+			return true;
+	}
+
+	return false;
+}
+
 static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 			  struct in_addr req_addr)
 {
-	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
-	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
-	uint32_t count = end - start + 1;
-	uint32_t seed = 0;
+	uint32_t pool_start = ntohl(iface->dhcpv4_start_ip.s_addr);
+	uint32_t pool_end = ntohl(iface->dhcpv4_end_ip.s_addr);
 	char ipv4_str[INET_ADDRSTRLEN];
+	const char *addr_type = NULL;
 
 	/* Preconfigured IP address by static lease */
 	if (lease->ipv4.s_addr) {
 		if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, lease->ipv4)) {
-			error("The static IP address is already assigned: %s",
-			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
+			error("The static IP address %s is already assigned on %s",
+			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)),
+			      iface->name);
 			return false;
 		}
 
-		debug("Assigned static IP address: %s",
-		      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
-
-		iface->update_statefile = true;
-		return true;
+		addr_type = "static";
+		goto out;
 	}
 
-	/* The client asked for a specific address, let's try... */
-	if (ntohl(req_addr.s_addr) < start || ntohl(req_addr.s_addr) > end) {
-		debug("The requested IP address is outside the pool: %s",
-		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
-	} else if (config_find_lease_cfg_by_ipv4(req_addr)) {
-		debug("The requested IP address is statically assigned: %s",
-		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
-	} else if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, req_addr)) {
-		debug("The requested IP address is already assigned: %s",
-		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
-	} else {
-		debug("Assigned the requested IP address: %s",
-		      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
-		iface->update_statefile = true;
-		return true;
-	}
-
-	/* Ok, we'll have to pick an address for the client... */
-	for (size_t i = 0; i < sizeof(lease->hwaddr); ++i) {
-		/* ...hash the hwaddr (Knuth's multiplicative method)... */
-		uint8_t o = lease->hwaddr[i];
-		seed += (o * 2654435761) % UINT32_MAX;
-	}
-
-	/* ...use it to seed the RNG... */
-	srand(seed);
-
-	/* ...and try a bunch of times to assign a randomly chosen address */
-	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
-	     ++i, try = (((try - start) + 1) % count) + start) {
-		struct in_addr n_try = { .s_addr = htonl(try) };
-
-		if (config_find_lease_cfg_by_ipv4(n_try))
-			continue;
-
-		if (dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, n_try)) {
-			debug("Assigned IP adress from pool: %s (succeeded on attempt %u of %u)",
-			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)),
-			      i + 1, count);
-
-			iface->update_statefile = true;
-			return true;
+	if (req_addr.s_addr != INADDR_ANY) {
+		/* The client asked for a specific address, let's try... */
+		if (ntohl(req_addr.s_addr) < pool_start || ntohl(req_addr.s_addr) > pool_end) {
+			debug("The requested IP address %s is outside the pool on %s",
+			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
+			      iface->ifname);
+		} else if (config_find_lease_cfg_by_ipv4(req_addr)) {
+			debug("The requested IP address %s is statically assigned on %s",
+			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
+			      iface->ifname);
+		} else if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, req_addr)) {
+			debug("The requested IP address %s is already assigned on %s",
+			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
+			      iface->ifname);
+		} else {
+			addr_type = "requested";
+			goto out;
 		}
 	}
 
-	warn("Can't assign any IP address -> address space is full");
+	if (!dhcpv4_assign_random(iface, lease)) {
+		warn("Can't assign any IP address, DHCP pool exhausted on %s", iface->name);
+		return false;
+	}
+	addr_type = "random";
 
-	return false;
+out:
+	debug("Assigned %s IP address %s on %s", addr_type,
+	      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)),
+	      iface->ifname);
+	iface->update_statefile = true;
+	return true;
 }
 
 static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
@@ -538,10 +551,8 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	 * hwaddr, we need to clear out any old assignments given to other
 	 * hwaddrs in order to take over the IP address.
 	 */
-	if (lease_cfg && !lease && (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
-		if (lease_cfg->dhcpv4_lease)
-			dhcpv4_free_lease(lease_cfg->dhcpv4_lease);
-	}
+	if (lease_cfg && !lease && (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST))
+		dhcpv4_free_lease(lease_cfg->dhcpv4_lease);
 
 	if (lease_cfg && lease && lease->lease_cfg != lease_cfg) {
 		dhcpv4_free_lease(lease);

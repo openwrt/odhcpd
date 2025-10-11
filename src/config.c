@@ -1069,6 +1069,11 @@ err:
 	return -1;
 }
 
+static int avl_ipv4_cmp(const void *k1, const void *k2, _unused void *ptr)
+{
+	return memcmp(k1, k2, sizeof(struct in_addr));
+}
+
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
 	struct odhcpd_ipaddr *addrs = NULL;
@@ -1103,7 +1108,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
-		INIT_LIST_HEAD(&iface->dhcpv4_leases);
+		avl_init(&iface->dhcpv4_leases, avl_ipv4_cmp, false, iface);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
 		set_interface_defaults(iface);

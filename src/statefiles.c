@@ -139,7 +139,7 @@ static void statefiles_write_hosts(time_t now)
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
 			struct dhcpv4_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->dhcpv4_leases, head) {
+			avl_for_each_element(&ctxt.iface->dhcpv4_leases, lease, iface_avl) {
 				if (!(lease->flags & OAF_BOUND))
 					continue;
 
@@ -297,7 +297,7 @@ static bool statefiles_write_state(time_t now)
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
 			struct dhcpv4_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->dhcpv4_leases, head) {
+			avl_for_each_element(&ctxt.iface->dhcpv4_leases, lease, iface_avl) {
 				if (!(lease->flags & OAF_BOUND))
 					continue;
 

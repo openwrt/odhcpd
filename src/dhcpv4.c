@@ -84,7 +84,7 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	struct dhcpv4_lease *lease = NULL;
 	struct odhcpd_ref_ip *fr_ip = NULL;
 
-	list_for_each_entry(lease, &iface->dhcpv4_leases, head) {
+	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
 		if ((lease->accept_fr_nonce || iface->dhcpv4_forcereconf) &&
 		    !lease->fr_ip &&
 		    ((lease->addr & mask) == (addr->addr.in.s_addr & mask))) {
@@ -333,13 +333,17 @@ static void dhcpv4_fr_rand_delay(struct dhcpv4_lease *lease)
 
 void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 {
+	if (!lease)
+		return;
+
 	if (lease->fr_ip)
 		dhcpv4_fr_stop(lease);
 
-	if (lease->iface)
+	if (lease->iface) {
 		lease->iface->update_statefile = true;
+		avl_delete(&lease->iface->dhcpv4_leases, &lease->iface_avl);
+	}
 
-	list_del(&lease->head);
 	if (lease->lease_cfg)
 		lease->lease_cfg->dhcpv4_lease = NULL;
 
@@ -361,8 +365,7 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
 	if (!lease)
 		return NULL;
 
-	INIT_LIST_HEAD(&lease->head);
-
+	lease->iface_avl.key = &lease->addr;
 	lease->hwaddr_len = hwaddr_len;
 	memcpy(lease->hwaddr, hwaddr, hwaddr_len);
 	if (duid_len > 0) {
@@ -375,27 +378,14 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
 	return lease;
 }
 
-static bool dhcpv4_insert_lease(struct list_head *list, struct dhcpv4_lease *lease,
+static bool dhcpv4_insert_lease(struct avl_tree *avl, struct dhcpv4_lease *lease,
 				uint32_t addr)
 {
-	uint32_t h_addr = ntohl(addr);
-	struct dhcpv4_lease *c;
-
-	list_for_each_entry(c, list, head) {
-		uint32_t c_addr = ntohl(c->addr);
-
-		if (c_addr == h_addr)
-			return false;
-
-		if (c_addr > h_addr)
-			break;
-	}
-
-	/* Insert new node before c (might match list head) */
 	lease->addr = addr;
-	list_add_tail(&lease->head, &c->head);
-
-	return true;
+	if (!avl_insert(avl, &lease->iface_avl))
+		return true;
+	else
+		return false;
 }
 
 static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
@@ -476,7 +466,7 @@ static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const 
 {
 	struct dhcpv4_lease *lease;
 
-	list_for_each_entry(lease, &iface->dhcpv4_leases, head)
+	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl)
 		if (!memcmp(lease->hwaddr, hwaddr, 6))
 			return lease;
 
@@ -489,7 +479,7 @@ find_lease_by_duid_iaid(struct interface *iface, const uint8_t *duid,
 {
 	struct dhcpv4_lease *lease;
 
-	list_for_each_entry(lease, &iface->dhcpv4_leases, head) {
+	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
 		if (lease->duid_len != duid_len || lease->iaid != iaid)
 			continue;
 		if (!memcmp(lease->duid, duid, duid_len))
@@ -594,7 +584,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
 		    !(lease->flags & OAF_STATIC)) {
 			/* Try to reassign to an address that is in-scope */
-			list_del_init(&lease->head);
+			avl_delete(&iface->dhcpv4_leases, &lease->iface_avl);
 			lease->addr = INADDR_ANY;
 			if (!dhcpv4_assign(iface, lease, req_addr)) {
 				dhcpv4_free_lease(lease);
@@ -1428,9 +1418,10 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	}
 
 	if (!enable || iface->dhcpv4 == MODE_DISABLED) {
-		while (!list_empty(&iface->dhcpv4_leases))
-			dhcpv4_free_lease(list_first_entry(&iface->dhcpv4_leases,
-							   struct dhcpv4_lease, head));
+		struct dhcpv4_lease *lease, *tmp;
+
+		avl_remove_all_elements(&iface->dhcpv4_leases, lease, iface_avl, tmp)
+			dhcpv4_free_lease(lease);
 		return 0;
 	}
 
@@ -1541,7 +1532,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 		return;
 	}
 
-	list_for_each_entry(lease, &iface->dhcpv4_leases, head) {
+	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
 		if ((lease->flags & OAF_BOUND) && lease->fr_ip && !lease->fr_cnt) {
 			if (lease->accept_fr_nonce || iface->dhcpv4_forcereconf)
 				dhcpv4_fr_rand_delay(lease);
@@ -1582,7 +1573,7 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 		if (iface->dhcpv4 != MODE_SERVER)
 			continue;
 
-		list_for_each_entry_safe(lease, tmp, &iface->dhcpv4_leases, head) {
+		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp) {
 			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now) {
 				ubus_bcast_dhcp_event("dhcp.expire", lease->hwaddr,
 						      (struct in_addr *)&lease->addr,

@@ -232,7 +232,7 @@ struct duid {
 struct odhcpd_ref_ip;
 
 struct dhcpv4_lease {
-	struct list_head head;			// struct interface->dhcpv4_assignments
+	struct avl_node iface_avl;		// struct interface->dhcpv4_leases
 
 	struct interface *iface;		// assignment interface, non-null
 	struct lease_cfg *lease_cfg;		// host lease cfg, nullable
@@ -367,7 +367,7 @@ struct interface {
 
 	// DHCPv4 runtime data
 	struct odhcpd_event dhcpv4_event;
-	struct list_head dhcpv4_leases;
+	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
 
 	// Services

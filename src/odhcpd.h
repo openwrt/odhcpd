@@ -167,8 +167,6 @@ enum odhcpd_assignment_flags {
 };
 
 struct config {
-	bool legacy;
-	bool main_dhcpv4;
 	char *dhcp_cb;
 	char *dhcp_statefile;
 	char *dhcp_hostsfile;

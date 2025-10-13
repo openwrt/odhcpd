@@ -123,7 +123,7 @@ and may also receive information from ubus
 ### Sections of type host (static leases)
 | Option		| Type	|Default| Description |
 | :-------------------- | :---- | :---- | :---------- |
-| ip			|string	|(none) | IPv4 host address |
+| ip			|string	|(none) | IPv4 host address or `ignore` to ignore any DHCP request from this host |
 | mac			|list\|string|(none) | HexadecimalMACaddress(es) |
 | duid			|list\|string|(none) | Hexadecimal DUID(s), or DUID%IAID(s) |
 | hostid		|string	|(none)	| IPv6hostidentifier |

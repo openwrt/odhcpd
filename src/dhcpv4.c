@@ -36,8 +36,6 @@
 #include "dhcpv4.h"
 #include "dhcpv6.h"
 
-#define PACKET_SIZE(start, end) (((uint8_t *)end - (uint8_t *)start) < DHCPV4_MIN_PACKET_SIZE ? \
-				 DHCPV4_MIN_PACKET_SIZE : (uint8_t *)end - (uint8_t *)start)
 #define MAX_PREFIX_LEN 28
 
 static uint32_t serial = 0;
@@ -105,7 +103,7 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	return fr_ip ? true : false;
 }
 
-static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
+static const char *dhcpv4_msg_to_string(uint8_t req_msg)
 {
 	static const char *dhcpv4_msg_names[] = {
 		[DHCPV4_MSG_DISCOVER]		= "DHCPV4_MSG_DISCOVER",
@@ -128,39 +126,64 @@ static const char *dhcpv4_msg_to_string(uint8_t reqmsg)
 		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
 	};
 
-	if (reqmsg >= ARRAY_SIZE(dhcpv4_msg_names))
+	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names))
 		return "UNKNOWN";
-	return dhcpv4_msg_names[reqmsg];
+	return dhcpv4_msg_names[req_msg];
 }
 
-static void dhcpv4_put(struct dhcpv4_message *msg, uint8_t **cursor,
-		uint8_t type, uint8_t len, const void *data)
+static ssize_t dhcpv4_send_reply(struct iovec *iov, size_t iov_len,
+				 struct sockaddr *dest, socklen_t dest_len,
+				 void *opaque)
 {
-	uint8_t *c = *cursor;
-	uint8_t *end = (uint8_t *)msg + sizeof(*msg);
-	bool tag_only = type == DHCPV4_OPT_PAD || type == DHCPV4_OPT_END;
-	int total_len = tag_only ? 1 : 2 + len;
+	int *sock = opaque;
+	struct msghdr msg = {
+		.msg_name = dest,
+		.msg_namelen = dest_len,
+		.msg_iov = iov,
+		.msg_iovlen = iov_len,
+	};
 
-	if (*cursor + total_len > end)
-		return;
-
-	*cursor += total_len;
-	*c++ = type;
-
-	if (tag_only)
-		return;
-
-	*c++ = len;
-	memcpy(c, data, len);
+	return sendmsg(*sock, &msg, MSG_DONTWAIT);
 }
+
+static void dhcpv4_add_padding(struct iovec *iov, size_t iovlen)
+{
+	// Theoretical max padding = vendor-specific area, RFC951, §3
+	static uint8_t padding[64] = { 0 };
+	size_t len = 0;
+
+	if (!iov || !iovlen)
+		return;
+
+	iov[iovlen - 1].iov_base = padding;
+	iov[iovlen - 1].iov_len = 0;
+
+	for (size_t i = 0; i < iovlen; i++)
+		len += iov[i].iov_len;
+
+	if (len < DHCPV4_MIN_PACKET_SIZE)
+		iov[iovlen - 1].iov_len = DHCPV4_MIN_PACKET_SIZE - len;
+}
+
+enum {
+	IOV_FR_HEADER = 0,
+	IOV_FR_MESSAGE,
+	IOV_FR_AUTH,
+	IOV_FR_AUTH_BODY,
+	IOV_FR_SERVERID,
+	IOV_FR_END,
+	IOV_FR_PADDING,
+	IOV_FR_TOTAL
+};
 
 static void dhcpv4_fr_send(struct dhcp_assignment *a)
 {
-	struct dhcpv4_message fr_msg = {
+	struct dhcpv4_message fr = {
 		.op = DHCPV4_OP_BOOTREPLY,
 		.htype = ARPHRD_ETHER,
 		.hlen = ETH_ALEN,
 		.hops = 0,
+		.xid = 0,
 		.secs = 0,
 		.flags = 0,
 		.ciaddr = { INADDR_ANY },
@@ -172,44 +195,67 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 		.file = { 0 },
 		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
 	};
-	struct dhcpv4_auth_forcerenew *auth_o, auth = {
+	struct dhcpv4_option_u8 fr_msg = {
+		.code = DHCPV4_OPT_MESSAGE,
+		.len = sizeof(uint8_t),
+		.data = DHCPV4_MSG_FORCERENEW,
+	};
+	struct dhcpv4_auth_forcerenew fr_auth_body = {
 		.protocol = DHCPV4_AUTH_PROTO_RKAP,
 		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
 		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
-		.replay = { htonl(time(NULL)), htonl(++serial) },
 		.type = DHCPV4_AUTH_RKAP_AI_TYPE_MD5_DIGEST,
 		.key = { 0 },
 	};
-	struct interface *iface = a->iface;
-	uint8_t *cursor = fr_msg.options;
-	uint8_t msg = DHCPV4_MSG_FORCERENEW;
+	struct dhcpv4_option fr_auth = {
+		.code = DHCPV4_OPT_AUTHENTICATION,
+		.len = sizeof(fr_auth_body),
+	};
+	struct dhcpv4_option_u32 fr_serverid = {
+		.code = DHCPV4_OPT_SERVERID,
+		.len = sizeof(struct in_addr),
+		.data = a->fr_ip->addr.addr.in.s_addr,
+	};
+	uint8_t fr_end = DHCPV4_OPT_END;
+
+	struct iovec iov[IOV_FR_TOTAL] = {
+		[IOV_FR_HEADER]		= { &fr, sizeof(fr) },
+		[IOV_FR_MESSAGE]	= { &fr_msg, sizeof(fr_msg) },
+		[IOV_FR_AUTH]		= { &fr_auth, 0 },
+		[IOV_FR_AUTH_BODY]	= { &fr_auth_body, 0 },
+		[IOV_FR_SERVERID]	= { &fr_serverid, 0 },
+		[IOV_FR_END]		= { &fr_end, sizeof(fr_end) },
+		[IOV_FR_PADDING]	= { NULL, 0 },
+	};
+
 	struct sockaddr_in dest = {
 		.sin_family = AF_INET,
 		.sin_port = htons(DHCPV4_CLIENT_PORT),
 		.sin_addr = { a->addr },
 	};
 
-	odhcpd_urandom(&fr_msg.xid, sizeof(fr_msg.xid));
-	memcpy(fr_msg.chaddr, a->hwaddr, fr_msg.hlen);
+	odhcpd_urandom(&fr.xid, sizeof(fr.xid));
+	memcpy(fr.chaddr, a->hwaddr, fr.hlen);
 
-	dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_MESSAGE, sizeof(msg), &msg);
 	if (a->accept_fr_nonce) {
-		auth_o = (struct dhcpv4_auth_forcerenew *)cursor;
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
-
+		uint8_t secretbytes[64] = { 0 };
 		md5_ctx_t md5;
-		uint8_t secretbytes[64];
-		memset(secretbytes, 0, sizeof(secretbytes));
-		memcpy(secretbytes, a->key, sizeof(a->key));
 
+		fr_auth_body.replay[0] = htonl(time(NULL));
+		fr_auth_body.replay[1] = htonl(++serial);
+		iov[IOV_FR_AUTH].iov_len = sizeof(fr_auth);
+		iov[IOV_FR_AUTH_BODY].iov_len = sizeof(fr_auth_body);
+		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
+
+		memcpy(secretbytes, a->key, sizeof(a->key));
 		for (size_t i = 0; i < sizeof(secretbytes); ++i)
 			secretbytes[i] ^= 0x36;
 
 		md5_begin(&md5);
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		md5_hash(&fr_msg, sizeof(fr_msg), &md5);
-		md5_end(auth_o->key, &md5);
+		for (size_t i = 0; i < ARRAY_SIZE(iov); i++)
+			md5_hash(iov[i].iov_base, iov[i].iov_len, &md5);
+		md5_end(fr_auth_body.key, &md5);
 
 		for (size_t i = 0; i < sizeof(secretbytes); ++i) {
 			secretbytes[i] ^= 0x36;
@@ -218,21 +264,20 @@ static void dhcpv4_fr_send(struct dhcp_assignment *a)
 
 		md5_begin(&md5);
 		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		md5_hash(auth_o->key, sizeof(auth_o->key), &md5);
-		md5_end(auth_o->key, &md5);
+		md5_hash(fr_auth_body.key, sizeof(fr_auth_body.key), &md5);
+		md5_end(fr_auth_body.key, &md5);
 	} else {
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_SERVERID, 4,
-				&a->fr_ip->addr.addr.in.s_addr);
-		dhcpv4_put(&fr_msg, &cursor, DHCPV4_OPT_END, 0, NULL);
+		iov[IOV_FR_SERVERID].iov_len = sizeof(fr_serverid);
+		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 	}
 
-	if (sendto(iface->dhcpv4_event.uloop.fd, &fr_msg, PACKET_SIZE(&fr_msg, cursor),
-		   MSG_DONTWAIT, (struct sockaddr*)&dest, sizeof(dest)) < 0)
-		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(msg),
-			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
+	if (dhcpv4_send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest),
+			      &a->iface->dhcpv4_event.uloop.fd) < 0)
+		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
+		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 	else
-		syslog(LOG_DEBUG, "Sent %s to %s - %s", dhcpv4_msg_to_string(msg),
-			odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
+		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
+		      odhcpd_print_mac(a->hwaddr, sizeof(a->hwaddr)), inet_ntoa(dest.sin_addr));
 }
 
 static void dhcpv4_fr_stop(struct dhcp_assignment *a)
@@ -331,8 +376,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, a->addr);
 
 		if (assigned)
-			syslog(LOG_DEBUG, "Assigning static IP: %s",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+			debug("Assigning static IP: %s",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 
 		return assigned;
 	}
@@ -344,8 +389,8 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, raddr);
 
 		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning the IP the client asked for: %s",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
+			debug("Assigning the IP the client asked for: %s",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)));
 			return true;
 		}
 	}
@@ -370,15 +415,15 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 						    a, n_try);
 
 		if (assigned) {
-			syslog(LOG_DEBUG, "Assigning mapped IP: %s (try %u of %u)",
-			       inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
-			       i + 1, count);
+			debug("Assigning mapped IP: %s (try %u of %u)",
+			      inet_ntop(AF_INET, &a->addr, ipv4_str, sizeof(ipv4_str)),
+			      i + 1, count);
 
 			return true;
 		}
 	}
 
-	syslog(LOG_NOTICE, "Can't assign any IP address -> address space is full");
+	notice("Can't assign any IP address -> address space is full");
 
 	return false;
 }
@@ -398,7 +443,7 @@ static struct dhcp_assignment*
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	     const uint32_t reqaddr, uint32_t *leasetime, const char *hostname,
 	     const size_t hostname_len, const bool accept_fr_nonce, bool *incl_fr_opt,
-	     uint32_t *fr_serverid, const uint8_t *reqopts, const size_t reqopts_len)
+	     uint32_t *fr_serverid)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, mac);
 	struct lease *l = config_find_lease_by_mac(mac);
@@ -436,8 +481,8 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 				/* Create new binding */
 				a = alloc_assignment(0);
 				if (!a) {
-					syslog(LOG_WARNING, "Failed to alloc assignment on interface %s",
-							    iface->ifname);
+					warn("Failed to alloc assignment on interface %s",
+					     iface->ifname);
 					return NULL;
 				}
 				memcpy(a->hwaddr, mac, sizeof(a->hwaddr));
@@ -503,14 +548,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 					}
 				}
 
-				if (reqopts_len > 0) {
-					a->reqopts = realloc(a->reqopts, reqopts_len);
-					if (a->reqopts) {
-						memcpy(a->reqopts, reqopts, reqopts_len);
-						a->reqopts_len = reqopts_len;
-					}
-				}
-
 				if (!(a->flags & OAF_BOUND)) {
 					a->accept_fr_nonce = accept_fr_nonce;
 					*incl_fr_opt = accept_fr_nonce;
@@ -549,20 +586,251 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg msg, const uint8_t *mac,
 	return a;
 }
 
-static int dhcpv4_send_reply(const void *buf, size_t len,
-			     const struct sockaddr *dest, socklen_t dest_len,
-			     void *opaque)
+static void dhcpv4_set_dest_addr(const struct interface *iface,
+				 uint8_t reply_msg,
+				 const struct dhcpv4_message *req,
+				 const struct dhcpv4_message *reply,
+				 const struct sockaddr_in *src,
+				 struct sockaddr_in *dest)
 {
-	int *sock = opaque;
+	*dest = *src;
 
-	return sendto(*sock, buf, len, MSG_DONTWAIT, dest, dest_len);
+	//struct sockaddr_in dest = *((struct sockaddr_in*)addr);
+	if (req->giaddr.s_addr) {
+		/*
+		 * relay agent is configured, send reply to the agent
+		 */
+		dest->sin_addr = req->giaddr;
+		dest->sin_port = htons(DHCPV4_SERVER_PORT);
+
+	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest->sin_addr.s_addr) {
+		/*
+		 * client has existing configuration (ciaddr is set) AND this
+		 * address is not the address it used for the dhcp message
+		 */
+		dest->sin_addr = req->ciaddr;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else if (ntohs(req->flags) & DHCPV4_FLAG_BROADCAST ||
+		   req->hlen != reply->hlen || !reply->yiaddr.s_addr) {
+		/*
+		 * client requests a broadcast reply OR we can't offer an IP
+		 */
+		dest->sin_addr.s_addr = INADDR_BROADCAST;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else if (!req->ciaddr.s_addr && reply_msg == DHCPV4_MSG_NAK) {
+		/*
+		 * client has no previous configuration -> no IP, so we need to
+		 * reply with a broadcast packet
+		 */
+		dest->sin_addr.s_addr = INADDR_BROADCAST;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+	} else {
+		/*
+		 * send reply to the newly allocated IP
+		 */
+		dest->sin_addr = reply->yiaddr;
+		dest->sin_port = htons(DHCPV4_CLIENT_PORT);
+
+		if (!(iface->ifflags & IFF_NOARP)) {
+			struct arpreq arp = { .arp_flags = ATF_COM };
+
+			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
+			memcpy(&arp.arp_pa, dest, sizeof(arp.arp_pa));
+			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
+
+			if (ioctl(iface->dhcpv4_event.uloop.fd, SIOCSARP, &arp) < 0)
+				error("ioctl(SIOCSARP): %m");
+		}
+	}
 }
 
-void dhcpv4_handle_msg(void *addr, void *data, size_t len,
-		struct interface *iface, _unused void *dest_addr,
+enum {
+	IOV_HEADER = 0,
+	IOV_MESSAGE,
+	IOV_SERVERID,
+	IOV_NETMASK,
+	IOV_ROUTER,
+	IOV_ROUTER_ADDR,
+	IOV_DNSSERVER,
+	IOV_DNSSERVER_ADDR,
+	IOV_HOSTNAME,
+	IOV_HOSTNAME_NAME,
+	IOV_MTU,
+	IOV_BROADCAST,
+	IOV_NTP,
+	IOV_NTP_ADDR,
+	IOV_LEASETIME,
+	IOV_RENEW,
+	IOV_REBIND,
+	IOV_AUTH,
+	IOV_AUTH_BODY,
+	IOV_SRCH_DOMAIN,
+	IOV_SRCH_DOMAIN_NAME,
+	IOV_FR_NONCE_CAP,
+	IOV_DNR,
+	IOV_DNR_BODY,
+	IOV_END,
+	IOV_PADDING,
+	IOV_TOTAL
+};
+
+void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
+		struct interface *iface, _unused void *our_dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
+	/* Request variables */
 	struct dhcpv4_message *req = data;
+	uint8_t req_msg = DHCPV4_MSG_REQUEST;
+	uint8_t *req_opts = NULL;
+	size_t req_opts_len = 0;
+	uint32_t req_addr = INADDR_ANY;
+	uint32_t req_leasetime = 0;
+	char *req_hostname = NULL;
+	size_t req_hostname_len = 0;
+	bool req_accept_fr = false;
+
+	/* Reply variables */
+	struct dhcpv4_message reply = {
+		.op = DHCPV4_OP_BOOTREPLY,
+		.htype = ARPHRD_ETHER,
+		.hlen = ETH_ALEN,
+		.hops = 0,
+		.xid = req->xid,
+		.secs = 0,
+		.flags = req->flags,
+		.ciaddr = { INADDR_ANY },
+		.yiaddr = { INADDR_ANY },
+		.siaddr = iface->dhcpv4_local,
+		.giaddr = req->giaddr,
+		.chaddr = { 0 },
+		.sname = { 0 },
+		.file = { 0 },
+		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
+	};
+	struct dhcpv4_option_u8 reply_msg = {
+		.code = DHCPV4_OPT_MESSAGE,
+		.len = sizeof(uint8_t),
+		.data = DHCPV4_MSG_ACK,
+	};
+	struct dhcpv4_option_u32 reply_serverid = {
+		.code = DHCPV4_OPT_SERVERID,
+		.len = sizeof(struct in_addr),
+		.data = iface->dhcpv4_local.s_addr,
+	};
+	struct dhcpv4_option_u32 reply_netmask = {
+		.code = DHCPV4_OPT_NETMASK,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option reply_router = {
+		.code = DHCPV4_OPT_ROUTER,
+	};
+	struct dhcpv4_option reply_dnsserver = {
+		.code = DHCPV4_OPT_DNSSERVER,
+	};
+	struct dhcpv4_option reply_hostname = {
+		.code = DHCPV4_OPT_HOSTNAME,
+	};
+	struct dhcpv4_option_u16 reply_mtu = {
+		.code = DHCPV4_OPT_MTU,
+		.len = sizeof(uint16_t),
+	};
+	struct dhcpv4_option_u32 reply_broadcast = {
+		.code = DHCPV4_OPT_BROADCAST,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option reply_ntp = {
+		.code = DHCPV4_OPT_NTPSERVER,
+		.len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp),
+	};
+	struct dhcpv4_option_u32 reply_leasetime = {
+		.code = DHCPV4_OPT_LEASETIME,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option_u32 reply_renew = {
+		.code = DHCPV4_OPT_RENEW,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_option_u32 reply_rebind = {
+		.code = DHCPV4_OPT_REBIND,
+		.len = sizeof(uint32_t),
+	};
+	struct dhcpv4_auth_forcerenew reply_auth_body = {
+		.protocol = DHCPV4_AUTH_PROTO_RKAP,
+		.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
+		.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
+		.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
+		.key = { 0 },
+	};
+	struct dhcpv4_option reply_auth = {
+		.code = DHCPV4_OPT_AUTHENTICATION,
+		.len = sizeof(reply_auth_body),
+	};
+	struct dhcpv4_option reply_srch_domain = {
+		.code = DHCPV4_OPT_SEARCH_DOMAIN,
+	};
+	struct dhcpv4_option_u8 reply_fr_nonce_cap = {
+		.code = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+		.len = sizeof(uint8_t),
+		.data = 1,
+	};
+	struct dhcpv4_option reply_dnr = {
+		.code = DHCPV4_OPT_DNR,
+	};
+	uint8_t reply_end = DHCPV4_OPT_END;
+
+	struct iovec iov[IOV_TOTAL] = {
+		[IOV_HEADER]		= { &reply, sizeof(reply) },
+		[IOV_MESSAGE]		= { &reply_msg, sizeof(reply_msg) },
+		[IOV_SERVERID]		= { &reply_serverid, sizeof(reply_serverid) },
+		[IOV_NETMASK]		= { &reply_netmask, 0 },
+		[IOV_ROUTER]		= { &reply_router, 0 },
+		[IOV_ROUTER_ADDR]	= { NULL, 0 },
+		[IOV_DNSSERVER]		= { &reply_dnsserver, 0 },
+		[IOV_DNSSERVER_ADDR]	= { NULL, 0 },
+		[IOV_HOSTNAME]		= { &reply_hostname, 0 },
+		[IOV_HOSTNAME_NAME]	= { NULL, 0 },
+		[IOV_MTU]		= { &reply_mtu, 0 },
+		[IOV_BROADCAST]		= { &reply_broadcast, 0 },
+		[IOV_NTP]		= { &reply_ntp, 0 },
+		[IOV_NTP_ADDR]		= { iface->dhcpv4_ntp, 0 },
+		[IOV_LEASETIME]		= { &reply_leasetime, 0 },
+		[IOV_RENEW]		= { &reply_renew, 0 },
+		[IOV_REBIND]		= { &reply_rebind, 0 },
+		[IOV_AUTH]		= { &reply_auth, 0 },
+		[IOV_AUTH_BODY]		= { &reply_auth_body, 0 },
+		[IOV_SRCH_DOMAIN]	= { &reply_srch_domain, 0 },
+		[IOV_SRCH_DOMAIN_NAME]	= { NULL, 0 },
+		[IOV_FR_NONCE_CAP]	= { &reply_fr_nonce_cap, 0 },
+		[IOV_DNR]		= { &reply_dnr, 0 },
+		[IOV_DNR_BODY]		= { NULL, 0 },
+		[IOV_END]		= { &reply_end, sizeof(reply_end) },
+		[IOV_PADDING]		= { NULL, 0 },
+	};
+
+	/* Options which *might* be included in the reply unrequested */
+	uint8_t std_opts[] = {
+		DHCPV4_OPT_NETMASK,
+		DHCPV4_OPT_ROUTER,
+		DHCPV4_OPT_DNSSERVER,
+		DHCPV4_OPT_HOSTNAME,
+		DHCPV4_OPT_MTU,
+		DHCPV4_OPT_BROADCAST,
+		DHCPV4_OPT_LEASETIME,
+		DHCPV4_OPT_RENEW,
+		DHCPV4_OPT_REBIND,
+		DHCPV4_OPT_AUTHENTICATION,
+		DHCPV4_OPT_SEARCH_DOMAIN,
+		DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
+	};
+
+	/* Misc */
+	struct sockaddr_in dest_addr;
+	bool incl_fr_opt = false;
+	struct dhcp_assignment *a = NULL;
+	uint32_t fr_serverid = INADDR_ANY;
 
 	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
@@ -570,241 +838,282 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 	/* FIXME: would checking the magic cookie value here break any clients? */
 
 	if (len < offsetof(struct dhcpv4_message, options) ||
-	    req->op != DHCPV4_OP_BOOTREQUEST || req->hlen != ETH_ALEN)
+	    req->op != DHCPV4_OP_BOOTREQUEST ||
+	    req->htype != ARPHRD_ETHER ||
+	    req->hlen != ETH_ALEN)
 		return;
 
-	syslog(LOG_DEBUG, "Got DHCPv4 request on %s", iface->name);
+	debug("Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		syslog(LOG_WARNING, "No DHCP range available on %s", iface->name);
+		warn("No DHCP range available on %s", iface->name);
 		return;
 	}
 
-	int sock = iface->dhcpv4_event.uloop.fd;
-
-	struct dhcpv4_message reply = {
-		.op = DHCPV4_OP_BOOTREPLY,
-		.htype = req->htype,
-		.hlen = req->hlen,
-		.hops = 0,
-		.xid = req->xid,
-		.secs = 0,
-		.flags = req->flags,
-		.ciaddr = { INADDR_ANY },
-		.giaddr = req->giaddr,
-		.siaddr = iface->dhcpv4_local,
-		.cookie = htonl(DHCPV4_MAGIC_COOKIE),
-	};
-	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
-
-	uint8_t *cursor = reply.options;
-	uint8_t reqmsg = DHCPV4_MSG_REQUEST;
-	uint8_t msg = DHCPV4_MSG_ACK;
-
-	uint32_t reqaddr = INADDR_ANY;
-	uint32_t leasetime = 0;
-	char hostname[256];
-	size_t hostname_len = 0;
-	uint8_t *reqopts = NULL;
-	size_t reqopts_len = 0;
-	bool accept_fr_nonce = false;
-	bool incl_fr_opt = false;
-
-	uint8_t *start = req->options;
-	uint8_t *end = ((uint8_t *)data) + len;
 	struct dhcpv4_option *opt;
-
-	dhcpv4_for_each_option(start, end, opt) {
-		if (opt->type == DHCPV4_OPT_MESSAGE && opt->len == 1)
-			reqmsg = opt->data[0];
-		else if (opt->type == DHCPV4_OPT_REQOPTS && opt->len > 0) {
-			reqopts_len = opt->len;
-			reqopts = alloca(reqopts_len);
-			memcpy(reqopts, opt->data, reqopts_len);
-		} else if (opt->type == DHCPV4_OPT_HOSTNAME && opt->len > 0) {
-			hostname_len = opt->len;
-			memcpy(hostname, opt->data, hostname_len);
-			hostname[hostname_len] = 0;
-		} else if (opt->type == DHCPV4_OPT_IPADDRESS && opt->len == 4)
-			memcpy(&reqaddr, opt->data, 4);
-		else if (opt->type == DHCPV4_OPT_SERVERID && opt->len == 4) {
-			if (memcmp(opt->data, &iface->dhcpv4_local, 4))
+	dhcpv4_for_each_option(req->options, (uint8_t *)data + len, opt) {
+		switch (opt->code) {
+		case DHCPV4_OPT_PAD:
+			break;
+		case DHCPV4_OPT_HOSTNAME:
+			req_hostname = (char *)opt->data;
+			req_hostname_len = opt->len;
+			break;
+		case DHCPV4_OPT_IPADDRESS:
+			if (opt->len == 4)
+				memcpy(&req_addr, opt->data, 4);
+			break;
+		case DHCPV4_OPT_MESSAGE:
+			if (opt->len == 1)
+				req_msg = opt->data[0];
+			break;
+		case DHCPV4_OPT_SERVERID:
+			if (opt->len == 4 && memcmp(opt->data, &iface->dhcpv4_local, 4))
 				return;
-		} else if (iface->filter_class && opt->type == DHCPV4_OPT_USER_CLASS) {
-			uint8_t *c = opt->data, *cend = &opt->data[opt->len];
-			for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
-				size_t elen = strlen(iface->filter_class);
-				if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
-					return; // Ignore from homenet
+			break;
+		case DHCPV4_OPT_REQOPTS:
+			if (opt->len > 0) {
+				req_opts = opt->data;
+				req_opts_len = opt->len;
 			}
-		} else if (opt->type == DHCPV4_OPT_LEASETIME && opt->len == 4)
-			memcpy(&leasetime, opt->data, 4);
-		else if (opt->type == DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE && opt->len > 0) {
+			break;
+		case DHCPV4_OPT_USER_CLASS:
+			if (iface->filter_class) {
+				uint8_t *c = opt->data, *cend = &opt->data[opt->len];
+				for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
+					size_t elen = strlen(iface->filter_class);
+					if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
+						return; // Ignore from homenet
+				}
+			}
+			break;
+		case DHCPV4_OPT_LEASETIME:
+			if (opt->len == 4) {
+				memcpy(&req_leasetime, opt->data, 4);
+				req_leasetime = ntohl(req_leasetime);
+			}
+			break;
+		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
 			for (uint8_t i = 0; i < opt->len; i++) {
 				if (opt->data[i] == 1) {
-					accept_fr_nonce = true;
+					req_accept_fr = true;
 					break;
 				}
 			}
-
+			break;
 		}
 	}
 
-	if (reqmsg != DHCPV4_MSG_DISCOVER && reqmsg != DHCPV4_MSG_REQUEST &&
-	    reqmsg != DHCPV4_MSG_INFORM && reqmsg != DHCPV4_MSG_DECLINE &&
-	    reqmsg != DHCPV4_MSG_RELEASE)
+	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
+	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
+
+	switch (req_msg) {
+	case DHCPV4_MSG_INFORM:
+		break;
+	case DHCPV4_MSG_DECLINE:
+		_fallthrough;
+	case DHCPV4_MSG_RELEASE:
+		dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
+			     &req_leasetime, req_hostname, req_hostname_len,
+			     req_accept_fr, &incl_fr_opt, &fr_serverid);
 		return;
+	case DHCPV4_MSG_DISCOVER:
+		_fallthrough;
+	case DHCPV4_MSG_REQUEST:
+		a = dhcpv4_lease(iface, req_msg, req->chaddr, req_addr,
+				 &req_leasetime, req_hostname, req_hostname_len,
+				 req_accept_fr, &incl_fr_opt, &fr_serverid);
+		break;
+	default:
+		return;
+	}
 
-	struct dhcp_assignment *a = NULL;
-	uint32_t serverid = iface->dhcpv4_local.s_addr;
-	uint32_t fr_serverid = INADDR_ANY;
-
-	if (reqmsg != DHCPV4_MSG_INFORM)
-		a = dhcpv4_lease(iface, reqmsg, req->chaddr, reqaddr,
-				 &leasetime, hostname, hostname_len,
-				 accept_fr_nonce, &incl_fr_opt, &fr_serverid,
-				 reqopts, reqopts_len);
-
-	if (!a) {
-		if (reqmsg == DHCPV4_MSG_REQUEST)
-			msg = DHCPV4_MSG_NAK;
-		else if (reqmsg == DHCPV4_MSG_DISCOVER)
+	/* We are at the point where we know the client expects a reply */
+	switch (req_msg) {
+	case DHCPV4_MSG_DISCOVER:
+		if (!a)
 			return;
-	} else if (reqmsg == DHCPV4_MSG_DISCOVER)
-		msg = DHCPV4_MSG_OFFER;
-	else if (reqmsg == DHCPV4_MSG_REQUEST &&
-			((reqaddr && reqaddr != a->addr) ||
-			 (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr))) {
-		msg = DHCPV4_MSG_NAK;
-		/*
-		 * DHCP client requested an IP which we can't offer to him. Probably the
-		 * client changed the network or the network has been changed. The reply
-		 * type is set to DHCPV4_MSG_NAK, because the client should not use that IP.
-		 *
-		 * For modern devices we build an answer that includes a valid IP, like
-		 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
-		 * perform additional DHCP round trips.
-		 *
-		 */
+		reply_msg.data = DHCPV4_MSG_OFFER;
+		break;
 
-		/*
-		 *
-		 * Buggy clients do serverid checking in nack messages; therefore set the
-		 * serverid in nack messages triggered by a previous force renew equal to
-		 * the server id in use at that time by the server
-		 *
-		 */
-		if (fr_serverid)
-			serverid = fr_serverid;
-
-		if (req->ciaddr.s_addr &&
-				((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
-				 (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
-			req->ciaddr.s_addr = INADDR_ANY;
-	}
-
-	syslog(LOG_INFO, "Received %s from %s on %s", dhcpv4_msg_to_string(reqmsg),
-			odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
-
-	if (reqmsg == DHCPV4_MSG_DECLINE || reqmsg == DHCPV4_MSG_RELEASE)
-		return;
-
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MESSAGE, 1, &msg);
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SERVERID, 4, &serverid);
-
-	if (a) {
-		uint32_t val;
-
-		reply.yiaddr.s_addr = a->addr;
-
-		val = htonl(leasetime);
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_LEASETIME, 4, &val);
-
-		if (leasetime != UINT32_MAX) {
-			val = htonl(500 * leasetime / 1000);
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_RENEW, 4, &val);
-
-			val = htonl(875 * leasetime / 1000);
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_REBIND, 4, &val);
+	case DHCPV4_MSG_REQUEST:
+		if (!a) {
+			reply_msg.data = DHCPV4_MSG_NAK;
+			break;
 		}
 
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NETMASK, 4,
-				&iface->dhcpv4_mask.s_addr);
+		if ((req_addr && req_addr != a->addr) ||
+		    (req->ciaddr.s_addr && req->ciaddr.s_addr != a->addr)) {
+			reply_msg.data = DHCPV4_MSG_NAK;
+			/*
+			 * DHCP client requested an IP which we can't offer to him. Probably the
+			 * client changed the network or the network has been changed. The reply
+			 * type is set to DHCPV4_MSG_NAK, because the client should not use that IP.
+			 *
+			 * For modern devices we build an answer that includes a valid IP, like
+			 * a DHCPV4_MSG_ACK. The client will use that IP and doesn't need to
+			 * perform additional DHCP round trips.
+			 *
+			 * Buggy clients do serverid checking in nack messages; therefore set the
+			 * serverid in nack messages triggered by a previous force renew equal to
+			 * the server id in use at that time by the server
+			 *
+			 */
+			if (fr_serverid)
+				reply_serverid.data = fr_serverid;
 
-		if (a->hostname)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_HOSTNAME,
-					strlen(a->hostname), a->hostname);
+			if (req->ciaddr.s_addr &&
+			    ((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
+			     (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
+				req->ciaddr.s_addr = INADDR_ANY;
+		}
+		break;
+	}
 
-		if (iface->dhcpv4_bcast.s_addr != INADDR_ANY)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_BROADCAST, 4, &iface->dhcpv4_bcast);
+	/* Note: each option might get called more than once */
+	for (size_t i = 0; i < sizeof(std_opts) + req_opts_len; i++) {
+		uint8_t opt = i < sizeof(std_opts) ? std_opts[i] : req_opts[i - sizeof(std_opts)];
 
-		if (incl_fr_opt) {
-			if (reqmsg == DHCPV4_MSG_REQUEST) {
-				struct dhcpv4_auth_forcerenew auth = {
-					.protocol = DHCPV4_AUTH_PROTO_RKAP,
-					.algorithm = DHCPV4_AUTH_ALG_HMAC_MD5,
-					.rdm = DHCPV4_AUTH_RDM_MONOTONIC,
-					.replay = { htonl(time(NULL)), htonl(++serial) },
-					.type = DHCPV4_AUTH_RKAP_AI_TYPE_KEY,
-					.key = { 0 },
-				};
+		switch (opt) {
+		case DHCPV4_OPT_NETMASK:
+			if (!a)
+				break;
+			reply_netmask.data = iface->dhcpv4_mask.s_addr;
+			iov[IOV_NETMASK].iov_len = sizeof(reply_netmask);
+			break;
 
-				memcpy(auth.key, a->key, sizeof(auth.key));
-				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_AUTHENTICATION, sizeof(auth), &auth);
+		case DHCPV4_OPT_ROUTER:
+			iov[IOV_ROUTER].iov_len = sizeof(reply_router);
+			if (iface->dhcpv4_router_cnt) {
+				reply_router.len = iface->dhcpv4_router_cnt * sizeof(*iface->dhcpv4_router);
+				iov[IOV_ROUTER_ADDR].iov_base = iface->dhcpv4_router;
 			} else {
-				uint8_t one = 1;
-				dhcpv4_put(&reply, &cursor, DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
-					sizeof(one), &one);
+				reply_router.len = sizeof(iface->dhcpv4_local);
+				iov[IOV_ROUTER_ADDR].iov_base = &iface->dhcpv4_local;
 			}
-		}
-	}
+			iov[IOV_ROUTER_ADDR].iov_len = reply_router.len;
+			break;
 
-	struct ifreq ifr;
+		case DHCPV4_OPT_DNSSERVER:
+			iov[IOV_DNSSERVER].iov_len = sizeof(reply_dnsserver);
+			if (iface->dhcpv4_dns_cnt) {
+				reply_dnsserver.len = iface->dhcpv4_dns_cnt * sizeof(*iface->dhcpv4_dns);
+				iov[IOV_DNSSERVER_ADDR].iov_base = iface->dhcpv4_dns;
+			} else {
+				reply_dnsserver.len = sizeof(iface->dhcpv4_local);
+				iov[IOV_DNSSERVER_ADDR].iov_base = &iface->dhcpv4_local;
+			}
+			iov[IOV_DNSSERVER_ADDR].iov_len = reply_dnsserver.len;
+			break;
 
-	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
+		case DHCPV4_OPT_HOSTNAME:
+			if (!a || !a->hostname)
+				break;
+			reply_hostname.len = strlen(a->hostname);
+			iov[IOV_HOSTNAME].iov_len = sizeof(reply_hostname);
+			iov[IOV_HOSTNAME_NAME].iov_base = a->hostname;
+			iov[IOV_HOSTNAME_NAME].iov_len = reply_hostname.len;
+			break;
 
-	if (!ioctl(sock, SIOCGIFMTU, &ifr)) {
-		uint16_t mtu = htons(ifr.ifr_mtu);
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_MTU, 2, &mtu);
-	}
+		case DHCPV4_OPT_MTU:
+			if (iov[IOV_MTU].iov_len)
+				break;
 
-	if (iface->search && iface->search_len <= 255)
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
-				iface->search_len, iface->search);
-	else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-		uint8_t search_buf[256];
-		int len = dn_comp(_res.dnsrch[0], search_buf,
-						sizeof(search_buf), NULL, NULL);
-		if (len > 0)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_SEARCH_DOMAIN,
-					len, search_buf);
-	}
+			struct ifreq ifr = { .ifr_name = { 0x0, } };
 
-	if (iface->dhcpv4_router_cnt == 0)
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER, 4, &iface->dhcpv4_local);
-	else
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_ROUTER,
-				4 * iface->dhcpv4_router_cnt, iface->dhcpv4_router);
+			strncpy(ifr.ifr_name, iface->ifname, sizeof(ifr.ifr_name) - 1);
+			if (!ioctl(iface->dhcpv4_event.uloop.fd, SIOCGIFMTU, &ifr)) {
+				reply_mtu.data = htons(ifr.ifr_mtu);
+				iov[IOV_MTU].iov_len = sizeof(reply_mtu);
+			}
+			break;
 
+		case DHCPV4_OPT_BROADCAST:
+			if (!a || iface->dhcpv4_bcast.s_addr == INADDR_ANY)
+				break;
+			reply_broadcast.data = iface->dhcpv4_bcast.s_addr;
+			iov[IOV_BROADCAST].iov_len = sizeof(reply_broadcast);
+			break;
 
-	if (iface->dhcpv4_dns_cnt == 0) {
-		if (iface->dns_service)
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER, 4, &iface->dhcpv4_local);
-	} else
-		dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNSSERVER,
-				4 * iface->dhcpv4_dns_cnt, iface->dhcpv4_dns);
-
-	for (size_t opt = 0; a && opt < a->reqopts_len; opt++) {
-		switch (a->reqopts[opt]) {
 		case DHCPV4_OPT_NTPSERVER:
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_NTPSERVER,
-				   4 * iface->dhcpv4_ntp_cnt, iface->dhcpv4_ntp);
+			if (!a)
+				break;
+			iov[IOV_NTP].iov_len = sizeof(reply_ntp);
+			iov[IOV_NTP_ADDR].iov_len = iface->dhcpv4_ntp_cnt * sizeof(*iface->dhcpv4_ntp);
+			break;
+
+		case DHCPV4_OPT_LEASETIME:
+			if (!a)
+				break;
+			reply_leasetime.data = htonl(req_leasetime);
+			iov[IOV_LEASETIME].iov_len = sizeof(reply_leasetime);
+			break;
+
+		case DHCPV4_OPT_RENEW:
+			if (!a || req_leasetime == UINT32_MAX)
+				break;
+			reply_renew.data = htonl(500 * req_leasetime / 1000);
+			iov[IOV_RENEW].iov_len = sizeof(reply_renew);
+			break;
+
+		case DHCPV4_OPT_REBIND:
+			if (!a || req_leasetime == UINT32_MAX)
+				break;
+			reply_rebind.data = htonl(875 * req_leasetime / 1000);
+			iov[IOV_REBIND].iov_len = sizeof(reply_rebind);
+			break;
+
+		case DHCPV4_OPT_AUTHENTICATION:
+			if (!a || !incl_fr_opt || req_msg != DHCPV4_MSG_REQUEST)
+				break;
+
+			memcpy(reply_auth_body.key, a->key, sizeof(reply_auth_body.key));
+			reply_auth_body.replay[0] = htonl(time(NULL));
+			reply_auth_body.replay[1] = htonl(++serial);
+			iov[IOV_AUTH].iov_len = sizeof(reply_auth);
+			iov[IOV_AUTH_BODY].iov_len = sizeof(reply_auth_body);
+			break;
+
+		case DHCPV4_OPT_SEARCH_DOMAIN:
+			if (iov[IOV_SRCH_DOMAIN].iov_len || iface->search_len > UINT8_MAX)
+				break;
+
+			if (iface->search) {
+				reply_srch_domain.len = iface->search_len;
+				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
+				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->search;
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->search_len;
+			} else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
+				int len;
+
+				if (!iov[IOV_SRCH_DOMAIN_NAME].iov_base)
+					iov[IOV_SRCH_DOMAIN_NAME].iov_base = alloca(DNS_MAX_NAME_LEN);
+
+				len = dn_comp(_res.dnsrch[0],
+					      iov[IOV_SRCH_DOMAIN_NAME].iov_base,
+					      DNS_MAX_NAME_LEN, NULL, NULL);
+				if (len < 0)
+					break;
+
+				reply_srch_domain.len = len;
+				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = len;
+			}
+			break;
+
+		case DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE:
+			if (!a || !incl_fr_opt || req_msg == DHCPV4_MSG_REQUEST)
+				break;
+
+			iov[IOV_FR_NONCE_CAP].iov_len = sizeof(reply_fr_nonce_cap);
 			break;
 
 		case DHCPV4_OPT_DNR:
 			struct dhcpv4_dnr *dnrs;
 			size_t dnrs_len = 0;
+
+			if (!a || reply_dnr.len > 0)
+				break;
 
 			for (size_t i = 0; i < iface->dnr_cnt; i++) {
 				struct dnr_options *dnr = &iface->dnr[i];
@@ -821,6 +1130,9 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 					dnrs_len += dnr->svc_len;
 				}
 			}
+
+			if (dnrs_len > UINT8_MAX)
+				break;
 
 			dnrs = alloca(dnrs_len);
 			uint8_t *pos = (uint8_t *)dnrs;
@@ -859,76 +1171,35 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 				memcpy(&d4dnr->len, &d4dnr_len_be, sizeof(d4dnr_len_be));
 			}
 
-			dhcpv4_put(&reply, &cursor, DHCPV4_OPT_DNR,
-				   dnrs_len, dnrs);
+			reply_dnr.len = dnrs_len;
+			iov[IOV_DNR].iov_len = sizeof(reply_dnr);
+			iov[IOV_DNR_BODY].iov_base = dnrs;
+			iov[IOV_DNR_BODY].iov_len = dnrs_len;
 			break;
 		}
 	}
 
-	dhcpv4_put(&reply, &cursor, DHCPV4_OPT_END, 0, NULL);
+	if (a)
+		reply.yiaddr.s_addr = a->addr;
 
-	struct sockaddr_in dest = *((struct sockaddr_in*)addr);
-	if (req->giaddr.s_addr) {
-		/*
-		 * relay agent is configured, send reply to the agent
-		 */
-		dest.sin_addr = req->giaddr;
-		dest.sin_port = htons(DHCPV4_SERVER_PORT);
-	} else if (req->ciaddr.s_addr && req->ciaddr.s_addr != dest.sin_addr.s_addr) {
-		/*
-		 * client has existing configuration (ciaddr is set) AND this address is
-		 * not the address it used for the dhcp message
-		 */
-		dest.sin_addr = req->ciaddr;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else if ((ntohs(req->flags) & DHCPV4_FLAG_BROADCAST) ||
-			req->hlen != reply.hlen || !reply.yiaddr.s_addr) {
-		/*
-		 * client requests a broadcast reply OR we can't offer an IP
-		 */
-		dest.sin_addr.s_addr = INADDR_BROADCAST;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else if (!req->ciaddr.s_addr && msg == DHCPV4_MSG_NAK) {
-		/*
-		 * client has no previous configuration -> no IP, so we need to reply
-		 * with a broadcast packet
-		 */
-		dest.sin_addr.s_addr = INADDR_BROADCAST;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-	} else {
-		struct arpreq arp = {.arp_flags = ATF_COM};
+	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
+	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
+	dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 
-		/*
-		 * send reply to the newly (in this process) allocated IP
-		 */
-		dest.sin_addr = reply.yiaddr;
-		dest.sin_port = htons(DHCPV4_CLIENT_PORT);
-
-		if (!(iface->ifflags & IFF_NOARP)) {
-			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
-			memcpy(&arp.arp_pa, &dest, sizeof(arp.arp_pa));
-			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
-
-			if (ioctl(sock, SIOCSARP, &arp) < 0)
-				syslog(LOG_ERR, "ioctl(SIOCSARP): %m");
-		}
-	}
-
-	if (send_reply(&reply, PACKET_SIZE(&reply, cursor),
-		       (struct sockaddr*)&dest, sizeof(dest), opaque) < 0)
-		syslog(LOG_ERR, "Failed to send %s to %s - %s: %m",
-			dhcpv4_msg_to_string(msg),
-			dest.sin_addr.s_addr == INADDR_BROADCAST ?
-			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-			inet_ntoa(dest.sin_addr));
+	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
+		error("Failed to send %s to %s - %s: %m",
+		      dhcpv4_msg_to_string(reply_msg.data),
+		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
+		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      inet_ntoa(dest_addr.sin_addr));
 	else
-		syslog(LOG_DEBUG, "Sent %s to %s - %s",
-			dhcpv4_msg_to_string(msg),
-			dest.sin_addr.s_addr == INADDR_BROADCAST ?
-			"ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-			inet_ntoa(dest.sin_addr));
+		error("Sent %s to %s - %s",
+		      dhcpv4_msg_to_string(reply_msg.data),
+		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
+		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      inet_ntoa(dest_addr.sin_addr));
 
-	if (msg == DHCPV4_MSG_ACK && a)
+	if (reply_msg.data == DHCPV4_MSG_ACK && a)
 		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
 				      (struct in_addr *)&a->addr,
 				      a->hostname, iface->ifname);
@@ -955,12 +1226,12 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
 	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
 	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		syslog(LOG_WARNING, "Invalid DHCP range for %s", iface->name);
+		warn("Invalid DHCP range for %s", iface->name);
 		return -1;
 	}
 
 	if (!iface->addr4_len) {
-		syslog(LOG_WARNING, "No network(s) available on %s", iface->name);
+		warn("No network(s) available on %s", iface->name);
 		return -1;
 	}
 
@@ -991,7 +1262,8 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 
 	/* Don't allocate IP range for subnets smaller than /28 */
 	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
-		syslog(LOG_WARNING, "Auto allocation of DHCP range fails on %s (prefix length must be < %d).", iface->name, MAX_PREFIX_LEN + 1);
+		warn("Auto allocation of DHCP range fails on %s (prefix length must be < %d).",
+		     iface->name, MAX_PREFIX_LEN + 1);
 		return -1;
 	}
 
@@ -1046,7 +1318,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 	iface->dhcpv4_event.uloop.fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (iface->dhcpv4_event.uloop.fd < 0) {
-		syslog(LOG_ERR, "socket(AF_INET): %m");
+		error("socket(AF_INET): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1054,21 +1326,21 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	/* Basic IPv4 configuration */
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_REUSEADDR,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_REUSEADDR): %m");
+		error("setsockopt(SO_REUSEADDR): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BROADCAST,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_BROADCAST): %m");
+		error("setsockopt(SO_BROADCAST): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_PKTINFO,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_PKTINFO): %m");
+		error("setsockopt(IP_PKTINFO): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1076,7 +1348,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	val = IPTOS_PREC_INTERNETCONTROL;
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS, &val,
 		       sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_TOS): %m");
+		error("setsockopt(IP_TOS): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1084,21 +1356,21 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 	val = IP_PMTUDISC_DONT;
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_MTU_DISCOVER,
 		       &val, sizeof(val)) < 0) {
-		syslog(LOG_ERR, "setsockopt(IP_MTU_DISCOVER): %m");
+		error("setsockopt(IP_MTU_DISCOVER): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, SOL_SOCKET, SO_BINDTODEVICE,
 		       iface->ifname, strlen(iface->ifname)) < 0) {
-		syslog(LOG_ERR, "setsockopt(SO_BINDTODEVICE): %m");
+		error("setsockopt(SO_BINDTODEVICE): %m");
 		ret = -1;
 		goto out;
 	}
 
 	if (bind(iface->dhcpv4_event.uloop.fd, (struct sockaddr *)&bind_addr,
 		 sizeof(bind_addr)) < 0) {
-		syslog(LOG_ERR, "bind(): %m");
+		error("bind(): %m");
 		ret = -1;
 		goto out;
 	}
@@ -1147,7 +1419,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 	a = list_first_entry(&iface->dhcpv4_fr_ips, struct odhcpd_ref_ip, head);
 
 	if (netlink_setup_addr(&a->addr, iface->ifindex, false, true)) {
-		syslog(LOG_WARNING, "Failed to add ip address on %s", iface->name);
+		warn("Failed to add ip address on %s", iface->name);
 		return;
 	}
 

@@ -29,6 +29,10 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
+/* RFC 1035, §2.3.4, with one extra byte for buffers */
+#define DNS_MAX_NAME_LEN 256
+#define DNS_MAX_LABEL_LEN 63
+
 // RFC 6106 defines this router advertisement option
 #define ND_OPT_ROUTE_INFO 24
 #define ND_OPT_RECURSIVE_DNS 25
@@ -48,6 +52,7 @@
 
 #define _unused __attribute__((unused))
 #define _packed __attribute__((packed))
+#define _fallthrough __attribute__((__fallthrough__))
 
 #define ALL_IPV6_NODES "ff02::1"
 #define ALL_IPV6_ROUTERS "ff02::2"
@@ -69,6 +74,26 @@ struct nl_sock;
 extern struct vlist_tree leases;
 extern struct config config;
 
+#define __iflog(lvl, fmt, ...)							\
+	do {									\
+		if (lvl > config.log_level)					\
+			break;							\
+		if (config.log_syslog)						\
+			syslog(lvl, fmt __VA_OPT__(, ) __VA_ARGS__);		\
+		else								\
+			fprintf(stderr, fmt "\n" __VA_OPT__(, ) __VA_ARGS__);	\
+	} while(0)
+
+#define debug(fmt, ...)     __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define info(fmt, ...)      __iflog(LOG_INFO, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define notice(fmt, ...)    __iflog(LOG_NOTICE, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define warn(fmt, ...)      __iflog(LOG_WARNING, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define error(fmt, ...)     __iflog(LOG_ERR, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define critical(fmt, ...)  __iflog(LOG_CRIT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define alert(fmt, ...)     __iflog(LOG_ALERT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define emergency(fmt, ...) __iflog(LOG_EMERG, fmt __VA_OPT__(, ) __VA_ARGS__)
+
+
 struct odhcpd_event {
 	struct uloop_fd uloop;
 	void (*handle_dgram)(void *addr, void *data, size_t len,
@@ -77,9 +102,9 @@ struct odhcpd_event {
 	void (*recv_msgs)(struct odhcpd_event *e);
 };
 
-typedef	int (*send_reply_cb_t)(const void *buf, size_t len,
-			       const struct sockaddr *dest, socklen_t dest_len,
-			       void *opaque);
+typedef	ssize_t (*send_reply_cb_t)(struct iovec *iov, size_t iov_len,
+				   struct sockaddr *dest, socklen_t dest_len,
+				   void *opaque);
 
 typedef void (*dhcpv6_binding_cb_handler_t)(struct in6_addr *addr, int prefix,
 					    uint32_t pref, uint32_t valid,
@@ -178,6 +203,8 @@ struct config {
 
 	char *uci_cfgfile;
 	int log_level;
+	bool log_level_cmdline;
+	bool log_syslog;
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
@@ -251,8 +278,6 @@ struct dhcp_assignment {
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
-	uint8_t *reqopts;
-	size_t reqopts_len;
 
 	uint8_t hwaddr[6];
 
@@ -442,7 +467,6 @@ inline static void free_assignment(struct dhcp_assignment *a)
 		a->dhcp_free_cb(a);
 
 	free(a->hostname);
-	free(a->reqopts);
 	free(a);
 }
 

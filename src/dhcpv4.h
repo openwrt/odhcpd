@@ -19,6 +19,7 @@
 
 #define DHCPV4_FLAG_BROADCAST  0x8000
 
+// RFC951, §3; RFC1542, §2.1; RFC2131, §2
 #define DHCPV4_MIN_PACKET_SIZE 300
 
 #define DHCPV4_FR_MIN_DELAY	500
@@ -56,19 +57,19 @@ enum dhcpv4_opt {
 	DHCPV4_OPT_NETMASK = 1,
 	DHCPV4_OPT_ROUTER = 3,
 	DHCPV4_OPT_DNSSERVER = 6,
+	DHCPV4_OPT_HOSTNAME = 12,
 	DHCPV4_OPT_DOMAIN = 15,
+	DHCPV4_OPT_REQUEST = 17,
 	DHCPV4_OPT_MTU = 26,
 	DHCPV4_OPT_BROADCAST = 28,
 	DHCPV4_OPT_NTPSERVER = 42,
+	DHCPV4_OPT_IPADDRESS = 50,
 	DHCPV4_OPT_LEASETIME = 51,
 	DHCPV4_OPT_MESSAGE = 53,
 	DHCPV4_OPT_SERVERID = 54,
 	DHCPV4_OPT_REQOPTS = 55,
 	DHCPV4_OPT_RENEW = 58,
 	DHCPV4_OPT_REBIND = 59,
-	DHCPV4_OPT_IPADDRESS = 50,
-	DHCPV4_OPT_HOSTNAME = 12,
-	DHCPV4_OPT_REQUEST = 17,
 	DHCPV4_OPT_USER_CLASS = 77,
 	DHCPV4_OPT_AUTHENTICATION = 90,
 	DHCPV4_OPT_SEARCH_DOMAIN = 119,
@@ -93,7 +94,7 @@ struct dhcpv4_message {
 	char sname[64];
 	char file[128];
 	uint32_t cookie;
-	uint8_t options[308];
+	uint8_t options[];
 } _packed;
 
 // RFC2131, §3
@@ -136,10 +137,28 @@ enum dhcpv4_auth_rkap_ai_type {
 };
 
 struct dhcpv4_option {
-	uint8_t type;
+	uint8_t code;
 	uint8_t len;
 	uint8_t data[];
 };
+
+struct dhcpv4_option_u8 {
+	uint8_t code;
+	uint8_t len;
+	uint8_t data;
+};
+
+struct dhcpv4_option_u16 {
+	uint8_t code;
+	uint8_t len;
+	uint16_t data;
+};
+
+struct dhcpv4_option_u32 {
+	uint8_t code;
+	uint8_t len;
+	uint32_t data;
+} _packed;
 
 /* DNR */
 struct dhcpv4_dnr {

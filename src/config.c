@@ -42,6 +42,8 @@ struct config config = {
 	.ra_piofolder_fd = -1,
 	.uci_cfgfile = "dhcp",
 	.log_level = LOG_WARNING,
+	.duid = { 0 },
+	.duid_len  = 0,
 };
 
 #define START_DEFAULT	100
@@ -232,6 +234,20 @@ const struct uci_blob_param_list odhcpd_attr_list = {
 	.params = odhcpd_attrs,
 };
 
+enum {
+	GLOBAL_ATTR_DUID,
+	GLOBAL_ATTR_MAX
+};
+
+static const struct blobmsg_policy global_attrs[GLOBAL_ATTR_MAX] = {
+	[GLOBAL_ATTR_DUID] = { .name = "dhcp_default_duid", .type = BLOBMSG_TYPE_STRING },
+};
+
+const struct uci_blob_param_list global_attr_list = {
+	.n_params = GLOBAL_ATTR_MAX,
+	.params = global_attrs,
+};
+
 static const struct { const char *name; uint8_t flag; } ra_flags[] = {
 	{ .name = "managed-config", .flag = ND_RA_FLAG_MANAGED },
 	{ .name = "other-config", .flag = ND_RA_FLAG_OTHER },
@@ -385,6 +401,25 @@ static int parse_ra_flags(uint8_t *flags, struct blob_attr *attr)
 	}
 
 	return 0;
+}
+
+static void set_global_config(struct uci_section *s)
+{
+	struct blob_attr *tb[ODHCPD_ATTR_MAX], *c;
+
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &global_attr_list);
+	blobmsg_parse(global_attrs, GLOBAL_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+
+	if ((c = tb[GLOBAL_ATTR_DUID])) {
+		size_t len = blobmsg_data_len(c) / 2;
+
+		if (len >= DUID_MIN_LEN && len <= DUID_MAX_LEN) {
+			ssize_t r = odhcpd_unhexlify(config.duid, len, blobmsg_get_string(c));
+			if (r > 0)
+				config.duid_len = r;
+		}
+	}
 }
 
 static void set_config(struct uci_section *s)
@@ -2169,11 +2204,23 @@ void odhcpd_reload(void)
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
-	struct uci_package *dhcp = NULL;
+	struct uci_package *globals = NULL, *dhcp = NULL;
+	if (!uci_load(uci, "network", &globals)) {
+		struct uci_element *e;
+
+		/* 0. Global settings */
+		uci_foreach_element(&globals->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "globals"))
+				set_global_config(s);
+		}
+	}
+	uci_unload(uci, globals);
+
 	if (!uci_load(uci, config.uci_cfgfile, &dhcp)) {
 		struct uci_element *e;
 
-		/* 1. Global settings */
+		/* 1. General odhcpd settings */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "odhcpd"))

@@ -137,6 +137,14 @@ and may also receive information from ubus
 | url		|string	| yes	| e.g. `tftp://[fd11::1]/pxe.efi` |
 | arch		|integer| no	| the arch code. `07` is EFI. If not present, this boot6 will be the default. |
 
+odhcpd also uses the UCI configuration file `/etc/config/network` for configuration
+of the following options:
+
+### Section of type globals
+| Option		| Type	|Required|Description |
+| :--------------------	| :---- | :----	| :---------- |
+| dhcp_default_duid	| string| no	| The DUID to use to identify to identify the DHCPv6 server to clients. |
+
 
 ## ubus Interface
 

@@ -39,17 +39,6 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 static void handle_solicit(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest);
 
-/* Filter ICMPv6 messages of type neighbor solicitation */
-static struct sock_filter bpf[] = {
-	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, offsetof(struct ip6_hdr, ip6_nxt)),
-	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_ICMPV6, 0, 3),
-	BPF_STMT(BPF_LD | BPF_B | BPF_ABS, sizeof(struct ip6_hdr) +
-			offsetof(struct icmp6_hdr, icmp6_type)),
-	BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ND_NEIGHBOR_SOLICIT, 0, 1),
-	BPF_STMT(BPF_RET | BPF_K, 0xffffffff),
-	BPF_STMT(BPF_RET | BPF_K, 0),
-};
-static const struct sock_fprog bpf_prog = {sizeof(bpf) / sizeof(*bpf), bpf};
 static struct netevent_handler ndp_netevent_handler = { .cb = ndp_netevent_cb, };
 
 /* Initialize NDP-proxy */
@@ -67,6 +56,30 @@ int ndp_init(void)
 
 int ndp_setup_interface(struct interface *iface, bool enable)
 {
+	/* Drop everything */
+	static const struct sock_filter bpf_drop_filter[] = {
+		BPF_STMT(BPF_RET | BPF_K, 0),
+	};
+	static const struct sock_fprog bpf_drop = {
+		.len = ARRAY_SIZE(bpf_drop_filter),
+		.filter = (struct sock_filter *)bpf_drop_filter,
+	};
+
+	/* Filter ICMPv6 messages of type neighbor solicitation */
+	static const struct sock_filter bpf[] = {
+		BPF_STMT(BPF_LD | BPF_B | BPF_ABS, offsetof(struct ip6_hdr, ip6_nxt)),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, IPPROTO_ICMPV6, 0, 3),
+		BPF_STMT(BPF_LD | BPF_B | BPF_ABS, sizeof(struct ip6_hdr) +
+			 offsetof(struct icmp6_hdr, icmp6_type)),
+		BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, ND_NEIGHBOR_SOLICIT, 0, 1),
+		BPF_STMT(BPF_RET | BPF_K, 0xffffffff),
+		BPF_STMT(BPF_RET | BPF_K, 0),
+	};
+	static const struct sock_fprog bpf_prog = {
+		.len = ARRAY_SIZE(bpf),
+		.filter = (struct sock_filter *)bpf,
+	};
+
 	int ret = 0, procfd;
 	bool dump_neigh = false;
 	char procbuf[64];
@@ -170,8 +183,27 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		}
 #endif
 
+		/*
+		 * AF_PACKET sockets can receive packets as soon as they are
+		 * created, so make sure we don't accept anything...
+		 */
 		if (setsockopt(iface->ndp_event.uloop.fd, SOL_SOCKET, SO_ATTACH_FILTER,
-				&bpf_prog, sizeof(bpf_prog))) {
+			       &bpf_drop, sizeof(bpf_drop))) {
+			error("setsockopt(SO_ATTACH_FILTER): %m");
+			ret = -1;
+			goto out;
+		}
+
+		/* ...and remove stray packets... */
+		while (true) {
+			char null[1];
+			if (recv(iface->ndp_event.uloop.fd, null, sizeof(null), MSG_DONTWAIT | MSG_TRUNC) < 0)
+				break;
+		}
+
+		/* ...until the real filter is installed */
+		if (setsockopt(iface->ndp_event.uloop.fd, SOL_SOCKET, SO_ATTACH_FILTER,
+			       &bpf_prog, sizeof(bpf_prog))) {
 			error("setsockopt(SO_ATTACH_FILTER): %m");
 			ret = -1;
 			goto out;

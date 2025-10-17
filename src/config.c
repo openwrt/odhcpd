@@ -372,9 +372,7 @@ static void close_interface(struct interface *iface)
 	router_setup_interface(iface, false);
 	dhcpv6_setup_interface(iface, false);
 	ndp_setup_interface(iface, false);
-#ifdef DHCPV4_SUPPORT
 	dhcpv4_setup_interface(iface, false);
-#endif
 
 	/* make sure timer is not on the timeouts list before freeing */
 	uloop_timeout_cancel(&iface->timer_rs);
@@ -1918,17 +1916,13 @@ void reload_services(struct interface *iface)
 		router_setup_interface(iface, iface->ra != MODE_DISABLED);
 		dhcpv6_setup_interface(iface, iface->dhcpv6 != MODE_DISABLED);
 		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
-#ifdef DHCPV4_SUPPORT
 		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
-#endif
 	} else {
 		debug("Disabling services with %s not running", iface->ifname);
 		router_setup_interface(iface, false);
 		dhcpv6_setup_interface(iface, false);
 		ndp_setup_interface(iface, false);
-#ifdef DHCPV4_SUPPORT
 		dhcpv4_setup_interface(iface, false);
-#endif
 	}
 }
 

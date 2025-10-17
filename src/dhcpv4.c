@@ -1435,9 +1435,8 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	return 0;
 }
 
-int dhcpv4_setup_interface(struct interface *iface, bool enable)
+bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
-	int ret = 0;
 	struct sockaddr_in bind_addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(DHCPV4_SERVER_PORT),
@@ -1457,75 +1456,65 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 
 		avl_remove_all_elements(&iface->dhcpv4_leases, lease, iface_avl, tmp)
 			dhcpv4_free_lease(lease);
-		return 0;
+		return true;
 	}
 
 	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (fd < 0) {
 		error("socket(AF_INET): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	/* Basic IPv4 configuration */
 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0) {
 		error("setsockopt(SO_REUSEADDR): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &val, sizeof(val)) < 0) {
 		error("setsockopt(SO_BROADCAST): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	if (setsockopt(fd, IPPROTO_IP, IP_PKTINFO, &val, sizeof(val)) < 0) {
 		error("setsockopt(IP_PKTINFO): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	val = IPTOS_CLASS_CS6;
 	if (setsockopt(fd, IPPROTO_IP, IP_TOS, &val, sizeof(val)) < 0) {
 		error("setsockopt(IP_TOS): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	val = IP_PMTUDISC_DONT;
 	if (setsockopt(fd, IPPROTO_IP, IP_MTU_DISCOVER, &val, sizeof(val)) < 0) {
 		error("setsockopt(IP_MTU_DISCOVER): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, iface->ifname,
 		       strlen(iface->ifname)) < 0) {
 		error("setsockopt(SO_BINDTODEVICE): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
 	if (bind(fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
 		error("bind(): %m");
-		ret = -1;
-		goto out;
+		goto error;
 	}
 
-	if (dhcpv4_setup_addresses(iface) < 0) {
-		ret = -1;
-		goto out;
-	}
+	if (dhcpv4_setup_addresses(iface) < 0)
+		goto error;
 
 	iface->dhcpv4_event.uloop.fd = fd;
 	iface->dhcpv4_event.handle_dgram = dhcpv4_handle_dgram;
 	odhcpd_register(&iface->dhcpv4_event);
-	return 0;
+	return true;
 
-out:
+error:
 	close(fd);
-	return ret;
+	return false;
 }
 
 static void dhcpv4_addrlist_change(struct interface *iface)

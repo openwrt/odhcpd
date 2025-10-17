@@ -1488,7 +1488,7 @@ int dhcpv4_setup_interface(struct interface *iface, bool enable)
 		goto out;
 	}
 
-	val = IPTOS_PREC_INTERNETCONTROL;
+	val = IPTOS_CLASS_CS6;
 	if (setsockopt(iface->dhcpv4_event.uloop.fd, IPPROTO_IP, IP_TOS, &val,
 		       sizeof(val)) < 0) {
 		error("setsockopt(IP_TOS): %m");

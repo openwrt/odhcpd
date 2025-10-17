@@ -1442,7 +1442,7 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 		.sin_port = htons(DHCPV4_SERVER_PORT),
 		.sin_addr = { INADDR_ANY },
 	};
-	int val = 1;
+	int val;
 	int fd;
 
 	if (iface->dhcpv4_event.uloop.fd >= 0) {
@@ -1465,7 +1465,7 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 		goto error;
 	}
 
-	/* Basic IPv4 configuration */
+	val = 1;
 	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) < 0) {
 		error("setsockopt(SO_REUSEADDR): %m");
 		goto error;

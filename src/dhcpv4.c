@@ -25,9 +25,11 @@
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <netinet/ip.h>
+#include <netinet/udp.h>
 #include <sys/ioctl.h>
 #include <sys/timerfd.h>
 #include <arpa/inet.h>
+#include <linux/filter.h>
 
 #include <libubox/md5.h>
 
@@ -953,14 +955,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	if (iface->dhcpv4 == MODE_DISABLED)
 		return;
 
-	/* FIXME: would checking the magic cookie value here break any clients? */
-
-	if (len < offsetof(struct dhcpv4_message, options) ||
-	    req->op != DHCPV4_OP_BOOTREQUEST ||
-	    req->htype != ARPHRD_ETHER ||
-	    req->hlen != ETH_ALEN)
-		return;
-
 	debug("Got DHCPv4 request on %s", iface->name);
 
 	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
@@ -1435,9 +1429,47 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	return 0;
 }
 
+struct dhcpv4_packet {
+	struct udphdr udp;
+	struct dhcpv4_message dhcp;
+} _o_packed;
+
 bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
-	struct sockaddr_in bind_addr = {
+	/* Note: we could check more things (but buggy clients exist), e.g.:
+	 *  - DHCPV4_MIN_PACKET_SIZE
+	 *  - yiaddr zero
+	 *  - siaddr zero
+	 */
+	static const struct sock_filter filter[] = {
+		BPF_STMT(BPF_LD + BPF_W + BPF_LEN, 0),						/* A <- packet length */
+		BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K,
+			 offsetof(struct dhcpv4_packet, dhcp.options), 1, 0),			/* A > offsetof(dhcp.options)? */
+		BPF_STMT(BPF_RET + BPF_K, 0),							/* false -> drop */
+
+		BPF_STMT(BPF_LD + BPF_B + BPF_ABS, offsetof(struct dhcpv4_packet, dhcp.op)),	/* A <- dhcp.op */
+		BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, DHCPV4_OP_BOOTREQUEST, 1, 0),		/* A == DHCPV4_OP_BOOTREQUEST? */
+		BPF_STMT(BPF_RET + BPF_K, 0),							/* false -> drop */
+
+		BPF_STMT(BPF_LD + BPF_B + BPF_ABS, offsetof(struct dhcpv4_packet, dhcp.htype)),	/* A <- dhcp.htype */
+		BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ARPHRD_ETHER, 1, 0),			/* A == ARPHRD_ETHER? */
+		BPF_STMT(BPF_RET + BPF_K, 0),							/* false -> drop */
+
+		BPF_STMT(BPF_LD + BPF_B + BPF_ABS, offsetof(struct dhcpv4_packet, dhcp.hlen)),	/* A <- dhcp.hlen */
+		BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ETH_ALEN, 1, 0),				/* A == ETH_ALEN? */
+		BPF_STMT(BPF_RET + BPF_K, 0),							/* false -> drop */
+
+		BPF_STMT(BPF_LD + BPF_W + BPF_ABS, offsetof(struct dhcpv4_packet, dhcp.cookie)),/* A <- dhcp.cookie */
+		BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, DHCPV4_MAGIC_COOKIE, 1, 0),			/* A == DHCPV4_MAGIC_COOKIE? */
+		BPF_STMT(BPF_RET + BPF_K, 0),							/* false -> drop */
+
+		BPF_STMT(BPF_RET + BPF_K, UINT32_MAX),						/* accept */
+	};
+	static const struct sock_fprog bpf = {
+		.len = ARRAY_SIZE(filter),
+		.filter = (struct sock_filter *)filter,
+	};
+	const struct sockaddr_in bind_addr = {
 		.sin_family = AF_INET,
 		.sin_port = htons(DHCPV4_SERVER_PORT),
 		.sin_addr = { INADDR_ANY },
@@ -1462,6 +1494,11 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (fd < 0) {
 		error("socket(AF_INET): %m");
+		goto error;
+	}
+
+	if (setsockopt(fd, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf)) < 0) {
+		error("setsockopt(SO_ATTACH_FILTER): %m");
 		goto error;
 	}
 
@@ -1499,7 +1536,7 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 		goto error;
 	}
 
-	if (bind(fd, (struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
+	if (bind(fd, (const struct sockaddr *)&bind_addr, sizeof(bind_addr)) < 0) {
 		error("bind(): %m");
 		goto error;
 	}

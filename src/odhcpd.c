@@ -46,6 +46,25 @@
 static int ioctl_sock = -1;
 static int urandom_fd = -1;
 
+void __iflog(int lvl, const char *fmt, ...)
+{
+	va_list ap;
+
+	if (lvl > config.log_level)
+		return;
+
+	va_start(ap, fmt);
+
+	if (config.log_syslog) {
+		vsyslog(lvl, fmt, ap);
+	} else {
+		vfprintf(stderr, fmt, ap);
+		fprintf(stderr, "\n");
+	}
+
+	va_end(ap);
+}
+
 static void sighandler(_unused int signal)
 {
 	uloop_end();

@@ -71,7 +71,6 @@
 
 struct interface;
 struct nl_sock;
-extern struct vlist_tree leases;
 extern struct config config;
 extern struct sys_conf sys_conf;
 
@@ -230,7 +229,8 @@ struct duid {
 	bool iaid_set;
 };
 
-struct lease {
+/* This corresponds to a UCI host section, i.e. a static lease cfg */
+struct host_cfg {
 	struct vlist_node node;
 	struct list_head assignments;
 	uint32_t ipaddr;
@@ -243,26 +243,16 @@ struct lease {
 	char *hostname;
 };
 
-enum {
-	LEASE_ATTR_IP,
-	LEASE_ATTR_MAC,
-	LEASE_ATTR_DUID,
-	LEASE_ATTR_HOSTID,
-	LEASE_ATTR_LEASETIME,
-	LEASE_ATTR_NAME,
-	LEASE_ATTR_MAX
-};
-
 struct odhcpd_ref_ip;
 
 struct dhcp_assignment {
 	struct list_head head;
-	struct list_head lease_list;
+	struct list_head host_cfg_list;
 
 	void (*dhcp_free_cb)(struct dhcp_assignment *a);
 
 	struct interface *iface;
-	struct lease *lease;
+	struct host_cfg *host_cfg;
 
 	struct sockaddr_in6 peer;
 	time_t valid_until;
@@ -468,12 +458,22 @@ struct interface {
 };
 
 extern struct avl_tree interfaces;
-extern const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX];
+
+enum {
+	HOST_ATTR_IP,
+	HOST_ATTR_MAC,
+	HOST_ATTR_DUID,
+	HOST_ATTR_HOSTID,
+	HOST_ATTR_LEASETIME,
+	HOST_ATTR_NAME,
+	HOST_ATTR_MAX
+};
+extern const struct blobmsg_policy host_cfg_attrs[HOST_ATTR_MAX];
 
 inline static void free_assignment(struct dhcp_assignment *a)
 {
 	list_del(&a->head);
-	list_del(&a->lease_list);
+	list_del(&a->host_cfg_list);
 
 	if (a->dhcp_free_cb)
 		a->dhcp_free_cb(a);
@@ -490,7 +490,7 @@ inline static struct dhcp_assignment *alloc_assignment(size_t extra_len)
 		return NULL;
 
 	INIT_LIST_HEAD(&a->head);
-	INIT_LIST_HEAD(&a->lease_list);
+	INIT_LIST_HEAD(&a->host_cfg_list);
 
 	return a;
 }
@@ -552,14 +552,15 @@ bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);
 bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
-struct lease *config_find_lease_by_duid_and_iaid(const uint8_t *duid, const uint16_t len,
-						 const uint32_t iaid);
-struct lease *config_find_lease_by_mac(const uint8_t *mac);
-struct lease *config_find_lease_by_hostid(const uint64_t hostid);
-struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr);
+struct host_cfg *config_find_host_cfg_by_duid_and_iaid(const uint8_t *duid,
+						       const uint16_t len,
+						       const uint32_t iaid);
+struct host_cfg *config_find_host_cfg_by_mac(const uint8_t *mac);
+struct host_cfg *config_find_host_cfg_by_hostid(const uint64_t hostid);
+struct host_cfg *config_find_host_cfg_by_ipaddr(const uint32_t ipaddr);
+int config_set_host_cfg_from_blobmsg(struct blob_attr *ba);
 void config_load_ra_pio(struct interface *iface);
 void config_save_ra_pio(struct interface *iface);
-int set_lease_from_blobmsg(struct blob_attr *ba);
 
 #ifdef WITH_UBUS
 int ubus_init(void);

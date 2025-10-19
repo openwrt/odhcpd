@@ -386,7 +386,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	if (ntohl(raddr) < start || ntohl(raddr) > end) {
 		debug("The requested IP address is outside the pool: %s",
 		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
-	} else if (config_find_lease_by_ipaddr(raddr)) {
+	} else if (config_find_host_cfg_by_ipaddr(raddr)) {
 		debug("The requested IP address is statically assigned: %s",
 		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
 	} else if (!dhcpv4_insert_assignment(&iface->dhcpv4_assignments, a, raddr)) {
@@ -413,7 +413,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 	     ++i, try = (((try - start) + 1) % count) + start) {
 		uint32_t n_try = htonl(try);
 
-		if (config_find_lease_by_ipaddr(n_try))
+		if (config_find_host_cfg_by_ipaddr(n_try))
 			continue;
 
 		if (dhcpv4_insert_assignment(&iface->dhcpv4_assignments, a, n_try)) {
@@ -447,7 +447,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	     uint32_t *fr_serverid)
 {
 	struct dhcp_assignment *a = find_assignment_by_hwaddr(iface, req_mac);
-	struct lease *l = config_find_lease_by_mac(req_mac);
+	struct host_cfg *host_cfg = config_find_host_cfg_by_mac(req_mac);
 	time_t now = odhcpd_time();
 
 	/*
@@ -455,16 +455,16 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	 * hwaddr, we need to clear out any old assignments given to other
 	 * hwaddrs in order to take over the IP address.
 	 */
-	if (l && !a && (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
+	if (host_cfg && !a && (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
 		struct dhcp_assignment *c, *tmp;
 
-		list_for_each_entry_safe(c, tmp, &l->assignments, lease_list) {
+		list_for_each_entry_safe(c, tmp, &host_cfg->assignments, host_cfg_list) {
 			if (c->flags & OAF_DHCPV4 && c->flags & OAF_STATIC)
 				free_assignment(c);
 		}
 	}
 
-	if (l && a && a->lease != l) {
+	if (host_cfg && a && a->host_cfg != host_cfg) {
 		free_assignment(a);
 		a = NULL;
 	}
@@ -492,7 +492,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		a->flags &= ~OAF_BOUND;
 
-		if (!(a->flags & OAF_STATIC) || a->lease->ipaddr != a->addr) {
+		if (!(a->flags & OAF_STATIC) || a->host_cfg->ipaddr != a->addr) {
 			memset(a->hwaddr, 0, sizeof(a->hwaddr));
 			a->valid_until = now + 3600; /* Block address for 1h */
 		} else {
@@ -504,7 +504,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		_fallthrough;
 
 	case DHCPV4_MSG_REQUEST:
-		if (!a && iface->no_dynamic_dhcp && !l)
+		if (!a && iface->no_dynamic_dhcp && !host_cfg)
 			return NULL;
 
 		/* Old assignment, but with an address that is out-of-scope? */
@@ -535,29 +535,29 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			a->flags = OAF_DHCPV4;
 
 			/* static lease => infinite (0), else a placeholder */
-			a->valid_until = l ? 0 : now;
-			a->addr = l ? l->ipaddr : INADDR_ANY;
+			a->valid_until = host_cfg ? 0 : now;
+			a->addr = host_cfg ? host_cfg->ipaddr : INADDR_ANY;
 
 			if (!dhcpv4_assign(iface, a, req_addr)) {
 				free_assignment(a);
 				return NULL;
 			}
 
-			if (l) {
+			if (host_cfg) {
 				a->flags |= OAF_STATIC;
 
-				if (l->hostname)
-					a->hostname = strdup(l->hostname);
+				if (host_cfg->hostname)
+					a->hostname = strdup(host_cfg->hostname);
 
-				list_add(&a->lease_list, &l->assignments);
-				a->lease = l;
+				list_add(&a->host_cfg_list, &host_cfg->assignments);
+				a->host_cfg = host_cfg;
 			}
 		}
 
 		/* See if we need to clamp the requested leasetime */
 		uint32_t max_leasetime;
-		if (a->lease && a->lease->leasetime)
-			max_leasetime = a->lease->leasetime;
+		if (a->host_cfg && a->host_cfg->leasetime)
+			max_leasetime = a->host_cfg->leasetime;
 		else
 			max_leasetime = iface->dhcp_leasetime;
 

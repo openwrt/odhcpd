@@ -889,7 +889,7 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 		if (is_reserved_ipv6_iid(try))
 			continue;
 
-		if (config_find_lease_by_hostid(try))
+		if (config_find_host_cfg_by_hostid(try))
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {
@@ -1443,11 +1443,11 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		size_t ia_response_len = 0;
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
-		struct lease *l;
+		struct host_cfg *host_cfg;
 
-		l = config_find_lease_by_duid_and_iaid(clid_data, clid_len, ntohl(ia->iaid));
-		if (!l)
-			l = config_find_lease_by_mac(mac);
+		host_cfg = config_find_host_cfg_by_duid_and_iaid(clid_data, clid_len, ntohl(ia->iaid));
+		if (!host_cfg)
+			host_cfg = config_find_host_cfg_by_mac(mac);
 
 		/* Parse request hint for IA-PD */
 		if (is_pd) {
@@ -1529,7 +1529,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					continue;
 
 				/* Does the existing assignment stem from the same static lease cfg? */
-				if (c->lease != l)
+				if (c->host_cfg != host_cfg)
 					continue;
 
 				/*
@@ -1540,14 +1540,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				 * on the same client. This is similar to how multiple MAC adresses
 				 * are handled for DHCPv4.
 				 */
-				for (size_t i = 0; i < l->duid_count; i++) {
-					if (l->duids[i].iaid_set && l->duids[i].iaid != htonl(ia->iaid))
+				for (size_t i = 0; i < host_cfg->duid_count; i++) {
+					if (host_cfg->duids[i].iaid_set && host_cfg->duids[i].iaid != htonl(ia->iaid))
 						continue;
 
-					if (l->duids[i].len != clid_len)
+					if (host_cfg->duids[i].len != clid_len)
 						continue;
 
-					if (memcmp(l->duids[i].id, clid_data, clid_len))
+					if (memcmp(host_cfg->duids[i].id, clid_data, clid_len))
 						continue;
 
 					/*
@@ -1572,7 +1572,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			break;
 		}
 
-		if (l && a && a->lease != l) {
+		if (host_cfg && a && a->host_cfg != host_cfg) {
 			free_assignment(a);
 			a = NULL;
 		}
@@ -1589,7 +1589,7 @@ proceed:
 			bool assigned = !!a;
 
 			if (!a) {
-				if ((!iface->no_dynamic_dhcp || (l && is_na)) &&
+				if ((!iface->no_dynamic_dhcp || (host_cfg && is_na)) &&
 				    (iface->dhcpv6_pd || iface->dhcpv6_na)) {
 					/* Create new binding */
 					a = alloc_assignment(clid_len);
@@ -1601,7 +1601,7 @@ proceed:
 						a->length = reqlen;
 						a->peer = *addr;
 						if (is_na)
-							a->assigned_host_id = l ? l->hostid : 0;
+							a->assigned_host_id = host_cfg ? host_cfg->hostid : 0;
 						else
 							a->assigned_subnet_id = reqhint;
 						a->valid_until =  now;
@@ -1621,17 +1621,17 @@ proceed:
 						else if (is_na && iface->dhcpv6_na)
 							assigned = assign_na(iface, a);
 
-						if (l && assigned) {
+						if (host_cfg && assigned) {
 							a->flags |= OAF_STATIC;
 
-							if (l->hostname)
-								a->hostname = strdup(l->hostname);
+							if (host_cfg->hostname)
+								a->hostname = strdup(host_cfg->hostname);
 
-							if (l->leasetime)
-								a->leasetime = l->leasetime;
+							if (host_cfg->leasetime)
+								a->leasetime = host_cfg->leasetime;
 
-							list_add(&a->lease_list, &l->assignments);
-							a->lease = l;
+							list_add(&a->host_cfg_list, &host_cfg->assignments);
+							a->host_cfg = host_cfg;
 						}
 
 						if (a->managed_size && !assigned)
@@ -1732,7 +1732,7 @@ proceed:
 			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
 				a->flags &= ~OAF_BOUND;
 
-				if (!(a->flags & OAF_STATIC) || a->lease->hostid != a->assigned_host_id) {
+				if (!(a->flags & OAF_STATIC) || a->host_cfg->hostid != a->assigned_host_id) {
 					memset(a->clid_data, 0, a->clid_len);
 					a->valid_until = now + 3600; /* Block address for 1h */
 				} else

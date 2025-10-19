@@ -225,11 +225,11 @@ static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_o
 	return 0;
 }
 
-static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		struct blob_attr *msg)
+static int handle_add_lease_cfg(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+				_unused struct ubus_request_data *req, _unused const char *method,
+				struct blob_attr *msg)
 {
-	if (!set_lease_from_blobmsg(msg))
+	if (!config_set_lease_cfg_from_blobmsg(msg))
 		return UBUS_STATUS_OK;
 
 	return UBUS_STATUS_INVALID_ARGUMENT;
@@ -241,7 +241,7 @@ static struct ubus_method main_object_methods[] = {
 #endif /* DHCPV4_SUPPORT */
 	{ .name = "ipv6leases", .handler = handle_dhcpv6_leases },
 	{ .name = "ipv6ra", .handler = handle_ra_pio },
-	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
+	UBUS_METHOD("add_lease", handle_add_lease_cfg, lease_cfg_attrs),
 };
 
 static struct ubus_object_type main_object_type =

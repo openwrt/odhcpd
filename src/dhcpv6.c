@@ -318,6 +318,36 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
+	switch (hdr->msg_type) {
+	/* Valid message types for clients */
+	case DHCPV6_MSG_SOLICIT:
+	case DHCPV6_MSG_REQUEST:
+	case DHCPV6_MSG_CONFIRM:
+	case DHCPV6_MSG_RENEW:
+	case DHCPV6_MSG_REBIND:
+	case DHCPV6_MSG_RELEASE:
+	case DHCPV6_MSG_DECLINE:
+	case DHCPV6_MSG_INFORMATION_REQUEST:
+	case DHCPV6_MSG_RELAY_FORW:
+#ifdef DHCPV4_SUPPORT
+	/* if we include DHCPV4 support, handle this message type */
+	case DHCPV6_MSG_DHCPV4_QUERY:
+#endif
+		break;
+	/* Invalid message types for clients i.e. server messages */
+	case DHCPV6_MSG_ADVERTISE:
+	case DHCPV6_MSG_REPLY:
+	case DHCPV6_MSG_RECONFIGURE:
+	case DHCPV6_MSG_RELAY_REPL:
+#ifndef DHCPV4_SUPPORT
+	/* if we omit DHCPV4 support, ignore this client message type */
+	case DHCPV6_MSG_DHCPV4_QUERY:
+#endif
+	case DHCPV6_MSG_DHCPV4_RESPONSE:
+	default:
+		return;
+	}
+
 	debug("Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
@@ -565,32 +595,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
 		handle_nested_message(data, len, &hdr, &opts, &opts_end, iov);
-
-	switch (hdr->msg_type) {
-	case DHCPV6_MSG_SOLICIT:
-	case DHCPV6_MSG_REQUEST:
-	case DHCPV6_MSG_CONFIRM:
-	case DHCPV6_MSG_RENEW:
-	case DHCPV6_MSG_REBIND:
-	case DHCPV6_MSG_RELEASE:
-	case DHCPV6_MSG_DECLINE:
-	case DHCPV6_MSG_INFORMATION_REQUEST:
-	case DHCPV6_MSG_RELAY_FORW:
-#ifdef DHCPV4_SUPPORT
-	case DHCPV6_MSG_DHCPV4_QUERY:
-#endif
-		break; /* Valid message types for clients */
-	case DHCPV6_MSG_ADVERTISE:
-	case DHCPV6_MSG_REPLY:
-	case DHCPV6_MSG_RECONFIGURE:
-	case DHCPV6_MSG_RELAY_REPL:
-	case DHCPV6_MSG_DHCPV4_RESPONSE:
-#ifndef DHCPV4_SUPPORT
-	case DHCPV6_MSG_DHCPV4_QUERY:
-#endif
-	default:
-		return; /* Invalid message types for clients */
-	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||

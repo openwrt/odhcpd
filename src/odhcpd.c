@@ -39,12 +39,12 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
+#include <sys/random.h>
 
 #include <libubox/uloop.h>
 #include "odhcpd.h"
 
 static int ioctl_sock = -1;
-static int urandom_fd = -1;
 
 void __iflog(int lvl, const char *fmt, ...)
 {
@@ -148,11 +148,7 @@ int main(int argc, char **argv)
 	}
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
-
 	if (ioctl_sock < 0)
-		return 4;
-
-	if ((urandom_fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC)) < 0)
 		return 4;
 
 	signal(SIGUSR1, SIG_IGN);
@@ -542,11 +538,33 @@ void odhcpd_process(struct odhcpd_event *event)
 	odhcpd_receive_packets(&event->uloop, 0);
 }
 
-int odhcpd_urandom(void *data, size_t len)
+void odhcpd_urandom(void *data, size_t len)
 {
-	return read(urandom_fd, data, len);
-}
+	static bool warned_once = false;
 
+	while (true) {
+		ssize_t r;
+
+		if (len == 0)
+			return;
+
+		r = getrandom(data, len, GRND_INSECURE);
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+
+			if (!warned_once) {
+				error("getrandom(): %m");
+				warned_once = true;
+			}
+
+			return;
+		}
+
+		len -= r;
+		data = (uint8_t *)data + r;
+	}
+}
 
 time_t odhcpd_time(void)
 {

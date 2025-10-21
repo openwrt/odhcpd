@@ -1304,7 +1304,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if (pd_min_len > PD_MIN_LEN_MAX)
 			iface->dhcpv6_pd_min_len = PD_MIN_LEN_MAX;
 		iface->dhcpv6_pd_min_len = pd_min_len;
-		if (pd_min_len >= PD_MIN_LEN_MAX)
+		if (pd_min_len > PD_MIN_LEN_MAX)
 			warn("Clamped invalid %s value configured for interface '%s' to %d",
 			     iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, iface->dhcpv6_pd_min_len);
 	}

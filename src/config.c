@@ -453,7 +453,7 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_LOGLEVEL])) {
 		int log_level = (blobmsg_get_u32(c) & LOG_PRIMASK);
 
-		if (config.log_level != log_level && config.log_level_cmdline) {
+		if (config.log_level != log_level && !config.log_level_cmdline) {
 			config.log_level = log_level;
 			if (config.log_syslog)
 				setlogmask(LOG_UPTO(config.log_level));

@@ -68,6 +68,7 @@ and may also receive information from ubus
 | hostsfile	| string|	| DHCP/v6 hostfile |
 | loglevel	|integer| 6	| Syslog level priority (0-7) |
 | piofolder	|string |	| Folder to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
+| enable_tz |bool | 1 | Toggle whether RFC4833 timezone information is sent to clients, if set in system  |
 
 
 ### Sections of type dhcp (configure DHCP / DHCPv6 / RA / NDP service)
@@ -136,6 +137,13 @@ and may also receive information from ubus
 | :------------ | :---- | :----	| :---------- |
 | url		|string	| yes	| e.g. `tftp://[fd11::1]/pxe.efi` |
 | arch		|integer| no	| the arch code. `07` is EFI. If not present, this boot6 will be the default. |
+
+
+### System variables for Timezone options (uci system.system)
+| Option  | Type  |Required|Description |
+| :------------ | :---- | :---- | :---------- |
+| timezone   |string | no | e.g. `EST5EDT4,M3.2.0/02:00,M11.1.0/02:00` |
+| zonename    |string| no  | e.g. `Europe/Zurich` |
 
 
 ## ubus Interface

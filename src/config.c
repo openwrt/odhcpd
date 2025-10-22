@@ -8,6 +8,7 @@
 #include <net/if.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 #include <uci.h>
 #include <uci_blob.h>
@@ -33,6 +34,7 @@ struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {
 	.legacy = false,
+	.enable_tz = true,
 	.main_dhcpv4 = false,
 	.dhcp_cb = NULL,
 	.dhcp_statefile = NULL,
@@ -43,6 +45,14 @@ struct config config = {
 	.log_level = LOG_WARNING,
 	.log_level_cmdline = false,
 	.log_syslog = true,
+};
+
+struct sys_conf sys_conf = {
+	.uci_cfgfile = "system",
+	.posix_tz = NULL, // "timezone"
+	.posix_tz_len = 0,
+	.tzdb_tz = NULL, // "zonename"
+	.tzdb_tz_len = 0,
 };
 
 #define START_DEFAULT	100
@@ -215,6 +225,7 @@ enum {
 	ODHCPD_ATTR_LOGLEVEL,
 	ODHCPD_ATTR_HOSTSFILE,
 	ODHCPD_ATTR_PIOFOLDER,
+	ODHCPD_ATTR_ENABLE_TZ,
 	ODHCPD_ATTR_MAX
 };
 
@@ -226,11 +237,28 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
 	[ODHCPD_ATTR_HOSTSFILE] = { .name = "hostsfile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_PIOFOLDER] = { .name = "piofolder", .type = BLOBMSG_TYPE_STRING },
+	[ODHCPD_ATTR_ENABLE_TZ] = { .name = "enable_tz", .type = BLOBMSG_TYPE_BOOL },
 };
 
 const struct uci_blob_param_list odhcpd_attr_list = {
 	.n_params = ODHCPD_ATTR_MAX,
 	.params = odhcpd_attrs,
+};
+
+enum {
+	SYSTEM_ATTR_TIMEZONE,
+	SYSTEM_ATTR_ZONENAME,
+	SYSTEM_ATTR_MAX
+};
+
+static const struct blobmsg_policy system_attrs[SYSTEM_ATTR_MAX] = {
+	[SYSTEM_ATTR_TIMEZONE] = { .name = "timezone", .type = BLOBMSG_TYPE_STRING },
+	[SYSTEM_ATTR_ZONENAME] = { .name = "zonename", .type = BLOBMSG_TYPE_STRING },
+};
+
+const struct uci_blob_param_list system_attr_list = {
+	.n_params = SYSTEM_ATTR_MAX,
+	.params = system_attrs,
 };
 
 static const struct { const char *name; uint8_t flag; } ra_flags[] = {
@@ -432,6 +460,54 @@ static void set_config(struct uci_section *s)
 			notice("Log level set to %d\n", config.log_level);
 		}
 	}
+
+	if ((c = tb[ODHCPD_ATTR_ENABLE_TZ]))
+		config.enable_tz = blobmsg_get_bool(c);
+
+}
+
+static void sanitize_tz_string(const char *src, uint8_t **dst, size_t *dst_len)
+{
+	/* replace any spaces with '_' in tz strings. luci, where these strings
+	are normally set, (had a bug that) replaced underscores for spaces in the
+	names. */
+
+	if (!dst || !dst_len)
+		return;
+
+	free(*dst);
+	*dst = NULL;
+	*dst_len = 0;
+
+	if (!src || !*src)
+		return;
+
+	char *copy = strdup(src);
+	if (!copy)
+		return;
+
+	for (char *p = copy; *p; p++) {
+		if (isspace((unsigned char)*p))
+			*p = '_';
+	}
+
+	*dst = (uint8_t *)copy;
+	*dst_len = strlen(copy);
+}
+
+static void set_timezone_info_from_uci(struct uci_section *s)
+{
+	struct blob_attr *tb[SYSTEM_ATTR_MAX], *c;
+
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &system_attr_list);
+	blobmsg_parse(system_attrs, SYSTEM_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+
+	if ((c = tb[SYSTEM_ATTR_TIMEZONE]))
+		sanitize_tz_string(blobmsg_get_string(c), &sys_conf.posix_tz, &sys_conf.posix_tz_len);
+
+	if ((c = tb[SYSTEM_ATTR_ZONENAME]))
+		sanitize_tz_string(blobmsg_get_string(c), &sys_conf.tzdb_tz, &sys_conf.tzdb_tz_len);
 }
 
 static uint32_t parse_leasetime(struct blob_attr *c) {
@@ -2193,6 +2269,18 @@ void odhcpd_reload(void)
 		ipv6_pxe_dump();
 	}
 
+	struct uci_package *system = NULL;
+	if (!uci_load(uci, sys_conf.uci_cfgfile, &system) && config.enable_tz == true) {
+		struct uci_element *e;
+
+		/* 1. System settings */
+		uci_foreach_element(&system->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "system"))
+				set_timezone_info_from_uci(s);
+		}
+	}
+
 	if (config.dhcp_statefile) {
 		char *path = strdup(config.dhcp_statefile);
 
@@ -2287,6 +2375,7 @@ void odhcpd_reload(void)
 	}
 
 	uci_unload(uci, dhcp);
+	uci_unload(uci, system);
 	uci_free_context(uci);
 }
 

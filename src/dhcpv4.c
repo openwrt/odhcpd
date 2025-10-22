@@ -423,7 +423,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcp_assignment *a,
 		}
 	}
 
-	notice("Can't assign any IP address -> address space is full");
+	warn("Can't assign any IP address -> address space is full");
 
 	return false;
 }

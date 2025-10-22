@@ -73,6 +73,7 @@ struct interface;
 struct nl_sock;
 extern struct vlist_tree leases;
 extern struct config config;
+extern struct sys_conf sys_conf;
 
 void __iflog(int lvl, const char *fmt, ...);
 #define debug(fmt, ...)     __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
@@ -184,6 +185,7 @@ enum odhcpd_assignment_flags {
 
 struct config {
 	bool legacy;
+	bool enable_tz;
 	bool main_dhcpv4;
 	char *dhcp_cb;
 	char *dhcp_statefile;
@@ -196,6 +198,14 @@ struct config {
 	int log_level;
 	bool log_level_cmdline;
 	bool log_syslog;
+};
+
+struct sys_conf {
+	uint8_t *posix_tz;
+	size_t posix_tz_len;
+	char *uci_cfgfile;
+	uint8_t *tzdb_tz;
+	size_t tzdb_tz_len;
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */

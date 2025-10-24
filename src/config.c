@@ -194,16 +194,9 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 };
 
-static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
-	[IFACE_ATTR_UPSTREAM] = { .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_DNS] = { .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_DOMAIN] = { .type = BLOBMSG_TYPE_STRING },
-};
-
 const struct uci_blob_param_list interface_attr_list = {
 	.n_params = IFACE_ATTR_MAX,
 	.params = iface_attrs,
-	.info = iface_attr_info,
 };
 
 const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX] = {

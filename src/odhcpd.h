@@ -450,8 +450,6 @@ struct interface {
 	char *upstream;
 	size_t upstream_len;
 
-	char *filter_class;
-
 	// NTP
 	struct in_addr *dhcpv4_ntp;
 	size_t dhcpv4_ntp_cnt;

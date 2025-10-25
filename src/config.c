@@ -104,7 +104,6 @@ enum {
 	IFACE_ATTR_DNR,
 	IFACE_ATTR_DNS_SERVICE,
 	IFACE_ATTR_DOMAIN,
-	IFACE_ATTR_FILTER_CLASS,
 	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
@@ -159,7 +158,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DNR] = { .name = "dnr", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
-	[IFACE_ATTR_FILTER_CLASS] = { .name = "filter_class", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
@@ -348,7 +346,6 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_router);
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
-	free(iface->filter_class);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
 	free(iface->dhcpv6_sntp);
@@ -1384,11 +1381,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			memcpy(&iface->search[iface->search_len], buf, len);
 			iface->search_len += len;
 		}
-	}
-
-	if ((c = tb[IFACE_ATTR_FILTER_CLASS])) {
-		iface->filter_class = realloc(iface->filter_class, blobmsg_data_len(c) + 1);
-		memcpy(iface->filter_class, blobmsg_get_string(c), blobmsg_data_len(c) + 1);
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV4_FORCERECONF]))

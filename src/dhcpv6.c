@@ -680,13 +680,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			if (olen != ntohs(dest.serverid_length) ||
 			    memcmp(odata, &dest.serverid_buf, olen))
 				return; /* Not for us */
-		} else if (iface->filter_class && otype == DHCPV6_OPT_USER_CLASS) {
-			uint8_t *c = odata, *cend = &odata[olen];
-			for (; &c[2] <= cend && &c[2 + (c[0] << 8) + c[1]] <= cend; c = &c[2 + (c[0] << 8) + c[1]]) {
-				size_t elen = strlen(iface->filter_class);
-				if (((((size_t)c[0]) << 8) | c[1]) == elen && !memcmp(&c[2], iface->filter_class, elen))
-					return; /* Ignore from homenet */
-			}
 		} else if (otype == DHCPV6_OPT_IA_PD) {
 #ifdef EXT_CER_ID
 			iov[IOV_CERID].iov_len = sizeof(cerid);

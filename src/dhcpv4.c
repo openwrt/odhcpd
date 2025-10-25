@@ -927,16 +927,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				req_opts_len = opt->len;
 			}
 			break;
-		case DHCPV4_OPT_USER_CLASS:
-			if (iface->filter_class) {
-				uint8_t *c = opt->data, *cend = &opt->data[opt->len];
-				for (; c < cend && &c[*c] < cend; c = &c[1 + *c]) {
-					size_t elen = strlen(iface->filter_class);
-					if (*c == elen && !memcmp(&c[1], iface->filter_class, elen))
-						return; // Ignore from homenet
-				}
-			}
-			break;
 		case DHCPV4_OPT_LEASETIME:
 			if (opt->len == 4) {
 				memcpy(&req_leasetime, opt->data, 4);

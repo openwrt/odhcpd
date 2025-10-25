@@ -127,8 +127,6 @@ enum {
 	IFACE_ATTR_RA_MTU,
 	IFACE_ATTR_RA_DNS,
 	IFACE_ATTR_RA_PREF64,
-	IFACE_ATTR_PD_MANAGER,
-	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
 	IFACE_ATTR_NDP_FROM_LINK_LOCAL,
@@ -165,8 +163,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_PD_MIN_LEN] = { .name = "dhcpv6_pd_min_len", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
-	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_FLAGS] = { .name = "ra_flags", . type = BLOBMSG_TYPE_ARRAY },
@@ -1647,15 +1643,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			error("Invalid %s mode configured for interface '%s'",
 			      iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
 	}
-
-	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
-		strncpy(iface->dhcpv6_pd_manager, blobmsg_get_string(c),
-				sizeof(iface->dhcpv6_pd_manager) - 1);
-
-	if ((c = tb[IFACE_ATTR_PD_CER]) &&
-			inet_pton(AF_INET6, blobmsg_get_string(c), &iface->dhcpv6_pd_cer) < 1)
-		error("Invalid %s value configured for interface '%s'",
-		      iface_attrs[IFACE_ATTR_PD_CER].name, iface->name);
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);

@@ -58,10 +58,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE ${libjson})
 
 
 # Optional Features
-if (${EXT_CER_ID})
-	target_compile_definitions(${PROJECT_NAME} PRIVATE EXT_CER_ID=${EXT_CER_ID})
-endif(${EXT_CER_ID})
-
 if(${UBUS})
 	target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_UBUS)
 	target_sources(${PROJECT_NAME} PRIVATE src/ubus.c)

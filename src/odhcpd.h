@@ -275,10 +275,6 @@ struct dhcpv6_lease {
 	uint32_t iaid;
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
-	struct odhcpd_ipaddr *managed;
-	ssize_t managed_size;
-	struct ustream_fd managed_sock;
-
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
@@ -365,10 +361,6 @@ struct interface {
 	struct odhcpd_event dhcpv4_event;
 	struct list_head dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
-
-	// Managed PD
-	char dhcpv6_pd_manager[128];
-	struct in6_addr dhcpv6_pd_cer;
 
 	// Services
 	enum odhcpd_mode ra;

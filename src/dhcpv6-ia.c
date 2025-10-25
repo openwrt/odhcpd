@@ -31,10 +31,8 @@
 #include <libgen.h>
 #include <stdbool.h>
 #include <arpa/inet.h>
-#include <sys/timerfd.h>
 
 #include <libubox/md5.h>
-#include <libubox/usock.h>
 
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
     ((iface)->dhcpv6_assignall || (i) == (m) || \
@@ -72,18 +70,12 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 
-	if (a->managed_sock.fd.registered) {
-		ustream_free(&a->managed_sock.stream);
-		close(a->managed_sock.fd.fd);
-	}
-
 	if ((a->flags & OAF_BOUND) && (a->flags & OAF_DHCPV6_PD))
 		apply_lease(a, false);
 
 	if (a->fr_cnt)
 		stop_reconf(a);
 
-	free(a->managed);
 	free(a->hostname);
 	free(a);
 }
@@ -150,7 +142,7 @@ static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info
 
 static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8_t prefix_length)
 {
-	return (a->managed_size || a->length > prefix_length);
+	return a->length > prefix_length;
 }
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
@@ -308,14 +300,13 @@ static struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefi
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcpv6_lease *c,
 			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
-	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
-	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
-	size_t m = get_preferred_addr(addrs, addrlen);
+	struct odhcpd_ipaddr *addrs = iface->addr6;
+	size_t m = get_preferred_addr(addrs, iface->addr6_len);
 
-	for (size_t i = 0; i < addrlen; ++i) {
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		struct in6_addr addr;
 		uint32_t preferred_lt, valid_lt;
-		int prefix = c->managed ? addrs[i].prefix : c->length;
+		int prefix = c->length;
 
 		if (!valid_addr(&addrs[i], now))
 			continue;
@@ -471,12 +462,12 @@ static void dhcpv6_ia_write_hostsfile(time_t now)
 
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
-				if (!(ctxt.c->flags & OAF_BOUND) || ctxt.c->managed_size < 0)
+				if (!(ctxt.c->flags & OAF_BOUND))
 					continue;
 
 				if (INFINITE_VALID(ctxt.c->valid_until) || ctxt.c->valid_until > now)
 					dhcpv6_ia_enum_addrs(ctxt.iface, ctxt.c, now,
-								dhcpv6_write_ia_addrhosts, &ctxt);
+							     dhcpv6_write_ia_addrhosts, &ctxt);
 			}
 		}
 
@@ -571,7 +562,7 @@ void dhcpv6_ia_write_statefile(void)
 
 			if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 				list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
-					if (!(ctxt.c->flags & OAF_BOUND) || ctxt.c->managed_size < 0)
+					if (!(ctxt.c->flags & OAF_BOUND))
 						continue;
 
 					char duidbuf[DUID_HEXSTRLEN];
@@ -689,16 +680,16 @@ static void __apply_lease(struct dhcpv6_lease *a,
 		prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
-		netlink_setup_route(&prefix, (a->managed_size) ? addrs[i].prefix : a->length,
-				a->iface->ifindex, &a->peer.sin6_addr, 1024, add);
+		netlink_setup_route(&prefix, a->length, a->iface->ifindex,
+				    &a->peer.sin6_addr, 1024, add);
 	}
 }
 
 static void apply_lease(struct dhcpv6_lease *a, bool add)
 {
 	struct interface *iface = a->iface;
-	struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-	ssize_t addrlen = (a->managed) ? a->managed_size : (ssize_t)iface->addr6_len;
+	struct odhcpd_ipaddr *addrs = iface->addr6;
+	ssize_t addrlen = (ssize_t)iface->addr6_len;
 
 	__apply_lease(a, addrs, addrlen, add);
 }
@@ -727,132 +718,11 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_le
 		b->assigned_subnet_id = 0;
 }
 
-/* More data was received from TCP connection */
-static void managed_handle_pd_data(struct ustream *s, _unused int bytes_new)
-{
-	struct ustream_fd *fd = container_of(s, struct ustream_fd, stream);
-	struct dhcpv6_lease *c = container_of(fd, struct dhcpv6_lease, managed_sock);
-	time_t now = odhcpd_time();
-	bool first = c->managed_size < 0;
-
-	for (;;) {
-		int pending;
-		char *data = ustream_get_read_buf(s, &pending);
-		char *end = memmem(data, pending, "\n\n", 2);
-
-		if (!end)
-			break;
-
-		end += 2;
-		end[-1] = 0;
-
-		c->managed_size = 0;
-		if (c->accept_fr_nonce)
-			c->fr_cnt = 1;
-
-		char *saveptr;
-		for (char *line = strtok_r(data, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
-			struct odhcpd_ipaddr *n;
-			char *saveptr2, *x;
-
-			n = realloc(c->managed, (c->managed_size + 1) * sizeof(*c->managed));
-			if (!n)
-				continue;
-			c->managed = n;
-			n = &c->managed[c->managed_size];
-
-			x = strtok_r(line, ",", &saveptr2);
-			if (odhcpd_parse_addr6_prefix(x, &n->addr.in6, &n->prefix))
-				continue;
-
-			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%u", &n->preferred_lt) < 1)
-				continue;
-
-			x = strtok_r(NULL, ",", &saveptr2);
-			if (sscanf(x, "%u", &n->valid_lt) < 1)
-				continue;
-
-			if (n->preferred_lt > n->valid_lt)
-				continue;
-
-			if (UINT32_MAX - now < n->preferred_lt)
-				n->preferred_lt = UINT32_MAX;
-			else
-				n->preferred_lt += now;
-
-			if (UINT32_MAX - now < n->valid_lt)
-				n->valid_lt = UINT32_MAX;
-			else
-				n->valid_lt += now;
-
-			n->dprefix = 0;
-
-			++c->managed_size;
-		}
-
-		ustream_consume(s, end - data);
-	}
-
-	if (first && c->managed_size == 0)
-		dhcpv6_free_lease(c);
-	else if (first)
-		c->valid_until = now + 150;
-}
-
-
-/* TCP transmission has ended, either because of success or timeout or other error */
-static void managed_handle_pd_done(struct ustream *s)
-{
-	struct ustream_fd *fd = container_of(s, struct ustream_fd, stream);
-	struct dhcpv6_lease *c = container_of(fd, struct dhcpv6_lease, managed_sock);
-
-	c->valid_until = odhcpd_time() + 15;
-
-	c->managed_size = 0;
-
-	if (c->accept_fr_nonce)
-		c->fr_cnt = 1;
-}
-
 static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 {
 	struct dhcpv6_lease *c;
 
-	if (iface->dhcpv6_pd_manager[0]) {
-		int fd = usock(USOCK_UNIX | USOCK_TCP, iface->dhcpv6_pd_manager, NULL);
-		if (fd >= 0) {
-			struct pollfd pfd = { .fd = fd, .events = POLLIN };
-			char iaidbuf[298];
-
-			odhcpd_hexlify(iaidbuf, assign->clid_data, assign->clid_len);
-
-			assign->managed_sock.stream.notify_read = managed_handle_pd_data;
-			assign->managed_sock.stream.notify_state = managed_handle_pd_done;
-			ustream_fd_init(&assign->managed_sock, fd);
-			ustream_printf(&assign->managed_sock.stream, "%s,%x\n::/%d,0,0\n\n",
-					iaidbuf, assign->iaid, assign->length);
-			ustream_write_pending(&assign->managed_sock.stream);
-			assign->managed_size = -1;
-
-			assign->valid_until = odhcpd_time() + 15;
-
-			list_add(&assign->head, &iface->ia_assignments);
-
-			/* Wait initial period of up to 250ms for immediate assignment */
-			if (poll(&pfd, 1, 250) < 0) {
-				error("poll(): %m");
-				return false;
-			}
-
-			managed_handle_pd_data(&assign->managed_sock.stream, 0);
-
-			if (fcntl(fd, F_GETFL) >= 0 && assign->managed_size > 0)
-				return true;
-		}
-
-		return false;
-	} else if (iface->addr6_len < 1)
+	if (iface->addr6_len < 1)
 		return false;
 
 	/* Try honoring the hint first */
@@ -991,8 +861,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
 		if (c->clid_len == 0 ||
 	            !(c->flags & OAF_DHCPV6_PD)	||
-		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now) ||
-		    c->managed_size)
+		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now))
 			continue;
 
 		if (c->assigned_subnet_id >= border->assigned_subnet_id)
@@ -1132,8 +1001,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			floor_valid_lifetime = leasetime;
 		}
 
-		struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-		size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+		struct odhcpd_ipaddr *addrs = iface->addr6;
+		size_t addrlen = iface->addr6_len;
 		size_t m = get_preferred_addr(addrs, addrlen);
 
 		for (size_t i = 0; i < addrlen; ++i) {
@@ -1180,7 +1049,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.len = htons(sizeof(o_ia_p) - 4),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
-					.prefix = (a->managed_size) ? addrs[i].prefix : a->length,
+					.prefix = a->length,
 					.addr = addrs[i].addr.in6,
 				};
 
@@ -1258,8 +1127,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				continue;
 
 			if (a) {
-				struct odhcpd_ipaddr *addrs = (a->managed) ? a->managed : iface->addr6;
-				size_t addrlen = (a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+				struct odhcpd_ipaddr *addrs = iface->addr6;
+				size_t addrlen = iface->addr6_len;
 
 				for (size_t i = 0; i < addrlen; ++i) {
 					struct in6_addr addr;
@@ -1279,7 +1148,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
 						if (!memcmp(&ia_p->addr, &addr, sizeof(addr)) &&
-								ia_p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
+							    ia_p->prefix == a->length)
 							found = true;
 					} else {
 						addr = in6_from_prefix_and_iid(&addrs[i], a->assigned_host_id);
@@ -1412,8 +1281,8 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_lease *a,
 		struct interface *iface)
 {
-	struct odhcpd_ipaddr *addrs = (a && a->managed) ? a->managed : iface->addr6;
-	size_t addrlen = (a && a->managed) ? (size_t)a->managed_size : iface->addr6_len;
+	struct odhcpd_ipaddr *addrs = iface->addr6;
+	size_t addrlen = iface->addr6_len;
 	time_t now = odhcpd_time();
 	uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
 	uint16_t otype, olen;
@@ -1642,8 +1511,6 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 proceed:
 		/* Generic message handling */
 		uint16_t status = DHCPV6_STATUS_OK;
-		if (a && a->managed_size < 0)
-			return -1;
 
 		if (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
 				hdr->msg_type == DHCPV6_MSG_REQUEST ||
@@ -1678,7 +1545,7 @@ proceed:
 
 						if (is_pd && iface->dhcpv6_pd)
 							while (!(assigned = assign_pd(iface, a)) &&
-							       !a->managed_size && ++a->length <= 64);
+							       ++a->length <= 64);
 						else if (is_na && iface->dhcpv6_na)
 							assigned = assign_na(iface, a);
 
@@ -1694,9 +1561,6 @@ proceed:
 							list_add(&a->lease_cfg_list, &lease_cfg->dhcpv6_leases);
 							a->lease_cfg = lease_cfg;
 						}
-
-						if (a->managed_size && !assigned)
-							return -1;
 					}
 				}
 			}
@@ -1769,7 +1633,7 @@ proceed:
 				a->flags &= ~OAF_TENTATIVE;
 				a->flags |= OAF_BOUND;
 				apply_lease(a, true);
-			} else if (!assigned && a && a->managed_size == 0) {
+			} else if (!assigned) {
 				/* Cleanup failed assignment */
 				dhcpv6_free_lease(a);
 				a = NULL;

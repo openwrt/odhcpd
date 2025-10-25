@@ -45,6 +45,8 @@ struct config config = {
 	.log_level = LOG_WARNING,
 	.log_level_cmdline = false,
 	.log_syslog = true,
+	.default_duid = { 0 },
+	.default_duid_len  = 0,
 };
 
 struct sys_conf sys_conf = {
@@ -260,6 +262,20 @@ const struct uci_blob_param_list system_attr_list = {
 	.params = system_attrs,
 };
 
+enum {
+	GLOBAL_ATTR_DUID,
+	GLOBAL_ATTR_MAX
+};
+
+static const struct blobmsg_policy global_attrs[GLOBAL_ATTR_MAX] = {
+	[GLOBAL_ATTR_DUID] = { .name = "dhcp_default_duid", .type = BLOBMSG_TYPE_STRING },
+};
+
+const struct uci_blob_param_list global_attr_list = {
+	.n_params = GLOBAL_ATTR_MAX,
+	.params = global_attrs,
+};
+
 static const struct { const char *name; uint8_t flag; } ra_flags[] = {
 	{ .name = "managed-config", .flag = ND_RA_FLAG_MANAGED },
 	{ .name = "other-config", .flag = ND_RA_FLAG_OTHER },
@@ -413,6 +429,26 @@ static int parse_ra_flags(uint8_t *flags, struct blob_attr *attr)
 	}
 
 	return 0;
+}
+
+static void set_global_config(struct uci_section *s)
+{
+	struct blob_attr *tb[GLOBAL_ATTR_MAX], *c;
+
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &global_attr_list);
+	blobmsg_parse(global_attrs, GLOBAL_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
+
+	if ((c = tb[GLOBAL_ATTR_DUID])) {
+		size_t len = blobmsg_data_len(c) / 2;
+
+		config.default_duid_len = 0;
+		if (len >= DUID_MIN_LEN && len <= DUID_MAX_LEN) {
+			ssize_t r = odhcpd_unhexlify(config.default_duid, len, blobmsg_get_string(c));
+			if (r >= DUID_MIN_LEN)
+				config.default_duid_len = r;
+		}
+	}
 }
 
 static void set_config(struct uci_section *s)
@@ -2227,6 +2263,7 @@ void odhcpd_reload(void)
 	struct interface *master = NULL, *i, *tmp;
 	char *uci_dhcp_path = "dhcp";
 	char *uci_system_path = "system";
+	char *uci_network_path = "network";
 
 	if (!uci)
 		return;
@@ -2238,17 +2275,32 @@ void odhcpd_reload(void)
 		sprintf(uci_dhcp_path, "%s/dhcp", config.uci_cfgdir);
 		uci_system_path = alloca(dlen + sizeof("/system"));
 		sprintf(uci_system_path, "%s/system", config.uci_cfgdir);
+		uci_network_path = alloca(dlen + sizeof("/network"));
+		sprintf(uci_network_path, "%s/network", config.uci_cfgdir);
 	}
 
 	vlist_update(&leases);
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
+	struct uci_package *network = NULL;
+	if (!uci_load(uci, uci_network_path, &network)) {
+		struct uci_element *e;
+
+		/* 0. Global settings */
+		uci_foreach_element(&network->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "globals"))
+				set_global_config(s);
+		}
+	}
+	uci_unload(uci, network);
+
 	struct uci_package *dhcp = NULL;
 	if (!uci_load(uci, uci_dhcp_path, &dhcp)) {
 		struct uci_element *e;
 
-		/* 1. Global settings */
+		/* 1. General odhcpd settings */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "odhcpd"))
@@ -2284,7 +2336,7 @@ void odhcpd_reload(void)
 	if (config.enable_tz && !uci_load(uci, uci_system_path, &system)) {
 		struct uci_element *e;
 
-		/* 1. System settings */
+		/* 5. System settings */
 		uci_foreach_element(&system->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "system"))

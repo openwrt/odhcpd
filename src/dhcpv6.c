@@ -435,6 +435,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} dhcpv6_sntp;
 
 	/* RFC 4833 - Timezones */
+	bool posix_want = false;
 	uint8_t *posix_ptr = sys_conf.posix_tz;
 	uint16_t posix_len = sys_conf.posix_tz_len;
 	/* RFC 4833 - OPTION_NEW_POSIX_TIMEZONE (41)
@@ -446,6 +447,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t len;
 	} posix_tz;
 
+	bool tzdb_want = false;
 	uint8_t *tzdb_ptr = sys_conf.tzdb_tz;
 	uint16_t tzdb_len = sys_conf.tzdb_tz_len;
 	/* RFC 4833 - OPTION_NEW_TZDB_TIMEZONE (42)
@@ -510,11 +512,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			break;
 
 		case DHCPV6_OPT_NEW_POSIX_TIMEZONE:
+			posix_want = true;
 			posix_tz.type = htons(DHCPV6_OPT_NEW_POSIX_TIMEZONE);
 			posix_tz.len  = htons(posix_len);
 			break;
 
 		case DHCPV6_OPT_NEW_TZDB_TIMEZONE:
+			tzdb_want = true;
 			tzdb_tz.type = htons(DHCPV6_OPT_NEW_TZDB_TIMEZONE);
 			tzdb_tz.len  = htons(tzdb_len);
 			break;
@@ -633,10 +637,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_NTP_ADDR] = {ntp_ptr, (ntp_cnt) ? ntp_len : 0},
 		[IOV_SNTP] = {&dhcpv6_sntp, (sntp_cnt) ? sizeof(dhcpv6_sntp) : 0},
 		[IOV_SNTP_ADDR] = {sntp_addr_ptr, sntp_cnt * sizeof(*sntp_addr_ptr)},
-		[IOV_POSIX_TZ] = {&posix_tz, (posix_len) ? sizeof(posix_tz) : 0},
-		[IOV_POSIX_TZ_STR] = {posix_ptr, (posix_len) ? posix_len : 0 },
-		[IOV_TZDB_TZ] = {&tzdb_tz, (tzdb_len) ? sizeof(tzdb_tz) : 0},
-		[IOV_TZDB_TZ_STR] = {tzdb_ptr, (tzdb_len) ? tzdb_len : 0 },
+		[IOV_POSIX_TZ] = {&posix_tz, (posix_want) ? sizeof(posix_tz) : 0},
+		[IOV_POSIX_TZ_STR] = {posix_ptr, (posix_want) ? posix_len : 0 },
+		[IOV_TZDB_TZ] = {&tzdb_tz, (tzdb_want) ? sizeof(tzdb_tz) : 0},
+		[IOV_TZDB_TZ_STR] = {tzdb_ptr, (tzdb_want) ? tzdb_len : 0 },
 		[IOV_DNR] = {dnrs, dnrs_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},

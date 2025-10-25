@@ -194,7 +194,7 @@ struct config {
 	char *ra_piofolder;
 	int ra_piofolder_fd;
 
-	char *uci_cfgfile;
+	char *uci_cfgdir;
 	int log_level;
 	bool log_level_cmdline;
 	bool log_syslog;
@@ -203,7 +203,6 @@ struct config {
 struct sys_conf {
 	uint8_t *posix_tz;
 	size_t posix_tz_len;
-	char *uci_cfgfile;
 	uint8_t *tzdb_tz;
 	size_t tzdb_tz_len;
 };

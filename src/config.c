@@ -41,14 +41,13 @@ struct config config = {
 	.dhcp_hostsfile = NULL,
 	.ra_piofolder = NULL,
 	.ra_piofolder_fd = -1,
-	.uci_cfgfile = "dhcp",
+	.uci_cfgdir = NULL,
 	.log_level = LOG_WARNING,
 	.log_level_cmdline = false,
 	.log_syslog = true,
 };
 
 struct sys_conf sys_conf = {
-	.uci_cfgfile = "system",
 	.posix_tz = NULL, // "timezone"
 	.posix_tz_len = 0,
 	.tzdb_tz = NULL, // "zonename"
@@ -2226,16 +2225,27 @@ void odhcpd_reload(void)
 {
 	struct uci_context *uci = uci_alloc_context();
 	struct interface *master = NULL, *i, *tmp;
+	char *uci_dhcp_path = "dhcp";
+	char *uci_system_path = "system";
 
 	if (!uci)
 		return;
+
+	if (config.uci_cfgdir) {
+		size_t dlen = strlen(config.uci_cfgdir);
+
+		uci_dhcp_path = alloca(dlen + sizeof("/dhcp"));
+		sprintf(uci_dhcp_path, "%s/dhcp", config.uci_cfgdir);
+		uci_system_path = alloca(dlen + sizeof("/system"));
+		sprintf(uci_system_path, "%s/system", config.uci_cfgdir);
+	}
 
 	vlist_update(&leases);
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
 	struct uci_package *dhcp = NULL;
-	if (!uci_load(uci, config.uci_cfgfile, &dhcp)) {
+	if (!uci_load(uci, uci_dhcp_path, &dhcp)) {
 		struct uci_element *e;
 
 		/* 1. Global settings */
@@ -2268,9 +2278,10 @@ void odhcpd_reload(void)
 		}
 		ipv6_pxe_dump();
 	}
+	uci_unload(uci, dhcp);
 
 	struct uci_package *system = NULL;
-	if (!uci_load(uci, sys_conf.uci_cfgfile, &system) && config.enable_tz == true) {
+	if (config.enable_tz && !uci_load(uci, uci_system_path, &system)) {
 		struct uci_element *e;
 
 		/* 1. System settings */
@@ -2280,12 +2291,12 @@ void odhcpd_reload(void)
 				set_timezone_info_from_uci(s);
 		}
 	}
+	uci_unload(uci, system);
 
 	if (config.dhcp_statefile) {
-		char *path = strdup(config.dhcp_statefile);
+		char *path = strdupa(config.dhcp_statefile);
 
 		mkdir_p(dirname(path), 0755);
-		free(path);
 	}
 
 	if (config.ra_piofolder) {
@@ -2374,8 +2385,6 @@ void odhcpd_reload(void)
 			close_interface(i);
 	}
 
-	uci_unload(uci, dhcp);
-	uci_unload(uci, system);
 	uci_free_context(uci);
 }
 

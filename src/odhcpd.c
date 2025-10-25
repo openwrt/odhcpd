@@ -91,7 +91,7 @@ static void print_usage(const char *app)
 #endif /* EXT_CER_ID */
 	       "\n"
 	       "\n"
-	       "	-c <path>	Use an alternative configuration file\n"
+	       "	-c <dir>	Read UCI configuration files from <dir>\n"
 	       "	-l <int>	Specify log level 0..7 (default %d)\n"
 	       "	-f		Log to stderr instead of syslog\n"
 	       "	-h		Print this help text and exit\n",
@@ -117,9 +117,23 @@ int main(int argc, char **argv)
 	while ((opt = getopt(argc, argv, "c:l:fh")) != -1) {
 		switch (opt) {
 		case 'c':
-			config.uci_cfgfile = realpath(optarg, NULL);
-			fprintf(stderr, "Configuration will be read from %s\n", config.uci_cfgfile);
+			struct stat sb;
+			char *path;
+
+			free(config.uci_cfgdir);
+			config.uci_cfgdir = NULL;
+
+			path = realpath(optarg, NULL);
+			if (!path || stat(path, &sb) || !S_ISDIR(sb.st_mode)) {
+				fprintf(stderr, "%s is not a directory, ignoring\n", optarg);
+				free(path);
+				break;
+			}
+
+			fprintf(stderr, "Configuration will be read from %s\n", path);
+			config.uci_cfgdir = path;
 			break;
+
 		case 'l':
 			config.log_level = (atoi(optarg) & LOG_PRIMASK);
 			config.log_level_cmdline = true;

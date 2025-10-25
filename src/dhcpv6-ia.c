@@ -53,25 +53,6 @@ static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 static uint8_t statemd5[16];
 
-static inline uint32_t mask_low_for_hostid(uint8_t dhcpv6_hostid_len)
-{
-	if (dhcpv6_hostid_len >= 32)
-		return UINT32_MAX;
-
-	return (1 << dhcpv6_hostid_len) - 1;
-}
-
-static inline uint32_t mask_high_for_hostid(uint8_t dhcpv6_hostid_len)
-{
-	if (dhcpv6_hostid_len >= 64)
-		return UINT32_MAX;
-
-	if (dhcpv6_hostid_len >= 32)
-		return (1 << (dhcpv6_hostid_len - 32)) - 1;
-
-	return 0;
-}
-
 int dhcpv6_ia_init(void)
 {
 	uloop_timeout_set(&valid_until_timeout, 1000);
@@ -236,13 +217,33 @@ static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 	free(a->managed);
 }
 
+static void in6_copy_iid(struct in6_addr *dest, uint64_t iid, unsigned n)
+{
+	uint64_t iid_be = htobe64(iid);
+	uint8_t *iid_bytes = (uint8_t *)&iid_be;
+	unsigned bytes = n / 8;
+	unsigned bits = n % 8;
+
+	if (n == 0 || n > 64)
+		return;
+
+	memcpy(&dest->s6_addr[16 - bytes], &iid_bytes[8 - bytes], bytes);
+
+	if (bits > 0) {
+		unsigned dest_idx = 16 - bytes - 1;
+		unsigned src_idx = 8 - bytes - 1;
+		uint8_t mask = (1 << bits) - 1;
+		dest->s6_addr[dest_idx] = (dest->s6_addr[dest_idx] & ~mask) |
+					  (iid_bytes[src_idx] & mask);
+	}
+}
+
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
 	struct odhcpd_ipaddr *addrs = (c->managed) ? c->managed : iface->addr6;
 	size_t addrlen = (c->managed) ? (size_t)c->managed_size : iface->addr6_len;
 	size_t m = get_preferred_addr(addrs, addrlen);
-	uint32_t mask_high, mask_low;
 
 	for (size_t i = 0; i < addrlen; ++i) {
 		struct in6_addr addr;
@@ -269,16 +270,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
-			mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
-			addr.s6_addr32[2] = htonl(
-				((c->assigned_host_id >> 32) & mask_high)
-				& (~mask_high & ntohl(addrs[i].addr.in6.s6_addr32[2]))
-			);
-			addr.s6_addr32[3] = htonl(
-				((c->assigned_host_id & UINT32_MAX) & mask_low)
-				& (~mask_low & ntohl(addrs[i].addr.in6.s6_addr32[3]))
-			);
+			in6_copy_iid(&addr, c->assigned_host_id, iface->dhcpv6_hostid_len);
 		} else {
 			if (!valid_prefix_length(c, addrs[i].prefix))
 				continue;
@@ -865,7 +857,11 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 {
 	struct dhcp_assignment *c;
-	uint32_t seed = 0;
+	uint64_t pool_start = 0x100;
+	uint64_t pool_end = (iface->dhcpv6_hostid_len >= 64) ? UINT64_MAX : ((1ULL << iface->dhcpv6_hostid_len) - 1);
+	uint64_t pool_size = pool_end - pool_start + 1;
+	uint64_t try;
+	unsigned short xsubi[3] = { 0 };
 
 	/* Preconfigured assignment by static lease */
 	if (a->assigned_host_id) {
@@ -878,31 +874,17 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 		}
 	}
 
-	/* Seed RNG with checksum of DUID */
-	for (size_t i = 0; i < a->clid_len; ++i)
-		seed += a->clid_data[i];
-	srandom(seed);
+	/* Pick a starting point, using the last bytes of the DUID as seed... */
+	memcpy(xsubi,
+	       a->clid_data + (a->clid_len > sizeof(xsubi) ? a->clid_len - sizeof(xsubi) : 0),
+	       min(a->clid_len, sizeof(xsubi)));
+	try = ((uint64_t)jrand48(xsubi) << 32) | (jrand48(xsubi) & UINT32_MAX);
+	try = pool_start + try % pool_size;
 
-	/* Try to assign up to 100x */
-	for (size_t i = 0; i < 100; ++i) {
-		uint64_t try;
-
-		if (iface->dhcpv6_hostid_len > 32) {
-			uint32_t mask_high = mask_high_for_hostid(iface->dhcpv6_hostid_len);
-
-			do {
-				try = (uint32_t)random();
-				try |= (uint64_t)((uint32_t)random() & mask_high) << 32;
-			} while (try < 0x100);
-
-		} else {
-			uint32_t mask_low = mask_low_for_hostid(iface->dhcpv6_hostid_len);
-			do try = ((uint32_t)random()) & mask_low; while (try < 0x100);
-		}
-
-		/* If prefix is < 64 bits, we need to shift the interface ID to the left */
-		if (iface->addr6_len < 64)
-			try <<= (64 - iface->addr6_len);
+	/* ...then try to assign sequentially from that starting point... */
+	for (size_t i = 0; i < 100; i++, try++) {
+		if (try > pool_end)
+			try = pool_start;
 
 		if (is_reserved_ipv6_iid(try))
 			continue;

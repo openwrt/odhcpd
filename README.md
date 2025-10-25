@@ -121,8 +121,6 @@ and may also receive information from ubus
 | ntp			|list	|`<local address>`| NTP servers to announce accepts IPv4 and IPv6 |
 | ra_management		|string	| -	| TBD |
 | upstream		|list	| -	| TBD |
-| pd_manager		|string | -	| TBD |
-| pd_cer		|string | -	| TBD |
 | ra_advrouter		|bool   | -	| TBD |
 
 [//]: # "dhcpv6_raw - string - not documented, may change when generic DHCPv4/DHCPv6 options are added"

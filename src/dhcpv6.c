@@ -176,7 +176,6 @@ enum {
 	IOV_SEARCH_DOMAIN,
 	IOV_PDBUF,
 #define	IOV_REFRESH IOV_PDBUF
-	IOV_CERID,
 	IOV_DHCPV6_RAW,
 	IOV_NTP,
 	IOV_NTP_ADDR,
@@ -623,15 +622,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} dhcpv4o6_server = {htons(DHCPV6_OPT_4O6_SERVER), htons(sizeof(struct in6_addr)),
 			IN6ADDR_ANY_INIT};
 
-	struct dhcpv6_cer_id cerid = {
-#ifdef EXT_CER_ID
-		.type = htons(EXT_CER_ID),
-#endif
-		.len = htons(36),
-		.addr = iface->dhcpv6_pd_cer,
-	};
-
-
 	uint8_t pdbuf[512];
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_NESTED] = {NULL, 0},
@@ -644,7 +634,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_SEARCH] = {&search, (search_len) ? sizeof(search) : 0},
 		[IOV_SEARCH_DOMAIN] = {search_domain, search_len},
 		[IOV_PDBUF] = {pdbuf, 0},
-		[IOV_CERID] = {&cerid, 0},
 		[IOV_DHCPV6_RAW] = {iface->dhcpv6_raw, iface->dhcpv6_raw_len},
 		[IOV_NTP] = {&ntp, (ntp_cnt) ? sizeof(ntp) : 0},
 		[IOV_NTP_ADDR] = {ntp_ptr, (ntp_cnt) ? ntp_len : 0},
@@ -680,22 +669,6 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			if (olen != ntohs(dest.serverid_length) ||
 			    memcmp(odata, &dest.serverid_buf, olen))
 				return; /* Not for us */
-		} else if (otype == DHCPV6_OPT_IA_PD) {
-#ifdef EXT_CER_ID
-			iov[IOV_CERID].iov_len = sizeof(cerid);
-
-			if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)) {
-				struct odhcpd_ipaddr *addrs;
-				ssize_t len = netlink_get_interface_addrs(0, true, &addrs);
-
-				for (ssize_t i = 0; i < len; ++i)
-					if (IN6_IS_ADDR_UNSPECIFIED(&cerid.addr)
-							|| memcmp(&addrs[i].addr, &cerid.addr, sizeof(cerid.addr)) < 0)
-						cerid.addr = addrs[i].addr.in6;
-
-				free(addrs);
-			}
-#endif
 		} else if (otype == DHCPV6_OPT_RAPID_COMMIT && hdr->msg_type == DHCPV6_MSG_SOLICIT) {
 			iov[IOV_RAPID_COMMIT].iov_len = sizeof(rapid_commit);
 			o_rapid_commit = true;
@@ -799,7 +772,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
 				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
 				      iov[IOV_DHCPV4O6_SERVER].iov_len +
-				      iov[IOV_CERID].iov_len + iov[IOV_DHCPV6_RAW].iov_len +
+				      iov[IOV_DHCPV6_RAW].iov_len +
 				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
 				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
 				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len + 

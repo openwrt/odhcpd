@@ -84,11 +84,6 @@ static void print_usage(const char *app)
 #else
 	       " no-ubus"
 #endif /* WITH_UBUS */
-#ifdef EXT_CER_ID
-	       " cer"
-#else
-	       " no-cer"
-#endif /* EXT_CER_ID */
 	       "\n"
 	       "\n"
 	       "	-c <dir>	Read UCI configuration files from <dir>\n"

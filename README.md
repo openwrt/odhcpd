@@ -61,7 +61,6 @@ and may also receive information from ubus
 
 | Option	| Type	|Default| Description |
 | :------------ | :---- | :----	| :---------- |
-| legacy	| bool	| 0	| Enable DHCPv4 if start but no dhcpv4 option set |
 | maindhcp	| bool	| 0	| Use odhcpd as the main DHCPv4 service |
 | leasefile	| string|	| DHCP/v6 lease/hostfile |
 | leasetrigger	| string|	| Lease trigger script |

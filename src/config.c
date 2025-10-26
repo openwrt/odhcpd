@@ -35,7 +35,6 @@ struct vlist_tree lease_cfgs = VLIST_TREE_INIT(lease_cfgs, lease_cfg_cmp,
 
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {
-	.legacy = false,
 	.enable_tz = true,
 	.main_dhcpv4 = false,
 	.dhcp_cb = NULL,
@@ -206,7 +205,6 @@ const struct uci_blob_param_list lease_cfg_attr_list = {
 };
 
 enum {
-	ODHCPD_ATTR_LEGACY,
 	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
@@ -218,7 +216,6 @@ enum {
 };
 
 static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
-	[ODHCPD_ATTR_LEGACY] = { .name = "legacy", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
@@ -445,9 +442,6 @@ static void set_config(struct uci_section *s)
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &odhcpd_attr_list);
 	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
-
-	if ((c = tb[ODHCPD_ATTR_LEGACY]))
-		config.legacy = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_MAINDHCP]))
 		config.main_dhcpv4 = blobmsg_get_bool(c);
@@ -1196,9 +1190,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
 		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
 							LIMIT_DEFAULT - 1);
-
-		if (config.main_dhcpv4 && config.legacy)
-			iface->dhcpv4 = MODE_SERVER;
 	}
 
 	if ((c = tb[IFACE_ATTR_LIMIT]))
@@ -1239,12 +1230,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
 		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
-			if (config.main_dhcpv4) {
-				iface->dhcpv4 = mode;
+			iface->dhcpv4 = config.main_dhcpv4 ? mode : MODE_DISABLED;
 
-				if (iface->dhcpv4 != MODE_DISABLED)
-					iface->ignore = false;
-			}
+			if (iface->dhcpv4 != MODE_DISABLED)
+				iface->ignore = false;
 		} else
 			error("Invalid %s mode configured for interface %s",
 			      iface_attrs[IFACE_ATTR_DHCPV4].name, iface->name);

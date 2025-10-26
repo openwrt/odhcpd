@@ -743,6 +743,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (iface->ra_slaac && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->ra_advrouter)
+			// RFC6275, §7.2
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
 		if (i >= valid_addr_cnt || !preferred_lt) {
 			/* 

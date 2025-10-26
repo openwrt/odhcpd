@@ -275,6 +275,17 @@ static void in6_copy_iid(struct in6_addr *dest, uint64_t iid, unsigned n)
 	}
 }
 
+static struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint64_t iid)
+{
+	struct in6_addr addr;
+	uint8_t iid_len = min(128 - prefix->prefix, 64);
+
+	addr = prefix->addr.in6;
+	in6_copy_iid(&addr, iid, iid_len);
+
+	return addr;
+}
+
 void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg)
 {
@@ -299,23 +310,21 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 			continue;
 		}
 
-		addr = addrs[i].addr.in6;
-		preferred_lt = addrs[i].preferred_lt;
-		valid_lt = addrs[i].valid_lt;
-
 		if (c->flags & OAF_DHCPV6_NA) {
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
-			in6_copy_iid(&addr, c->assigned_host_id, iface->dhcpv6_hostid_len);
+			addr = in6_from_prefix_and_iid(&addrs[i], c->assigned_host_id);
 		} else {
 			if (!valid_prefix_length(c, addrs[i].prefix))
 				continue;
 
+			addr = addrs[i].addr.in6;
 			addr.s6_addr32[1] |= htonl(c->assigned_subnet_id);
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 		}
 
+		preferred_lt = addrs[i].preferred_lt;
 		if (preferred_lt > (uint32_t)c->preferred_until)
 			preferred_lt = c->preferred_until;
 
@@ -325,6 +334,7 @@ void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcp_assignment *c,
 		if (preferred_lt != UINT32_MAX)
 			preferred_lt -= now;
 
+		valid_lt = addrs[i].valid_lt;
 		if (valid_lt > (uint32_t)c->valid_until)
 			valid_lt = c->valid_until;
 
@@ -1172,13 +1182,10 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				struct dhcpv6_ia_addr o_ia_a = {
 					.type = htons(DHCPV6_OPT_IA_ADDR),
 					.len = htons(sizeof(o_ia_a) - 4),
-					.addr = addrs[i].addr.in6,
+					.addr = in6_from_prefix_and_iid(&addrs[i], a->assigned_host_id),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt)
 				};
-
-				o_ia_a.addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
-				o_ia_a.addr.s6_addr32[3] = htonl(a->assigned_host_id & UINT32_MAX);
 
 				if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 					continue;
@@ -1247,8 +1254,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
 						continue;
 
-					addr = addrs[i].addr.in6;
 					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
+						addr = addrs[i].addr.in6;
 						addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
@@ -1256,8 +1263,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 								ia_p->prefix == ((a->managed) ? addrs[i].prefix : a->length))
 							found = true;
 					} else {
-						addr.s6_addr32[2] = htonl(a->assigned_host_id >> 32);
-						addr.s6_addr32[3] = htonl(a->assigned_host_id & UINT32_MAX);
+						addr = in6_from_prefix_and_iid(&addrs[i], a->assigned_host_id);
 
 						if (!memcmp(&ia_a->addr, &addr, sizeof(addr)))
 							found = true;

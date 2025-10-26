@@ -119,7 +119,6 @@ and may also receive information from ubus
 | ndp_from_link_local	|bool	| 1	| Use link-local source addresses for NDP operations (RFC 4861, §4.2 compliance) and macOS compatibility |
 | prefix_filter		|string	|`::/0`	| Only advertise on-link prefixes within the provided IPv6 prefix; others are filtered out. [IPv6 prefix] |
 | ntp			|list	|`<local address>`| NTP servers to announce accepts IPv4 and IPv6 |
-| ra_management		|string	| -	| TBD |
 | upstream		|list	| -	| TBD |
 | ra_advrouter		|bool   | -	| TBD |
 

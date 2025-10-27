@@ -26,14 +26,15 @@
 static struct blob_buf b;
 static int reload_pipe[2] = { -1, -1 };
 
-static int lease_cmp(const void *k1, const void *k2, void *ptr);
-static void lease_update(struct vlist_tree *tree, struct vlist_node *node_new,
-			 struct vlist_node *node_old);
+static int host_cfg_cmp(const void *k1, const void *k2, void *ptr);
+static void host_cfg_update(struct vlist_tree *tree, struct vlist_node *node_new,
+			    struct vlist_node *node_old);
 
-struct vlist_tree leases = VLIST_TREE_INIT(leases, lease_cmp, lease_update, true, false);
+struct vlist_tree host_cfgs = VLIST_TREE_INIT(host_cfgs, host_cfg_cmp,
+					      host_cfg_update, true, false);
+
 AVL_TREE(interfaces, avl_strcmp, false, NULL);
 struct config config = {
-	.legacy = false,
 	.enable_tz = true,
 	.main_dhcpv4 = false,
 	.dhcp_cb = NULL,
@@ -102,7 +103,6 @@ enum {
 	IFACE_ATTR_DNR,
 	IFACE_ATTR_DNS_SERVICE,
 	IFACE_ATTR_DOMAIN,
-	IFACE_ATTR_FILTER_CLASS,
 	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
@@ -111,7 +111,6 @@ enum {
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_DHCPV6_HOSTID_LEN,
 	IFACE_ATTR_RA_DEFAULT,
-	IFACE_ATTR_RA_MANAGEMENT,
 	IFACE_ATTR_RA_FLAGS,
 	IFACE_ATTR_RA_SLAAC,
 	IFACE_ATTR_RA_OFFLINK,
@@ -126,8 +125,6 @@ enum {
 	IFACE_ATTR_RA_MTU,
 	IFACE_ATTR_RA_DNS,
 	IFACE_ATTR_RA_PREF64,
-	IFACE_ATTR_PD_MANAGER,
-	IFACE_ATTR_PD_CER,
 	IFACE_ATTR_NDPROXY_ROUTING,
 	IFACE_ATTR_NDPROXY_SLAVE,
 	IFACE_ATTR_NDP_FROM_LINK_LOCAL,
@@ -157,7 +154,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DNR] = { .name = "dnr", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
-	[IFACE_ATTR_FILTER_CLASS] = { .name = "filter_class", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
@@ -165,10 +161,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_PD_MIN_LEN] = { .name = "dhcpv6_pd_min_len", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
-	[IFACE_ATTR_PD_MANAGER] = { .name = "pd_manager", .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_PD_CER] = { .name = "pd_cer", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
-	[IFACE_ATTR_RA_MANAGEMENT] = { .name = "ra_management", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_FLAGS] = { .name = "ra_flags", . type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_RA_SLAAC] = { .name = "ra_slaac", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_OFFLINK] = { .name = "ra_offlink", .type = BLOBMSG_TYPE_BOOL },
@@ -192,34 +185,26 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 };
 
-static const struct uci_blob_param_info iface_attr_info[IFACE_ATTR_MAX] = {
-	[IFACE_ATTR_UPSTREAM] = { .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_DNS] = { .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_DOMAIN] = { .type = BLOBMSG_TYPE_STRING },
-};
-
 const struct uci_blob_param_list interface_attr_list = {
 	.n_params = IFACE_ATTR_MAX,
 	.params = iface_attrs,
-	.info = iface_attr_info,
 };
 
-const struct blobmsg_policy lease_attrs[LEASE_ATTR_MAX] = {
-	[LEASE_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
-	[LEASE_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_ARRAY },
-	[LEASE_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_ARRAY },
-	[LEASE_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
-	[LEASE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
-	[LEASE_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+const struct blobmsg_policy host_cfg_attrs[HOST_ATTR_MAX] = {
+	[HOST_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
+	[HOST_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_ARRAY },
+	[HOST_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_ARRAY },
+	[HOST_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
+	[HOST_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
+	[HOST_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
 };
 
-const struct uci_blob_param_list lease_attr_list = {
-	.n_params = LEASE_ATTR_MAX,
-	.params = lease_attrs,
+const struct uci_blob_param_list host_cfg_attr_list = {
+	.n_params = HOST_ATTR_MAX,
+	.params = host_cfg_attrs,
 };
 
 enum {
-	ODHCPD_ATTR_LEGACY,
 	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
@@ -231,7 +216,6 @@ enum {
 };
 
 static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
-	[ODHCPD_ATTR_LEGACY] = { .name = "legacy", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_MAINDHCP] = { .name = "maindhcp", .type = BLOBMSG_TYPE_BOOL },
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
@@ -352,7 +336,6 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv4_router);
 	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
-	free(iface->filter_class);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
 	free(iface->dhcpv6_sntp);
@@ -458,9 +441,6 @@ static void set_config(struct uci_section *s)
 	blob_buf_init(&b, 0);
 	uci_to_blob(&b, s, &odhcpd_attr_list);
 	blobmsg_parse(odhcpd_attrs, ODHCPD_ATTR_MAX, tb, blob_data(b.head), blob_len(b.head));
-
-	if ((c = tb[ODHCPD_ATTR_LEGACY]))
-		config.legacy = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_MAINDHCP]))
 		config.main_dhcpv4 = blobmsg_get_bool(c);
@@ -569,13 +549,13 @@ err:
 	return 0;
 }
 
-static void free_lease(struct lease *l)
+static void free_host_cfg(struct host_cfg *host_cfg)
 {
-	if (!l)
+	if (!host_cfg)
 		return;
 
-	free(l->hostname);
-	free(l);
+	free(host_cfg->hostname);
+	free(host_cfg);
 }
 
 static bool parse_duid(struct duid *duid, struct blob_attr *c)
@@ -623,104 +603,104 @@ static bool parse_duid(struct duid *duid, struct blob_attr *c)
 	return true;
 }
 
-int set_lease_from_blobmsg(struct blob_attr *ba)
+int config_set_host_cfg_from_blobmsg(struct blob_attr *ba)
 {
-	struct blob_attr *tb[LEASE_ATTR_MAX], *c;
-	struct lease *l = NULL;
+	struct blob_attr *tb[HOST_ATTR_MAX], *c;
+	struct host_cfg *host_cfg = NULL;
 	int mac_count = 0;
 	struct ether_addr *macs;
 	int duid_count = 0;
 	struct duid *duids;
 
-	blobmsg_parse(lease_attrs, LEASE_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
+	blobmsg_parse(host_cfg_attrs, HOST_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
-	if ((c = tb[LEASE_ATTR_MAC])) {
+	if ((c = tb[HOST_ATTR_MAC])) {
 		mac_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
 		if (mac_count < 0)
 			goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_DUID])) {
+	if ((c = tb[HOST_ATTR_DUID])) {
 		duid_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
 		if (duid_count < 0)
 			goto err;
 	}
 
-	l = calloc_a(sizeof(*l),
-		     &macs, mac_count * sizeof(*macs),
-		     &duids, duid_count * sizeof(*duids));
-	if (!l)
+	host_cfg = calloc_a(sizeof(*host_cfg),
+			    &macs, mac_count * sizeof(*macs),
+			    &duids, duid_count * sizeof(*duids));
+	if (!host_cfg)
 		goto err;
 
-	if ((c = tb[LEASE_ATTR_MAC])) {
+	if ((c = tb[HOST_ATTR_MAC])) {
 		struct blob_attr *cur;
 		size_t rem;
 		int i = 0;
 
-		l->mac_count = mac_count;
-		l->macs = macs;
+		host_cfg->mac_count = mac_count;
+		host_cfg->macs = macs;
 
 		blobmsg_for_each_attr(cur, c, rem)
-			if (!ether_aton_r(blobmsg_get_string(cur), &l->macs[i++]))
+			if (!ether_aton_r(blobmsg_get_string(cur), &host_cfg->macs[i++]))
 				goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_DUID])) {
+	if ((c = tb[HOST_ATTR_DUID])) {
 		struct blob_attr *cur;
 		size_t rem;
 		unsigned i = 0;
 
-		l->duid_count = duid_count;
-		l->duids = duids;
+		host_cfg->duid_count = duid_count;
+		host_cfg->duids = duids;
 
 		blobmsg_for_each_attr(cur, c, rem)
 			if (!parse_duid(&duids[i++], cur))
 				goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_NAME])) {
-		l->hostname = strdup(blobmsg_get_string(c));
-		if (!l->hostname || !odhcpd_valid_hostname(l->hostname))
+	if ((c = tb[HOST_ATTR_NAME])) {
+		host_cfg->hostname = strdup(blobmsg_get_string(c));
+		if (!host_cfg->hostname || !odhcpd_valid_hostname(host_cfg->hostname))
 			goto err;
 	}
 
-	if ((c = tb[LEASE_ATTR_IP]))
-		if (inet_pton(AF_INET, blobmsg_get_string(c), &l->ipaddr) < 0)
+	if ((c = tb[HOST_ATTR_IP]))
+		if (inet_pton(AF_INET, blobmsg_get_string(c), &host_cfg->ipaddr) < 0)
 			goto err;
 
-	if ((c = tb[LEASE_ATTR_HOSTID])) {
+	if ((c = tb[HOST_ATTR_HOSTID])) {
 		errno = 0;
-		l->hostid = strtoull(blobmsg_get_string(c), NULL, 16);
+		host_cfg->hostid = strtoull(blobmsg_get_string(c), NULL, 16);
 		if (errno)
 			goto err;
 	} else {
-		uint32_t i4a = ntohl(l->ipaddr) & 0xff;
-		l->hostid = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
+		uint32_t i4a = ntohl(host_cfg->ipaddr) & 0xff;
+		host_cfg->hostid = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
 	}
 
-	if ((c = tb[LEASE_ATTR_LEASETIME])) {
+	if ((c = tb[HOST_ATTR_LEASETIME])) {
 		uint32_t time = parse_leasetime(c);
 		if (time == 0)
 			goto err;
 
-		l->leasetime = time;
+		host_cfg->leasetime = time;
 	}
 
-	INIT_LIST_HEAD(&l->assignments);
-	vlist_add(&leases, &l->node, l);
+	INIT_LIST_HEAD(&host_cfg->dhcpv6_leases);
+	vlist_add(&host_cfgs, &host_cfg->node, host_cfg);
 	return 0;
 
 err:
-	free_lease(l);
+	free_host_cfg(host_cfg);
 	return -1;
 }
 
-static int set_lease_from_uci(struct uci_section *s)
+static int set_host_cfg_from_uci(struct uci_section *s)
 {
 	blob_buf_init(&b, 0);
-	uci_to_blob(&b, s, &lease_attr_list);
+	uci_to_blob(&b, s, &host_cfg_attr_list);
 
-	return set_lease_from_blobmsg(b.head);
+	return config_set_host_cfg_from_blobmsg(b.head);
 }
 
 /* Parse NTP Options for DHCPv6 Address */
@@ -1106,7 +1086,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
-		INIT_LIST_HEAD(&iface->dhcpv4_assignments);
+		INIT_LIST_HEAD(&iface->dhcpv4_leases);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 
 		set_interface_defaults(iface);
@@ -1209,9 +1189,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
 		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
 							LIMIT_DEFAULT - 1);
-
-		if (config.main_dhcpv4 && config.legacy)
-			iface->dhcpv4 = MODE_SERVER;
 	}
 
 	if ((c = tb[IFACE_ATTR_LIMIT]))
@@ -1252,12 +1229,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV4])) {
 		if ((mode = parse_mode(blobmsg_get_string(c))) >= 0) {
-			if (config.main_dhcpv4) {
-				iface->dhcpv4 = mode;
+			iface->dhcpv4 = config.main_dhcpv4 ? mode : MODE_DISABLED;
 
-				if (iface->dhcpv4 != MODE_DISABLED)
-					iface->ignore = false;
-			}
+			if (iface->dhcpv4 != MODE_DISABLED)
+				iface->ignore = false;
 		} else
 			error("Invalid %s mode configured for interface %s",
 			      iface_attrs[IFACE_ATTR_DHCPV4].name, iface->name);
@@ -1390,11 +1365,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	if ((c = tb[IFACE_ATTR_FILTER_CLASS])) {
-		iface->filter_class = realloc(iface->filter_class, blobmsg_data_len(c) + 1);
-		memcpy(iface->filter_class, blobmsg_get_string(c), blobmsg_data_len(c) + 1);
-	}
-
 	if ((c = tb[IFACE_ATTR_DHCPV4_FORCERECONF]))
 		iface->dhcpv4_forcereconf = blobmsg_get_bool(c);
 
@@ -1442,27 +1412,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_RA_DEFAULT]))
 		iface->default_router = blobmsg_get_u32(c);
-
-	/* IFACE_ATTR_RA_MANAGEMENT aka ra_management is deprecated since 2019 */
-	if (!tb[IFACE_ATTR_RA_FLAGS] && !tb[IFACE_ATTR_RA_SLAAC] &&
-		(c = tb[IFACE_ATTR_RA_MANAGEMENT])) {
-		switch (blobmsg_get_u32(c)) {
-		case 0:
-			iface->ra_flags = ND_RA_FLAG_OTHER;
-			iface->ra_slaac = true;
-			break;
-		case 1:
-			iface->ra_flags = ND_RA_FLAG_OTHER|ND_RA_FLAG_MANAGED;
-			iface->ra_slaac = true;
-			break;
-		case 2:
-			iface->ra_flags = ND_RA_FLAG_OTHER|ND_RA_FLAG_MANAGED;
-			iface->ra_slaac = false;
-			break;
-		default:
-			break;
-		}
-	}
 
 	if ((c = tb[IFACE_ATTR_RA_FLAGS])) {
 		iface->ra_flags = 0;
@@ -1649,15 +1598,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			      iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
 	}
 
-	if ((c = tb[IFACE_ATTR_PD_MANAGER]))
-		strncpy(iface->dhcpv6_pd_manager, blobmsg_get_string(c),
-				sizeof(iface->dhcpv6_pd_manager) - 1);
-
-	if ((c = tb[IFACE_ATTR_PD_CER]) &&
-			inet_pton(AF_INET6, blobmsg_get_string(c), &iface->dhcpv6_pd_cer) < 1)
-		error("Invalid %s value configured for interface '%s'",
-		      iface_attrs[IFACE_ATTR_PD_CER].name, iface->name);
-
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
 		iface->learn_routes = blobmsg_get_bool(c);
 
@@ -1731,59 +1671,64 @@ static int set_interface(struct uci_section *s)
 	return config_parse_interface(blob_data(b.head), blob_len(b.head), s->e.name, true);
 }
 
-static void lease_delete_assignments(struct lease *l, bool v6)
+static void host_cfg_delete_dhcpv6_leases(struct host_cfg *host_cfg)
 {
-	struct dhcp_assignment *a, *tmp;
-	unsigned int flag = v6 ? OAF_DHCPV6 : OAF_DHCPV4;
+	struct dhcpv6_lease *lease, *tmp;
 
-	list_for_each_entry_safe(a, tmp, &l->assignments, lease_list) {
-		if (a->flags & flag)
-			free_assignment(a);
+	list_for_each_entry_safe(lease, tmp, &host_cfg->dhcpv6_leases, host_cfg_list)
+		dhcpv6_free_lease(lease);
+}
+
+static void host_cfg_update_leases(struct host_cfg *host_cfg)
+{
+	struct dhcpv4_lease *a4 = host_cfg->dhcpv4_lease;
+	struct dhcpv6_lease *lease6;
+
+	if (a4) {
+		free(a4->hostname);
+		a4->hostname = NULL;
+
+		if (host_cfg->hostname)
+			a4->hostname = strdup(host_cfg->hostname);
+	}
+
+	list_for_each_entry(lease6, &host_cfg->dhcpv6_leases, host_cfg_list) {
+		free(lease6->hostname);
+		lease6->hostname = NULL;
+
+		if (host_cfg->hostname)
+			lease6->hostname = strdup(host_cfg->hostname);
+
+		lease6->leasetime = host_cfg->leasetime;
 	}
 }
 
-static void lease_update_assignments(struct lease *l)
+static int host_cfg_cmp(const void *k1, const void *k2, _unused void *ptr)
 {
-	struct dhcp_assignment *a;
-
-	list_for_each_entry(a, &l->assignments, lease_list) {
-		if (a->hostname)
-			free(a->hostname);
-		a->hostname = NULL;
-
-		if (l->hostname)
-			a->hostname = strdup(l->hostname);
-
-		a->leasetime = l->leasetime;
-	}
-}
-
-static int lease_cmp(const void *k1, const void *k2, _unused void *ptr)
-{
-	const struct lease *l1 = k1, *l2 = k2;
+	const struct host_cfg *host_cfg1 = k1, *host_cfg2 = k2;
 	int cmp = 0;
 
-	if (l1->duid_count != l2->duid_count)
-		return l1->duid_count - l2->duid_count;
+	if (host_cfg1->duid_count != host_cfg2->duid_count)
+		return host_cfg1->duid_count - host_cfg2->duid_count;
 
-	for (size_t i = 0; i < l1->duid_count; i++) {
-		if (l1->duids[i].len != l2->duids[i].len)
-			return l1->duids[i].len - l2->duids[i].len;
+	for (size_t i = 0; i < host_cfg1->duid_count; i++) {
+		if (host_cfg1->duids[i].len != host_cfg2->duids[i].len)
+			return host_cfg1->duids[i].len - host_cfg2->duids[i].len;
 
-		if (l1->duids[i].len && l2->duids[i].len) {
-			cmp = memcmp(l1->duids[i].id, l2->duids[i].id, l1->duids[i].len);
+		if (host_cfg1->duids[i].len && host_cfg2->duids[i].len) {
+			cmp = memcmp(host_cfg1->duids[i].id, host_cfg2->duids[i].id, host_cfg1->duids[i].len);
 			if (cmp)
 				return cmp;
 		}
 	}
 
-	if (l1->mac_count != l2->mac_count)
-		return l1->mac_count - l2->mac_count;
+	if (host_cfg1->mac_count != host_cfg2->mac_count)
+		return host_cfg1->mac_count - host_cfg2->mac_count;
 
-	for (size_t i = 0; i < l1->mac_count; i++) {
-		cmp = memcmp(l1->macs[i].ether_addr_octet,
-			     l2->macs[i].ether_addr_octet,
-			     sizeof(l1->macs[i].ether_addr_octet));
+	for (size_t i = 0; i < host_cfg1->mac_count; i++) {
+		cmp = memcmp(host_cfg1->macs[i].ether_addr_octet,
+			     host_cfg2->macs[i].ether_addr_octet,
+			     sizeof(host_cfg1->macs[i].ether_addr_octet));
 		if (cmp)
 			return cmp;
 	}
@@ -1791,62 +1736,59 @@ static int lease_cmp(const void *k1, const void *k2, _unused void *ptr)
 	return 0;
 }
 
-static void lease_change_config(struct lease *l_old, struct lease *l_new)
+static void host_cfg_change(struct host_cfg *host_cfg_old, struct host_cfg *host_cfg_new)
 {
 	bool update = false;
 
-	if ((!!l_new->hostname != !!l_old->hostname) ||
-		(l_new->hostname && strcmp(l_new->hostname, l_old->hostname))) {
-		free(l_old->hostname);
-		l_old->hostname = NULL;
+	if ((!!host_cfg_new->hostname != !!host_cfg_old->hostname) ||
+	    (host_cfg_new->hostname && strcmp(host_cfg_new->hostname, host_cfg_old->hostname))) {
+		free(host_cfg_old->hostname);
+		host_cfg_old->hostname = NULL;
 
-		if (l_new->hostname)
-			l_old->hostname = strdup(l_new->hostname);
+		if (host_cfg_new->hostname)
+			host_cfg_old->hostname = strdup(host_cfg_new->hostname);
 
 		update = true;
 	}
 
-	if (l_old->leasetime != l_new->leasetime) {
-		l_old->leasetime = l_new->leasetime;
+	if (host_cfg_old->leasetime != host_cfg_new->leasetime) {
+		host_cfg_old->leasetime = host_cfg_new->leasetime;
 		update = true;
 	}
 
-	if (l_old->ipaddr != l_new->ipaddr) {
-		l_old->ipaddr = l_new->ipaddr;
-		lease_delete_assignments(l_old, false);
+	if (host_cfg_old->ipaddr != host_cfg_new->ipaddr) {
+		host_cfg_old->ipaddr = host_cfg_new->ipaddr;
+		dhcpv4_free_lease(host_cfg_old->dhcpv4_lease);
 	}
 
-	if (l_old->hostid != l_new->hostid) {
-		l_old->hostid = l_new->hostid;
-		lease_delete_assignments(l_old, true);
+	if (host_cfg_old->hostid != host_cfg_new->hostid) {
+		host_cfg_old->hostid = host_cfg_new->hostid;
+		host_cfg_delete_dhcpv6_leases(host_cfg_old);
 	}
 
 	if (update)
-		lease_update_assignments(l_old);
+		host_cfg_update_leases(host_cfg_old);
 
-	free_lease(l_new);
+	free_host_cfg(host_cfg_new);
 }
 
-static void lease_delete(struct lease *l)
+static void host_cfg_delete(struct host_cfg *host_cfg)
 {
-	struct dhcp_assignment *a, *tmp;
-
-	list_for_each_entry_safe(a, tmp, &l->assignments, lease_list)
-		free_assignment(a);
-
-	free_lease(l);
+	dhcpv4_free_lease(host_cfg->dhcpv4_lease);
+	host_cfg_delete_dhcpv6_leases(host_cfg);
+	free_host_cfg(host_cfg);
 }
 
-static void lease_update(_unused struct vlist_tree *tree, struct vlist_node *node_new,
-			 struct vlist_node *node_old)
+static void host_cfg_update(_unused struct vlist_tree *tree, struct vlist_node *node_new,
+			    struct vlist_node *node_old)
 {
-	struct lease *lease_new = container_of(node_new, struct lease, node);
-	struct lease *lease_old = container_of(node_old, struct lease, node);
+	struct host_cfg *host_cfg_new = container_of(node_new, struct host_cfg, node);
+	struct host_cfg *host_cfg_old = container_of(node_old, struct host_cfg, node);
 
 	if (node_old && node_new)
-		lease_change_config(lease_old, lease_new);
+		host_cfg_change(host_cfg_old, host_cfg_new);
 	else if (node_old)
-		lease_delete(lease_old);
+		host_cfg_delete(host_cfg_old);
 }
 
 /*
@@ -1854,66 +1796,66 @@ static void lease_update(_unused struct vlist_tree *tree, struct vlist_node *nod
  *  a) a lease with an exact DUID/IAID match; or
  *  b) a lease with a matching DUID and no IAID set
  */
-struct lease *config_find_lease_by_duid_and_iaid(const uint8_t *duid, const uint16_t len,
-						 const uint32_t iaid)
+struct host_cfg *
+config_find_host_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
 {
-	struct lease *l, *candidate = NULL;
+	struct host_cfg *host_cfg, *candidate = NULL;
 
-	vlist_for_each_element(&leases, l, node) {
-		for (size_t i = 0; i < l->duid_count; i++) {
-			if (l->duids[i].len != len)
+	vlist_for_each_element(&host_cfgs, host_cfg, node) {
+		for (size_t i = 0; i < host_cfg->duid_count; i++) {
+			if (host_cfg->duids[i].len != len)
 				continue;
 
-			if (memcmp(l->duids[i].id, duid, len))
+			if (memcmp(host_cfg->duids[i].id, duid, len))
 				continue;
 
-			if (!l->duids[i].iaid_set) {
-				candidate = l;
+			if (!host_cfg->duids[i].iaid_set) {
+				candidate = host_cfg;
 				continue;
 			}
 
-			if (l->duids[i].iaid == iaid)
-				return l;
+			if (host_cfg->duids[i].iaid == iaid)
+				return host_cfg;
 		}
 	}
 
 	return candidate;
 }
 
-struct lease *config_find_lease_by_mac(const uint8_t *mac)
+struct host_cfg *config_find_host_cfg_by_mac(const uint8_t *mac)
 {
-	struct lease *l;
+	struct host_cfg *host_cfg;
 
-	vlist_for_each_element(&leases, l, node) {
-		for (size_t i = 0; i < l->mac_count; i++) {
-			if (!memcmp(l->macs[i].ether_addr_octet, mac,
-				    sizeof(l->macs[i].ether_addr_octet)))
-				return l;
+	vlist_for_each_element(&host_cfgs, host_cfg, node) {
+		for (size_t i = 0; i < host_cfg->mac_count; i++) {
+			if (!memcmp(host_cfg->macs[i].ether_addr_octet, mac,
+				    sizeof(host_cfg->macs[i].ether_addr_octet)))
+				return host_cfg;
 		}
 	}
 
 	return NULL;
 }
 
-struct lease *config_find_lease_by_hostid(const uint64_t hostid)
+struct host_cfg *config_find_host_cfg_by_hostid(const uint64_t hostid)
 {
-	struct lease *l;
+	struct host_cfg *host_cfg;
 
-	vlist_for_each_element(&leases, l, node) {
-		if (l->hostid == hostid)
-			return l;
+	vlist_for_each_element(&host_cfgs, host_cfg, node) {
+		if (host_cfg->hostid == hostid)
+			return host_cfg;
 	}
 
 	return NULL;
 }
 
-struct lease *config_find_lease_by_ipaddr(const uint32_t ipaddr)
+struct host_cfg *config_find_host_cfg_by_ipaddr(const uint32_t ipaddr)
 {
-	struct lease *l;
+	struct host_cfg *host_cfg;
 
-	vlist_for_each_element(&leases, l, node) {
-		if (l->ipaddr == ipaddr)
-			return l;
+	vlist_for_each_element(&host_cfgs, host_cfg, node) {
+		if (host_cfg->ipaddr == ipaddr)
+			return host_cfg;
 	}
 
 	return NULL;
@@ -2279,7 +2221,7 @@ void odhcpd_reload(void)
 		sprintf(uci_network_path, "%s/network", config.uci_cfgdir);
 	}
 
-	vlist_update(&leases);
+	vlist_update(&host_cfgs);
 	avl_for_each_element(&interfaces, i, avl)
 		clean_interface(i);
 
@@ -2314,11 +2256,11 @@ void odhcpd_reload(void)
 				set_interface(s);
 		}
 
-		/* 3. Static leases */
+		/* 3. Static lease cfgs */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
 			if (!strcmp(s->type, "host"))
-				set_lease_from_uci(s);
+				set_host_cfg_from_uci(s);
 		}
 
 		/* 4. IPv6 PxE */
@@ -2362,7 +2304,7 @@ void odhcpd_reload(void)
 			error("Unable to open piofolder '%s': %m", path);
 	}
 
-	vlist_flush(&leases);
+	vlist_flush(&host_cfgs);
 
 	ubus_apply_network();
 

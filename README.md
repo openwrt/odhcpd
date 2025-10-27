@@ -61,7 +61,6 @@ and may also receive information from ubus
 
 | Option	| Type	|Default| Description |
 | :------------ | :---- | :----	| :---------- |
-| legacy	| bool	| 0	| Enable DHCPv4 if start but no dhcpv4 option set |
 | maindhcp	| bool	| 0	| Use odhcpd as the main DHCPv4 service |
 | leasefile	| string|	| DHCP/v6 lease/hostfile |
 | leasetrigger	| string|	| Lease trigger script |
@@ -102,7 +101,8 @@ and may also receive information from ubus
 | max_valid_lifetime	|string	| 90m	| Upper limit for the valid lifetime for a prefix |
 | ra_default		|integer| 0	| Override default route - 0: default, 1: ignore no public address, 2: ignore all |
 | ra_flags		|list	|other-config| List of RA flags to be advertised in RA messages [managed-config\|other-config\|home-agent\|none] |
-| ra_slaac		|bool	| 1	| Announce slaac for a prefix |
+| ra_slaac		|bool	| 1	| Advertise that prefixes (which are <= 64 bits long) on this interface can be used for SLAAC (the "A" flag in the PIO, RFC4861, §4.6.2) |
+| ra_advrouter		|bool   | 0	| Advertise the IPv6 address of this router in RA messages (the "R" flag in the PIO, RFC6275, §7.2) |
 | ra_offlink		|bool	| 0	| Announce prefixes off-link |
 | ra_preference		|string	| medium| Route(r) preference [medium\|high\|low] |
 | ra_maxinterval	|integer| 600	| Maximum time allowed between sending unsolicited RA |
@@ -119,6 +119,9 @@ and may also receive information from ubus
 | ndp_from_link_local	|bool	| 1	| Use link-local source addresses for NDP operations (RFC 4861, §4.2 compliance) and macOS compatibility |
 | prefix_filter		|string	|`::/0`	| Only advertise on-link prefixes within the provided IPv6 prefix; others are filtered out. [IPv6 prefix] |
 | ntp			|list	|`<local address>`| NTP servers to announce accepts IPv4 and IPv6 |
+| upstream		|list	| -	| A list of interfaces which can be used as a source of configuration information (e.g. for NTP servers, if not set explicitly). |
+
+[//]: # "dhcpv6_raw - string - not documented, may change when generic DHCPv4/DHCPv6 options are added"
 
 
 ### Sections of type host (static leases)

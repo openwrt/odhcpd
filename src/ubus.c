@@ -36,8 +36,8 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcp_assignment *c;
-		list_for_each_entry(c, &iface->dhcpv4_assignments, head) {
+		struct dhcpv4_lease *c;
+		list_for_each_entry(c, &iface->dhcpv4_leases, head) {
 			if (!INFINITE_VALID(c->valid_until) && c->valid_until < now)
 				continue;
 
@@ -120,8 +120,9 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 		void *i = blobmsg_open_table(&b, iface->ifname);
 		void *j = blobmsg_open_array(&b, "leases");
 
-		struct dhcp_assignment *a, *border = list_last_entry(
-				&iface->ia_assignments, struct dhcp_assignment, head);
+		struct dhcpv6_lease *a, *border;
+
+		border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
 
 		list_for_each_entry(a, &iface->ia_assignments, head) {
 			if (a == border || (!INFINITE_VALID(a->valid_until) &&
@@ -225,11 +226,11 @@ static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_o
 	return 0;
 }
 
-static int handle_add_lease(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		struct blob_attr *msg)
+static int handle_add_host_cfg(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
+			       _unused struct ubus_request_data *req, _unused const char *method,
+			       struct blob_attr *msg)
 {
-	if (!set_lease_from_blobmsg(msg))
+	if (!config_set_host_cfg_from_blobmsg(msg))
 		return UBUS_STATUS_OK;
 
 	return UBUS_STATUS_INVALID_ARGUMENT;
@@ -241,7 +242,7 @@ static struct ubus_method main_object_methods[] = {
 #endif /* DHCPV4_SUPPORT */
 	{ .name = "ipv6leases", .handler = handle_dhcpv6_leases },
 	{ .name = "ipv6ra", .handler = handle_ra_pio },
-	UBUS_METHOD("add_lease", handle_add_lease, lease_attrs),
+	UBUS_METHOD("add_lease", handle_add_host_cfg, host_cfg_attrs),
 };
 
 static struct ubus_object_type main_object_type =

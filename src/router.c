@@ -1089,19 +1089,34 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	uint8_t *mac_ptr = NULL;
 	struct in6_addr *dns_ptr = NULL;
 	size_t dns_count = 0;
+	// MTU option
+	struct nd_opt_mtu *mtu_opt = NULL;
+	uint32_t ingress_mtu_val = 0;
 
+	/* Parse existing options */
 	icmpv6_for_each_option(opt, &adv[1], end) {
-		if (opt->type == ND_OPT_SOURCE_LINKADDR) {
-			/* Store address of source MAC-address */
+		switch (opt->type) {
+		case ND_OPT_SOURCE_LINKADDR:
 			mac_ptr = opt->data;
-		} else if (opt->type == ND_OPT_RECURSIVE_DNS && opt->len > 1) {
-			/* Check if we have to rewrite DNS */
-			dns_ptr = (struct in6_addr*)&opt->data[6];
-			dns_count = (opt->len - 1) / 2;
+			break;
+
+		case ND_OPT_RECURSIVE_DNS:
+			if (opt->len > 1) {
+				dns_ptr = (struct in6_addr *)&opt->data[6];
+				dns_count = (opt->len - 1) / 2;
+			}
+			break;
+
+		case ND_OPT_MTU:
+			if (opt->len == 1 && (uint8_t *)opt + sizeof(struct nd_opt_mtu) <= end) {
+				mtu_opt = (struct nd_opt_mtu *)opt;
+				ingress_mtu_val = ntohl(mtu_opt->nd_opt_mtu_mtu);
+			}
+			break;
 		}
 	}
 
-	notice("Got a RA on %s", iface->name);
+	info("Got a RA on %s", iface->name);
 
 	/* Indicate a proxy, however we don't follow the rest of RFC 4389 yet */
 	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
@@ -1140,8 +1155,16 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			}
 		}
 
-		notice("Forward a RA on %s", c->name);
+		/* Rewrite MTU option if local RA MTU is configured */
+		if (c->ra_mtu && mtu_opt) {
+			if (ingress_mtu_val != c->ra_mtu) {
+				debug("Rewriting RA MTU from %u to %u on %s",
+				       ingress_mtu_val, c->ra_mtu, c->name);
+				mtu_opt->nd_opt_mtu_mtu = htonl(c->ra_mtu);
+			}
+		}
 
+		info("Forward a RA on %s", c->name);
 		odhcpd_send(c->router_event.uloop.fd, &all_nodes, &iov, 1, c);
 	}
 }

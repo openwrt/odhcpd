@@ -1504,6 +1504,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	}
 
+	iface->if_mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
 	if ((c = tb[IFACE_ATTR_RA_MTU])) {
 		uint32_t original_ra_mtu, ra_mtu;
 		original_ra_mtu = ra_mtu = blobmsg_get_u32(c);
@@ -1511,12 +1512,22 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			ra_mtu = RA_MTU_MIN;
 		else if (ra_mtu > RA_MTU_MAX)
 			ra_mtu = RA_MTU_MAX;
+		if (iface->if_mtu && ra_mtu > iface->if_mtu)
+			ra_mtu = iface->if_mtu;
+
 		iface->ra_mtu = ra_mtu;
 
 		if (original_ra_mtu != ra_mtu) {
 			warn("Clamped invalid %s value configured for interface '%s' to %d",
 			     iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
 		}
+	}
+
+	/* Default RA MTU to the interface MTU if no value is assigned */
+	if (!iface->ra_mtu && iface->if_mtu) {
+		iface->ra_mtu = iface->if_mtu;
+		info("Defaulted %s value for interface '%s' to %d",
+		     iface_attrs[IFACE_ATTR_RA_MTU].name, iface->name, iface->ra_mtu);
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_SLAAC]))

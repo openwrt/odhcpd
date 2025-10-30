@@ -333,6 +333,7 @@ struct interface {
 	int ifindex;
 	char *ifname;
 	const char *name;
+	uint32_t if_mtu;
 
 	// IPv6 runtime data
 	struct odhcpd_ipaddr *addr6;
@@ -405,7 +406,7 @@ struct interface {
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
-	int ra_mtu;
+	uint32_t ra_mtu;
 	uint32_t max_preferred_lifetime;
 	uint32_t max_valid_lifetime;
 

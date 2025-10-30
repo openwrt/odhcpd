@@ -257,6 +257,13 @@ static int handle_rtm_link(struct nlmsghdr *hdr)
 
 		iface->ifflags = ifi->ifi_flags;
 
+		/* store current MTU if available */
+		if (nla[IFLA_MTU]) {
+			iface->if_mtu = nla_get_u32(nla[IFLA_MTU]);
+			debug("Stashed MTU of %d for interface '%s'",
+			     iface->if_mtu, iface->name);
+		}
+
 		/*
 		 * Assume for link event of the same index, that link changed
 		 * and reload services to enable or disable them based on the

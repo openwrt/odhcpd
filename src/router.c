@@ -569,7 +569,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 * for shortest lived prefix
 	 */
 	uint32_t lowest_found_lifetime = UINT32_MAX, highest_found_lifetime = 0, maxival, ra_lifetime;
-	int msecs, mtu = iface->ra_mtu, hlim = iface->ra_hoplimit;
+	int msecs, hlim = iface->ra_hoplimit;
 	bool default_route = false;
 	bool valid_prefix = false;
 	char buf[INET6_ADDRSTRLEN];
@@ -602,13 +602,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	adv.mtu.nd_opt_mtu_type = ND_OPT_MTU;
 	adv.mtu.nd_opt_mtu_len = 1;
 
-	if (mtu == 0)
-		mtu = odhcpd_get_interface_config(iface->ifname, "mtu");
-
-	if (mtu < 1280)
-		mtu = 1280;
-
-	adv.mtu.nd_opt_mtu_mtu = htonl(mtu);
+	adv.mtu.nd_opt_mtu_mtu = htonl(iface->ra_mtu);
 
 	iov[IOV_RA_ADV].iov_base = (char *)&adv;
 	iov[IOV_RA_ADV].iov_len = sizeof(adv);

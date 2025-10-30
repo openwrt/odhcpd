@@ -406,7 +406,7 @@ struct interface {
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;
-	int ra_mtu;
+	uint32_t ra_mtu;
 	uint32_t max_preferred_lifetime;
 	uint32_t max_valid_lifetime;
 

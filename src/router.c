@@ -1002,7 +1002,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	debug("Sending a RA on %s", iface->name);
 
-	if (odhcpd_send(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0) {
+	if (odhcpd_try_send_with_src(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0) {
 		iface->ra_sent++;
 
 		config_save_ra_pio(iface);
@@ -1056,7 +1056,7 @@ static void handle_icmpv6(void *addr, void *data, size_t len,
 }
 
 
-/* Forward router solicitation */
+/* Forward a router solicitation from slave to master interface */
 static void forward_router_solicitation(const struct interface *iface)
 {
 	struct icmp6_hdr rs = {ND_ROUTER_SOLICIT, 0, 0, {{0}}};
@@ -1076,7 +1076,7 @@ static void forward_router_solicitation(const struct interface *iface)
 }
 
 
-/* Handler for incoming router solicitations on slave interfaces */
+/* Forward a router advertisment from master to slave interfaces */
 static void forward_router_advertisement(const struct interface *iface, uint8_t *data, size_t len)
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;

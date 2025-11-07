@@ -35,6 +35,7 @@
 #include "odhcpd.h"
 #include "dhcpv4.h"
 #include "dhcpv6.h"
+#include "statefiles.h"
 
 #define MAX_PREFIX_LEN 28
 

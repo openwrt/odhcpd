@@ -9,6 +9,7 @@
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"
+#include "statefiles.h"
 
 static struct ubus_context *ubus = NULL;
 static struct ubus_subscriber netifd;

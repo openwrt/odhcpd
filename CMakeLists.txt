@@ -13,6 +13,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	src/dhcpv6-pxe.c
 	src/ndp.c
 	src/netlink.c
+	src/statefiles.c
 	src/router.c
 )
 

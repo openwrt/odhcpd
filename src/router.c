@@ -1099,7 +1099,7 @@ static void forward_router_solicitation(const struct interface *iface)
 }
 
 
-/* Forward a router advertisment from master to slave interfaces */
+/* Forward a router advertisement from master to slave interfaces */
 static void forward_router_advertisement(const struct interface *iface, uint8_t *data, size_t len)
 {
 	struct nd_router_advert *adv = (struct nd_router_advert *)data;
@@ -1115,6 +1115,32 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
 	uint32_t ingress_mtu_val = 0;
+	/* PIO L flag and RA M/O Flags */
+	uint8_t ra_flags;
+	size_t pio_count = 0;
+	struct fwd_pio_flags {
+		uint8_t *ptr;
+		uint8_t flags;
+	} *pio_flags = NULL;
+
+	icmpv6_for_each_option(opt, &adv[1], end) {
+		/* check our packet content is not truncated */
+		if (opt->len == 0 || (uint8_t *)opt + opt->len * 8 > end) {
+			error("Ingress RA packet option for relaying has incorrect length");
+			return;
+		}
+
+		switch(opt->type) {
+		case ND_OPT_PREFIX_INFORMATION:
+			pio_count++;
+			break;
+		}
+	}
+
+	if (pio_count > 0) {
+		pio_flags = alloca(sizeof(*pio_flags) * pio_count);
+		pio_count = 0;
+	}
 
 	/* Parse existing options */
 	icmpv6_for_each_option(opt, &adv[1], end) {
@@ -1136,13 +1162,21 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 				ingress_mtu_val = ntohl(mtu_opt->nd_opt_mtu_mtu);
 			}
 			break;
+		case ND_OPT_PREFIX_INFORMATION:
+			/* Store options for each PIO */
+			pio_flags[pio_count].ptr = &opt->data[1];
+			pio_flags[pio_count].flags = opt->data[1];
+			pio_count++;
+			break;
 		}
 	}
 
 	info("Got a RA on %s", iface->name);
 
-	/* Indicate a proxy, however we don't follow the rest of RFC 4389 yet */
-	adv->nd_ra_flags_reserved |= ND_RA_FLAG_PROXY;
+	/*	Indicate a proxy, however we don't follow the rest of RFC 4389 yet
+	 *	store original upstream RA state 
+	 */
+	ra_flags = adv->nd_ra_flags_reserved | ND_RA_FLAG_PROXY;
 
 	/* Forward advertisement to all slave interfaces */
 	memset(&all_nodes, 0, sizeof(all_nodes));
@@ -1156,6 +1190,26 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		/* Fixup source hardware address option */
 		if (mac_ptr)
 			odhcpd_get_mac(c, mac_ptr);
+
+		if (pio_count > 0)
+			debug("RA forward: Rewriting RA PIO flags");
+
+		for (size_t i = 0; i < pio_count; i++) {
+			/* restore the flags byte to its upstream state before applying per-interface policy */
+			*pio_flags[i].ptr = pio_flags[i].flags;
+			/* ensure L flag (on-link) cleared; relayed == not on-link */
+			*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_ONLINK;
+		}
+
+		/* Apply per-interface modifications of upstream RA state */
+		adv->nd_ra_flags_reserved = ra_flags;
+		/* Rewrite M/O flags unless we relay DHCPv6 */
+		if (c->dhcpv6 != MODE_RELAY) {
+			/* Clear the relayed M/O bits */
+			adv->nd_ra_flags_reserved &= ~(ND_RA_FLAG_MANAGED | ND_RA_FLAG_OTHER);
+			/* Apply the locally configured ra_flags for M and O */
+			adv->nd_ra_flags_reserved |= c->ra_flags & (ND_RA_FLAG_MANAGED | ND_RA_FLAG_OTHER);
+		}
 
 		/* If we have to rewrite DNS entries */
 		if (c->always_rewrite_dns && dns_ptr && dns_count > 0) {

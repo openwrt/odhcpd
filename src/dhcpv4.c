@@ -1597,7 +1597,7 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 	}
 
 	if (update_statefile)
-		dhcpv6_ia_write_statefile();
+		statefiles_write();
 
 	uloop_timeout_set(event, 5000);
 }

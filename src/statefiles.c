@@ -144,7 +144,7 @@ static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint
 					"%s/%d ", ipbuf, prefix);
 }
 
-static void dhcpv6_ia_write_hostsfile(time_t now)
+static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt;
 	size_t tmp_hostsfile_strlen;
@@ -221,17 +221,18 @@ err:
 	close(fd);
 }
 
-void dhcpv6_ia_write_statefile(void)
+static bool statefiles_write_state(time_t now)
 {
 	struct write_ctxt ctxt;
 	size_t tmp_statefile_strlen;
 	char *tmp_statefile;
-	time_t now = odhcpd_time(), wall_time = time(NULL);
+	time_t wall_time = time(NULL);
 	char leasebuf[512];
+	uint8_t newmd5[16];
 	int fd;
 
 	if (config.dhcp_statedir_fd < 0 || !config.dhcp_statefile)
-		return;
+		return false;
 
 	tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
 	tmp_statefile = alloca(tmp_statefile_strlen);
@@ -338,30 +339,40 @@ void dhcpv6_ia_write_statefile(void)
 	}
 
 	fclose(ctxt.fp);
-
-	uint8_t newmd5[16];
 	md5_end(newmd5, &ctxt.md5);
 
 	renameat(config.dhcp_statedir_fd, tmp_statefile,
 		 config.dhcp_statedir_fd, config.dhcp_statefile);
 
-	if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
-		memcpy(statemd5, newmd5, sizeof(statemd5));
+	if (!memcmp(newmd5, statemd5, sizeof(newmd5)))
+		return false;
 
-		dhcpv6_ia_write_hostsfile(now);
+	memcpy(statemd5, newmd5, sizeof(statemd5));
 
-		if (config.dhcp_cb) {
-			char *argv[2] = {config.dhcp_cb, NULL};
-			if (!vfork()) {
-				execv(argv[0], argv);
-				_exit(128);
-			}
-		}
-	}
-
-	return;
+	return true;
 
 err:
 	error("Unable to write statefile: %m");
 	close(fd);
+	return false;
+}
+
+bool statefiles_write()
+{
+	time_t now = odhcpd_time();
+
+	if (!statefiles_write_state(now))
+		return false;
+
+	statefiles_write_hosts(now);
+
+	if (config.dhcp_cb) {
+		char *argv[2] = { config.dhcp_cb, NULL };
+		if (!vfork()) {
+			execv(argv[0], argv);
+			_exit(128);
+		}
+	}
+
+	return true;
 }

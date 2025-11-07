@@ -502,7 +502,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			dhcpv6_free_lease(c);
 	}
 
-	dhcpv6_ia_write_statefile();
+	statefiles_write();
 }
 
 static void reconf_timeout_cb(struct uloop_timeout *event)
@@ -1313,7 +1313,7 @@ proceed:
 		break;
 	}
 
-	dhcpv6_ia_write_statefile();
+	statefiles_write();
 
 out:
 	return response_len;

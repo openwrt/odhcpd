@@ -203,6 +203,7 @@ struct config {
 	char *dhcp_cb;
 	char *dhcp_statefile;
 	char *dhcp_hostsfile;
+	int dhcp_hostsdir_fd;
 
 	char *ra_piofolder;
 	int ra_piofolder_fd;

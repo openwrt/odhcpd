@@ -40,6 +40,7 @@ struct config config = {
 	.dhcp_cb = NULL,
 	.dhcp_statefile = NULL,
 	.dhcp_hostsfile = NULL,
+	.dhcp_hostsdir_fd = -1,
 	.ra_piofolder = NULL,
 	.ra_piofolder_fd = -1,
 	.uci_cfgdir = NULL,
@@ -2310,6 +2311,19 @@ void odhcpd_reload(void)
 		char *path = strdupa(config.dhcp_statefile);
 
 		mkdir_p(dirname(path), 0755);
+	}
+
+	if (config.dhcp_hostsfile) {
+		char *dir = dirname(strdupa(config.dhcp_hostsfile));
+		char *file = basename(config.dhcp_hostsfile);
+
+		memmove(config.dhcp_hostsfile, file, strlen(file) + 1);
+		mkdir_p(dir, 0755);
+
+		close(config.dhcp_hostsdir_fd);
+		config.dhcp_hostsdir_fd = open(dir, O_PATH | O_DIRECTORY | O_CLOEXEC);
+		if (config.dhcp_hostsdir_fd < 0)
+			error("Unable to open hostsdir '%s': %m", dir);
 	}
 
 	if (config.ra_piofolder) {

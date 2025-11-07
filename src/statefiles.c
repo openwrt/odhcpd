@@ -147,52 +147,32 @@ static void dhcpv6_write_ia_addr(struct in6_addr *addr, int prefix, _unused uint
 static void dhcpv6_ia_write_hostsfile(time_t now)
 {
 	struct write_ctxt ctxt;
+	size_t tmp_hostsfile_strlen;
+	char *tmp_hostsfile;
+	int fd;
 
-	unsigned hostsfile_strlen = strlen(config.dhcp_hostsfile) + 1;
-	unsigned tmp_hostsfile_strlen = hostsfile_strlen + 1; /* space for . */
-	char *tmp_hostsfile = alloca(tmp_hostsfile_strlen);
+	if (config.dhcp_hostsdir_fd < 0 || !config.dhcp_hostsfile)
+		return;
 
-	char *dir_hostsfile;
-	char *base_hostsfile;
-	char *pdir_hostsfile;
-	char *pbase_hostsfile;
+	tmp_hostsfile_strlen = strlen(config.dhcp_hostsfile) + 2;
+	tmp_hostsfile = alloca(tmp_hostsfile_strlen);
+	sprintf(tmp_hostsfile, ".%s", config.dhcp_hostsfile);
 
-	int fd, ret;
-
-	dir_hostsfile = strndup(config.dhcp_hostsfile, hostsfile_strlen);
-	base_hostsfile = strndup(config.dhcp_hostsfile, hostsfile_strlen);
-
-	pdir_hostsfile = dirname(dir_hostsfile);
-	pbase_hostsfile = basename(base_hostsfile);
-
-	snprintf(tmp_hostsfile, tmp_hostsfile_strlen, "%s/.%s", pdir_hostsfile, pbase_hostsfile);
-
-	free(dir_hostsfile);
-	free(base_hostsfile);
-
-	fd = open(tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+	fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
 	if (fd < 0)
-		return;
+		goto err;
 
-	ret = lockf(fd, F_LOCK, 0);
-	if (ret < 0) {
-		close(fd);
-		return;
-	}
+	if (lockf(fd, F_LOCK, 0) < 0)
+		goto err;
 
-	if (ftruncate(fd, 0) < 0) {}
+	if (ftruncate(fd, 0) < 0)
+		goto err;
 
 	ctxt.fp = fdopen(fd, "w");
-	if (!ctxt.fp) {
-		close(fd);
-		return;
-	}
+	if (!ctxt.fp)
+		goto err;
 
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
-		if (ctxt.iface->dhcpv6 != MODE_SERVER &&
-				ctxt.iface->dhcpv4 != MODE_SERVER)
-			continue;
-
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
 				if (!(ctxt.c->flags & OAF_BOUND))
@@ -232,8 +212,13 @@ static void dhcpv6_ia_write_hostsfile(time_t now)
 	}
 
 	fclose(ctxt.fp);
+	renameat(config.dhcp_hostsdir_fd, tmp_hostsfile,
+		 config.dhcp_hostsdir_fd, config.dhcp_hostsfile);
+	return;
 
-	rename(tmp_hostsfile, config.dhcp_hostsfile);
+err:
+	error("Unable to write hostsfile: %m");
+	close(fd);
 }
 
 void dhcpv6_ia_write_statefile(void)
@@ -384,8 +369,7 @@ void dhcpv6_ia_write_statefile(void)
 		if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
 			memcpy(statemd5, newmd5, sizeof(statemd5));
 
-			if (config.dhcp_hostsfile)
-				dhcpv6_ia_write_hostsfile(now);
+			dhcpv6_ia_write_hostsfile(now);
 
 			if (config.dhcp_cb) {
 				char *argv[2] = {config.dhcp_cb, NULL};

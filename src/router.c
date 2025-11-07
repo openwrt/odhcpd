@@ -1203,7 +1203,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
 	uint32_t ingress_mtu_val = 0;
-	/* PIO L flag and RA M/O Flags */
+	/* PIO L/A flag and RA M/O Flags */
 	uint8_t ra_flags;
 	size_t pio_count = 0;
 	struct fwd_pio_flags {
@@ -1287,6 +1287,15 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			*pio_flags[i].ptr = pio_flags[i].flags;
 			/* ensure L flag (on-link) cleared; relayed == not on-link */
 			*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_ONLINK;
+			/*	upstream no SLAAC, downstream no SLAAC: no change
+			 *	upstream no SLAAC, downstream SLAAC: no change
+			 *	upstream SLAAC, downstream SLAAC: no change
+			 *	upstream SLAAC, downstream no SLAAC: clear flag
+			 *	Why? We shall not SLAAC downstream if upstream disables it. Sometimes
+			 *	we just inform about a prefix for DHCPv6 and routing info. 
+			 */
+			if (!c->ra_slaac)
+				*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_AUTO;/* ensure A flag cleared */
 		}
 
 		/* Apply per-interface modifications of upstream RA state */

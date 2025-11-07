@@ -201,7 +201,9 @@ struct config {
 	bool enable_tz;
 	bool main_dhcpv4;
 	char *dhcp_cb;
+
 	char *dhcp_statefile;
+	int dhcp_statedir_fd;
 	char *dhcp_hostsfile;
 	int dhcp_hostsdir_fd;
 

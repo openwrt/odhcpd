@@ -224,60 +224,38 @@ err:
 void dhcpv6_ia_write_statefile(void)
 {
 	struct write_ctxt ctxt;
-	unsigned statefile_strlen = strlen(config.dhcp_statefile) + 1;
-	unsigned tmp_statefile_strlen = statefile_strlen + 1; /* space for . */
-	char *tmp_statefile = alloca(tmp_statefile_strlen);
-
-	char *dir_statefile;
-	char *base_statefile;
-	char *pdir_statefile;
-	char *pbase_statefile;
-
+	size_t tmp_statefile_strlen;
+	char *tmp_statefile;
 	time_t now = odhcpd_time(), wall_time = time(NULL);
-	int fd, ret;
 	char leasebuf[512];
+	int fd;
 
-	if (!config.dhcp_statefile)
+	if (config.dhcp_statedir_fd < 0 || !config.dhcp_statefile)
 		return;
 
-	md5_begin(&ctxt.md5);
-	dir_statefile = strndup(config.dhcp_statefile, statefile_strlen);
-	base_statefile = strndup(config.dhcp_statefile, statefile_strlen);
+	tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
+	tmp_statefile = alloca(tmp_statefile_strlen);
+	sprintf(tmp_statefile, ".%s", config.dhcp_statefile);
 
-	pdir_statefile = dirname(dir_statefile);
-	pbase_statefile = basename(base_statefile);
-
-	snprintf(tmp_statefile, tmp_statefile_strlen, "%s/.%s", pdir_statefile, pbase_statefile);
-
-	free(dir_statefile);
-	free(base_statefile);
-
-	fd = open(tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+	fd = openat(config.dhcp_statedir_fd, tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
 	if (fd < 0)
-		return;
+		goto err;
 
-	ret = lockf(fd, F_LOCK, 0);
-	if (ret < 0) {
-		close(fd);
-		return;
-	}
+	if (lockf(fd, F_LOCK, 0) < 0)
+		goto err;
 
-	if (ftruncate(fd, 0) < 0) {}
+	if (ftruncate(fd, 0) < 0)
+		goto err;
 
 	ctxt.fp = fdopen(fd, "w");
-	if (!ctxt.fp) {
-		close(fd);
-		return;
-	}
+	if (!ctxt.fp)
+		goto err;
 
 	ctxt.buf = leasebuf;
 	ctxt.buf_len = sizeof(leasebuf);
+	md5_begin(&ctxt.md5);
 
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
-		if (ctxt.iface->dhcpv6 != MODE_SERVER &&
-				ctxt.iface->dhcpv4 != MODE_SERVER)
-			continue;
-
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
 				if (!(ctxt.c->flags & OAF_BOUND))
@@ -364,7 +342,8 @@ void dhcpv6_ia_write_statefile(void)
 	uint8_t newmd5[16];
 	md5_end(newmd5, &ctxt.md5);
 
-	rename(tmp_statefile, config.dhcp_statefile);
+	renameat(config.dhcp_statedir_fd, tmp_statefile,
+		 config.dhcp_statedir_fd, config.dhcp_statefile);
 
 	if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
 		memcpy(statemd5, newmd5, sizeof(statemd5));
@@ -379,5 +358,10 @@ void dhcpv6_ia_write_statefile(void)
 			}
 		}
 	}
-}
 
+	return;
+
+err:
+	error("Unable to write statefile: %m");
+	close(fd);
+}

@@ -224,159 +224,158 @@ err:
 void dhcpv6_ia_write_statefile(void)
 {
 	struct write_ctxt ctxt;
+	unsigned statefile_strlen = strlen(config.dhcp_statefile) + 1;
+	unsigned tmp_statefile_strlen = statefile_strlen + 1; /* space for . */
+	char *tmp_statefile = alloca(tmp_statefile_strlen);
+
+	char *dir_statefile;
+	char *base_statefile;
+	char *pdir_statefile;
+	char *pbase_statefile;
+
+	time_t now = odhcpd_time(), wall_time = time(NULL);
+	int fd, ret;
+	char leasebuf[512];
+
+	if (!config.dhcp_statefile)
+		return;
 
 	md5_begin(&ctxt.md5);
+	dir_statefile = strndup(config.dhcp_statefile, statefile_strlen);
+	base_statefile = strndup(config.dhcp_statefile, statefile_strlen);
 
-	if (config.dhcp_statefile) {
-		unsigned statefile_strlen = strlen(config.dhcp_statefile) + 1;
-		unsigned tmp_statefile_strlen = statefile_strlen + 1; /* space for . */
-		char *tmp_statefile = alloca(tmp_statefile_strlen);
+	pdir_statefile = dirname(dir_statefile);
+	pbase_statefile = basename(base_statefile);
 
-		char *dir_statefile;
-		char *base_statefile;
-		char *pdir_statefile;
-		char *pbase_statefile;
+	snprintf(tmp_statefile, tmp_statefile_strlen, "%s/.%s", pdir_statefile, pbase_statefile);
 
-		time_t now = odhcpd_time(), wall_time = time(NULL);
-		int fd, ret;
-		char leasebuf[512];
+	free(dir_statefile);
+	free(base_statefile);
 
-		dir_statefile = strndup(config.dhcp_statefile, statefile_strlen);
-		base_statefile = strndup(config.dhcp_statefile, statefile_strlen);
+	fd = open(tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+	if (fd < 0)
+		return;
 
-		pdir_statefile = dirname(dir_statefile);
-		pbase_statefile = basename(base_statefile);
+	ret = lockf(fd, F_LOCK, 0);
+	if (ret < 0) {
+		close(fd);
+		return;
+	}
 
-		snprintf(tmp_statefile, tmp_statefile_strlen, "%s/.%s", pdir_statefile, pbase_statefile);
+	if (ftruncate(fd, 0) < 0) {}
 
-		free(dir_statefile);
-		free(base_statefile);
+	ctxt.fp = fdopen(fd, "w");
+	if (!ctxt.fp) {
+		close(fd);
+		return;
+	}
 
-		fd = open(tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-		if (fd < 0)
-			return;
+	ctxt.buf = leasebuf;
+	ctxt.buf_len = sizeof(leasebuf);
 
-		ret = lockf(fd, F_LOCK, 0);
-		if (ret < 0) {
-			close(fd);
-			return;
-		}
+	avl_for_each_element(&interfaces, ctxt.iface, avl) {
+		if (ctxt.iface->dhcpv6 != MODE_SERVER &&
+				ctxt.iface->dhcpv4 != MODE_SERVER)
+			continue;
 
-		if (ftruncate(fd, 0) < 0) {}
+		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
+			list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
+				if (!(ctxt.c->flags & OAF_BOUND))
+					continue;
 
-		ctxt.fp = fdopen(fd, "w");
-		if (!ctxt.fp) {
-			close(fd);
-			return;
-		}
+				char duidbuf[DUID_HEXSTRLEN];
 
-		ctxt.buf = leasebuf;
-		ctxt.buf_len = sizeof(leasebuf);
+				odhcpd_hexlify(duidbuf, ctxt.c->clid_data, ctxt.c->clid_len);
 
-		avl_for_each_element(&interfaces, ctxt.iface, avl) {
-			if (ctxt.iface->dhcpv6 != MODE_SERVER &&
-					ctxt.iface->dhcpv4 != MODE_SERVER)
-				continue;
+				/* iface DUID iaid hostname lifetime assigned_host_id length [addrs...] */
+				ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %"PRId64" ",
+							ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
+							(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+							(ctxt.c->hostname ? ctxt.c->hostname : "-"),
+							(ctxt.c->valid_until > now ?
+								(int64_t)(ctxt.c->valid_until - now + wall_time) :
+								(INFINITE_VALID(ctxt.c->valid_until) ? -1 : 0)));
 
-			if (ctxt.iface->dhcpv6 == MODE_SERVER) {
-				list_for_each_entry(ctxt.c, &ctxt.iface->ia_assignments, head) {
-					if (!(ctxt.c->flags & OAF_BOUND))
-						continue;
+				if (ctxt.c->flags & OAF_DHCPV6_NA)
+					ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx, ctxt.buf_len - ctxt.buf_idx,
+								 "%" PRIx64" %u ", ctxt.c->assigned_host_id, (unsigned)ctxt.c->length);
+				else
+					ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx, ctxt.buf_len - ctxt.buf_idx,
+								 "%" PRIx32" %u ", ctxt.c->assigned_subnet_id, (unsigned)ctxt.c->length);
 
-					char duidbuf[DUID_HEXSTRLEN];
+				if (INFINITE_VALID(ctxt.c->valid_until) || ctxt.c->valid_until > now)
+					dhcpv6_ia_enum_addrs(ctxt.iface, ctxt.c, now,
+								dhcpv6_write_ia_addr, &ctxt);
 
-					odhcpd_hexlify(duidbuf, ctxt.c->clid_data, ctxt.c->clid_len);
-
-					/* iface DUID iaid hostname lifetime assigned_host_id length [addrs...] */
-					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s %x %s%s %"PRId64" ",
-								ctxt.iface->ifname, duidbuf, ntohl(ctxt.c->iaid),
-								(ctxt.c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-								(ctxt.c->hostname ? ctxt.c->hostname : "-"),
-								(ctxt.c->valid_until > now ?
-									(int64_t)(ctxt.c->valid_until - now + wall_time) :
-									(INFINITE_VALID(ctxt.c->valid_until) ? -1 : 0)));
-
-					if (ctxt.c->flags & OAF_DHCPV6_NA)
-						ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx, ctxt.buf_len - ctxt.buf_idx,
-									 "%" PRIx64" %u ", ctxt.c->assigned_host_id, (unsigned)ctxt.c->length);
-					else
-						ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx, ctxt.buf_len - ctxt.buf_idx,
-									 "%" PRIx32" %u ", ctxt.c->assigned_subnet_id, (unsigned)ctxt.c->length);
-
-					if (INFINITE_VALID(ctxt.c->valid_until) || ctxt.c->valid_until > now)
-						dhcpv6_ia_enum_addrs(ctxt.iface, ctxt.c, now,
-									dhcpv6_write_ia_addr, &ctxt);
-
-					ctxt.buf[ctxt.buf_idx - 1] = '\n';
-					fwrite(ctxt.buf, 1, ctxt.buf_idx, ctxt.fp);
-				}
-			}
-
-			if (ctxt.iface->dhcpv4 == MODE_SERVER) {
-				struct dhcpv4_lease *c;
-
-				list_for_each_entry(c, &ctxt.iface->dhcpv4_leases, head) {
-					if (!(c->flags & OAF_BOUND))
-						continue;
-
-					char ipbuf[INET6_ADDRSTRLEN];
-					char duidbuf[16];
-					odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
-
-					/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-					ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s ipv4 %s%s %"PRId64" %x 32 ",
-								ctxt.iface->ifname, duidbuf,
-								(c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-								(c->hostname ? c->hostname : "-"),
-								(c->valid_until > now ?
-									(int64_t)(c->valid_until - now + wall_time) :
-									(INFINITE_VALID(c->valid_until) ? -1 : 0)),
-								ntohl(c->addr));
-
-					struct in_addr addr = {.s_addr = c->addr};
-					inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
-
-					if (c->hostname && !(c->flags & OAF_BROKEN_HOSTNAME)) {
-						fputs(ipbuf, ctxt.fp);
-
-						char b[256];
-						if (dn_expand(ctxt.iface->search,
-								ctxt.iface->search + ctxt.iface->search_len,
-								ctxt.iface->search, b, sizeof(b)) > 0)
-							fprintf(ctxt.fp, "\t%s.%s", c->hostname, b);
-
-						fprintf(ctxt.fp, "\t%s\n", c->hostname);
-						md5_hash(ipbuf, strlen(ipbuf), &ctxt.md5);
-						md5_hash(c->hostname, strlen(c->hostname), &ctxt.md5);
-					}
-
-					ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx,
-									ctxt.buf_len - ctxt.buf_idx,
-									"%s/32 ", ipbuf);
-					ctxt.buf[ctxt.buf_idx - 1] = '\n';
-					fwrite(ctxt.buf, 1, ctxt.buf_idx, ctxt.fp);
-				}
+				ctxt.buf[ctxt.buf_idx - 1] = '\n';
+				fwrite(ctxt.buf, 1, ctxt.buf_idx, ctxt.fp);
 			}
 		}
 
-		fclose(ctxt.fp);
+		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
+			struct dhcpv4_lease *c;
 
-		uint8_t newmd5[16];
-		md5_end(newmd5, &ctxt.md5);
+			list_for_each_entry(c, &ctxt.iface->dhcpv4_leases, head) {
+				if (!(c->flags & OAF_BOUND))
+					continue;
 
-		rename(tmp_statefile, config.dhcp_statefile);
+				char ipbuf[INET6_ADDRSTRLEN];
+				char duidbuf[16];
+				odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
 
-		if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
-			memcpy(statemd5, newmd5, sizeof(statemd5));
+				/* iface DUID iaid hostname lifetime assigned length [addrs...] */
+				ctxt.buf_idx = snprintf(ctxt.buf, ctxt.buf_len, "# %s %s ipv4 %s%s %"PRId64" %x 32 ",
+							ctxt.iface->ifname, duidbuf,
+							(c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+							(c->hostname ? c->hostname : "-"),
+							(c->valid_until > now ?
+								(int64_t)(c->valid_until - now + wall_time) :
+								(INFINITE_VALID(c->valid_until) ? -1 : 0)),
+							ntohl(c->addr));
 
-			dhcpv6_ia_write_hostsfile(now);
+				struct in_addr addr = {.s_addr = c->addr};
+				inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
 
-			if (config.dhcp_cb) {
-				char *argv[2] = {config.dhcp_cb, NULL};
-				if (!vfork()) {
-					execv(argv[0], argv);
-					_exit(128);
+				if (c->hostname && !(c->flags & OAF_BROKEN_HOSTNAME)) {
+					fputs(ipbuf, ctxt.fp);
+
+					char b[256];
+					if (dn_expand(ctxt.iface->search,
+							ctxt.iface->search + ctxt.iface->search_len,
+							ctxt.iface->search, b, sizeof(b)) > 0)
+						fprintf(ctxt.fp, "\t%s.%s", c->hostname, b);
+
+					fprintf(ctxt.fp, "\t%s\n", c->hostname);
+					md5_hash(ipbuf, strlen(ipbuf), &ctxt.md5);
+					md5_hash(c->hostname, strlen(c->hostname), &ctxt.md5);
 				}
+
+				ctxt.buf_idx += snprintf(ctxt.buf + ctxt.buf_idx,
+								ctxt.buf_len - ctxt.buf_idx,
+								"%s/32 ", ipbuf);
+				ctxt.buf[ctxt.buf_idx - 1] = '\n';
+				fwrite(ctxt.buf, 1, ctxt.buf_idx, ctxt.fp);
+			}
+		}
+	}
+
+	fclose(ctxt.fp);
+
+	uint8_t newmd5[16];
+	md5_end(newmd5, &ctxt.md5);
+
+	rename(tmp_statefile, config.dhcp_statefile);
+
+	if (memcmp(newmd5, statemd5, sizeof(newmd5))) {
+		memcpy(statemd5, newmd5, sizeof(statemd5));
+
+		dhcpv6_ia_write_hostsfile(now);
+
+		if (config.dhcp_cb) {
+			char *argv[2] = {config.dhcp_cb, NULL};
+			if (!vfork()) {
+				execv(argv[0], argv);
+				_exit(128);
 			}
 		}
 	}

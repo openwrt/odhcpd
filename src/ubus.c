@@ -84,8 +84,8 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 }
 #endif /* DHCPV4_SUPPORT */
 
-static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t pref,
-					uint32_t valid, _unused void *arg)
+static void dhcpv6_blobmsg_ia_addr(_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+				   uint32_t pref_lt, uint32_t valid_lt, _unused void *arg)
 {
 	void *a	= blobmsg_open_table(&b, NULL);
 	char *buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
@@ -93,9 +93,9 @@ static void dhcpv6_blobmsg_ia_addr(struct in6_addr *addr, int prefix, uint32_t p
 	inet_ntop(AF_INET6, addr, buf, INET6_ADDRSTRLEN);
 	blobmsg_add_string_buffer(&b);
 	blobmsg_add_u32(&b, "preferred-lifetime",
-			pref == UINT32_MAX ? (uint32_t)-1 : pref);
+			pref_lt == UINT32_MAX ? (uint32_t)-1 : pref_lt);
 	blobmsg_add_u32(&b, "valid-lifetime",
-			valid == UINT32_MAX ? (uint32_t)-1 : valid);
+			valid_lt == UINT32_MAX ? (uint32_t)-1 : valid_lt);
 
 	if (prefix != 128)
 		blobmsg_add_u32(&b, "prefix-length", prefix);

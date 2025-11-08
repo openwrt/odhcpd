@@ -99,10 +99,6 @@ typedef	ssize_t (*send_reply_cb_t)(struct iovec *iov, size_t iov_len,
 				   struct sockaddr *dest, socklen_t dest_len,
 				   void *opaque);
 
-typedef void (*dhcpv6_binding_cb_handler_t)(struct in6_addr *addr, int prefix,
-					    uint32_t pref, uint32_t valid,
-					    void *arg);
-
 union if_addr {
 	struct in_addr in;
 	struct in6_addr in6;
@@ -537,6 +533,11 @@ const char *odhcpd_print_mac(const uint8_t *mac, const size_t len);
 
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
+
+typedef void (*dhcpv6_binding_cb_handler_t)(struct dhcpv6_lease *lease,
+					    struct in6_addr *addr, int prefix,
+					    uint32_t pref, uint32_t valid,
+					    void *arg);
 
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 int odhcpd_netmask2bitlen(bool v6, void *mask);

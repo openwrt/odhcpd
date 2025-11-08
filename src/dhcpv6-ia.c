@@ -818,8 +818,8 @@ struct log_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_log_ia_addr(struct in6_addr *addr, int prefix, _unused uint32_t pref_lt,
-				_unused uint32_t valid_lt, void *arg)
+static void dhcpv6_log_ia_addr(_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+			       _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
 	char addrbuf[INET6_ADDRSTRLEN];

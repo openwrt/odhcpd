@@ -1202,7 +1202,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
 	uint32_t ingress_mtu_val = 0;
-	/* PIO L/A flag and RA M/O Flags */
+	/* PIO L/A/R/P flag and RA M/O Flags */
 	uint8_t ra_flags;
 	size_t pio_count = 0;
 	struct fwd_pio_flags {
@@ -1295,6 +1295,11 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			 */
 			if (!c->ra_slaac)
 				*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_AUTO;/* ensure A flag cleared */
+
+			/* we have no opinion on the R flag - it can be forwarded */
+
+			if (c->dhcpv6 == MODE_DISABLED || !c->dhcpv6_pd || !c->dhcpv6_pd_preferred)
+				*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_PD_PREFERRED;/* ensure P flag (DHCPv6-PD) cleared */
 		}
 
 		/* Apply per-interface modifications of upstream RA state */

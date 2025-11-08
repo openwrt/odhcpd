@@ -163,48 +163,41 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-				  ctxt->buf_len - ctxt->buf_idx,
-				  "%s/%d ", ipbuf, prefix);
-
 	if (statefiles_write_host6(ctxt, lease, addr)) {
 		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
+
+	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
+				  ctxt->buf_len - ctxt->buf_idx,
+				  " %s/%d", ipbuf, prefix);
 }
 
 static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)
 {
 	char duidbuf[DUID_HEXSTRLEN];
 
-	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
-
-	/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
-	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len,
-				 "# %s %s %x %s%s %" PRId64 " ",
-				 ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
-				 (lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-				 (lease->hostname ? lease->hostname : "-"),
-				 (lease->valid_until > ctxt->now ?
-				  (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
-				  (INFINITE_VALID(lease->valid_until) ? -1 : 0)));
-
-	if (lease->flags & OAF_DHCPV6_NA)
-		ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-					  ctxt->buf_len - ctxt->buf_idx,
-					  "%" PRIx64 " %" PRIu8 " ",
-					  lease->assigned_host_id, lease->length);
-	else
-		ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-					  ctxt->buf_len - ctxt->buf_idx,
-					  "%" PRIx32 " %" PRIu8 " ",
-					  lease->assigned_subnet_id, lease->length);
+	ctx->buf_idx = 0;
 
 	if (INFINITE_VALID(lease->valid_until) || lease->valid_until > ctxt->now)
 		odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
 
-	ctxt->buf[ctxt->buf_idx - 1] = '\n';
-	fwrite(ctxt->buf, 1, ctxt->buf_idx, ctxt->fp);
+	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
+
+	/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
+	fprintf(ctxt->fp,
+		"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8 "%s\n",
+		ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
+		(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+		(lease->hostname ? lease->hostname : "-"),
+		(lease->valid_until > ctxt->now ?
+		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
+		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
+		(lease->flags & OAF_DHCPV6_NA ?
+		 lease->assigned_host_id :
+		 (uint64_t)lease->assigned_subnet_id),
+		lease->length,
+		ctx->buf);
 }
 
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)

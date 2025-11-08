@@ -213,26 +213,25 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 	struct in_addr addr = { .s_addr = lease->addr };
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
 	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
-
-	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
-	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len,
-				 "# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
-				 ctxt->iface->ifname, hexhwaddr,
-				 (lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-				 (lease->hostname ? lease->hostname : "-"),
-				 (lease->valid_until > ctxt->now ?
-				  (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
-				  (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
-				 ntohl(lease->addr), ipbuf);
 
 	if (statefiles_write_host4(ctxt, lease)) {
 		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
-	fwrite(ctxt->buf, 1, ctxt->buf_idx, ctxt->fp);
+	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
+
+	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
+	fprintf(ctxt->fp,
+		"# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
+		ctxt->iface->ifname, hexhwaddr,
+		(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+		(lease->hostname ? lease->hostname : "-"),
+		(lease->valid_until > ctxt->now ?
+		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
+		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
+		ntohl(lease->addr), ipbuf);
 }
 
 static bool statefiles_write_state(time_t now)

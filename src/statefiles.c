@@ -179,8 +179,9 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 
 	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
 
-	/* iface DUID iaid hostname lifetime assigned_host_id length [addrs...] */
-	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len, "# %s %s %x %s%s %"PRId64" ",
+	/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
+	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len,
+				 "# %s %s %x %s%s %" PRId64 " ",
 				 ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
 				 (lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
 				 (lease->hostname ? lease->hostname : "-"),
@@ -191,7 +192,7 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 	if (lease->flags & OAF_DHCPV6_NA)
 		ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
 					  ctxt->buf_len - ctxt->buf_idx,
-					  "%" PRIx64" %" PRIu8 " ",
+					  "%" PRIx64 " %" PRIu8 " ",
 					  lease->assigned_host_id, lease->length);
 	else
 		ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
@@ -208,16 +209,17 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
-	char ipbuf[INET6_ADDRSTRLEN];
-	char duidbuf[16];
+	char hexhwaddr[sizeof(lease->hwaddr) * 2 + 1];
 	struct in_addr addr = { .s_addr = lease->addr };
+	char ipbuf[INET6_ADDRSTRLEN];
 
-	odhcpd_hexlify(duidbuf, lease->hwaddr, sizeof(lease->hwaddr));
+	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
 	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
 
-	/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len, "# %s %s ipv4 %s%s %"PRId64" %x 32 %s/32\n",
-				 ctxt->iface->ifname, duidbuf,
+	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
+	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len,
+				 "# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
+				 ctxt->iface->ifname, hexhwaddr,
 				 (lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
 				 (lease->hostname ? lease->hostname : "-"),
 				 (lease->valid_until > ctxt->now ?

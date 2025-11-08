@@ -206,44 +206,30 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 	fwrite(ctxt->buf, 1, ctxt->buf_idx, ctxt->fp);
 }
 
-static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *c)
+static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
 	char ipbuf[INET6_ADDRSTRLEN];
 	char duidbuf[16];
+	struct in_addr addr = { .s_addr = lease->addr };
 
-	odhcpd_hexlify(duidbuf, c->hwaddr, sizeof(c->hwaddr));
+	odhcpd_hexlify(duidbuf, lease->hwaddr, sizeof(lease->hwaddr));
+	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
 
 	/* iface DUID iaid hostname lifetime assigned length [addrs...] */
-	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len, "# %s %s ipv4 %s%s %"PRId64" %x 32 ",
+	ctxt->buf_idx = snprintf(ctxt->buf, ctxt->buf_len, "# %s %s ipv4 %s%s %"PRId64" %x 32 %s/32\n",
 				 ctxt->iface->ifname, duidbuf,
-				 (c->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-				 (c->hostname ? c->hostname : "-"),
-				 (c->valid_until > ctxt->now ?
-				  (int64_t)(c->valid_until - ctxt->now + ctxt->wall_time) :
-				  (INFINITE_VALID(c->valid_until) ? -1 : 0)),
-				 ntohl(c->addr));
+				 (lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+				 (lease->hostname ? lease->hostname : "-"),
+				 (lease->valid_until > ctxt->now ?
+				  (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
+				  (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
+				 ntohl(lease->addr), ipbuf);
 
-	struct in_addr addr = {.s_addr = c->addr};
-	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
-
-	if (c->hostname && !(c->flags & OAF_BROKEN_HOSTNAME)) {
-		fputs(ipbuf, ctxt->fp);
-
-		char b[256];
-		if (dn_expand(ctxt->iface->search,
-			      ctxt->iface->search + ctxt->iface->search_len,
-			      ctxt->iface->search, b, sizeof(b)) > 0)
-			fprintf(ctxt->fp, "\t%s.%s", c->hostname, b);
-
-		fprintf(ctxt->fp, "\t%s\n", c->hostname);
+	if (statefiles_write_host4(ctxt, lease)) {
 		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
-		md5_hash(c->hostname, strlen(c->hostname), &ctxt->md5);
+		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-				  ctxt->buf_len - ctxt->buf_idx,
-				  "%s/32 ", ipbuf);
-	ctxt->buf[ctxt->buf_idx - 1] = '\n';
 	fwrite(ctxt->buf, 1, ctxt->buf_idx, ctxt->fp);
 }
 

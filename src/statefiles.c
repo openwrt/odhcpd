@@ -177,10 +177,8 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 {
 	char duidbuf[DUID_HEXSTRLEN];
 
-	ctx->buf_idx = 0;
-
-	if (INFINITE_VALID(lease->valid_until) || lease->valid_until > ctxt->now)
-		odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
+	ctxt->buf_idx = 0;
+	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
 
 	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
 
@@ -197,7 +195,7 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 		 lease->assigned_host_id :
 		 (uint64_t)lease->assigned_subnet_id),
 		lease->length,
-		ctx->buf);
+		ctxt->buf);
 }
 
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
@@ -269,17 +267,29 @@ static bool statefiles_write_state(time_t now)
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head)
-				if (lease->flags & OAF_BOUND)
-					statefiles_write_state6(&ctxt, lease);
+			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head) {
+				if (!(lease->flags & OAF_BOUND))
+					continue;
+
+				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
+					continue;
+
+				statefiles_write_state6(&ctxt, lease);
+			}
 		}
 
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
 			struct dhcpv4_lease *lease;
 
-			list_for_each_entry(lease, &ctxt.iface->dhcpv4_leases, head)
-				if (lease->flags & OAF_BOUND)
-					statefiles_write_state4(&ctxt, lease);
+			list_for_each_entry(lease, &ctxt.iface->dhcpv4_leases, head) {
+				if (!(lease->flags & OAF_BOUND))
+					continue;
+
+				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
+					continue;
+
+				statefiles_write_state4(&ctxt, lease);
+			}
 		}
 	}
 

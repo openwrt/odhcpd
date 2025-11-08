@@ -534,11 +534,12 @@ const char *odhcpd_print_mac(const uint8_t *mac, const size_t len);
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
-typedef void (*dhcpv6_binding_cb_handler_t)(struct dhcpv6_lease *lease,
-					    struct in6_addr *addr, int prefix,
-					    uint32_t pref, uint32_t valid,
-					    void *arg);
-
+typedef void (*odhcpd_enum_addr6_cb_t)(struct dhcpv6_lease *lease,
+				       struct in6_addr *addr, int prefix,
+				       uint32_t pref, uint32_t valid,
+				       void *arg);
+void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
+		       time_t now, odhcpd_enum_addr6_cb_t func, void *arg);
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 int odhcpd_netmask2bitlen(bool v6, void *mask);
 bool odhcpd_bitlen2netmask(bool v6, unsigned int bits, void *mask);

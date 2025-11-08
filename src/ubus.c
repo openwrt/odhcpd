@@ -153,7 +153,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 			blobmsg_close_array(&b, m);
 
 			m = blobmsg_open_array(&b, a->flags & OAF_DHCPV6_NA ? "ipv6-addr": "ipv6-prefix");
-			dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
+			odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
 			blobmsg_close_array(&b, m);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(a->valid_until) ?

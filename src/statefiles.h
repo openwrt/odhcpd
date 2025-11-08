@@ -7,9 +7,6 @@
 #ifndef _STATEFILES_H_
 #define _STATEFILES_H_
 
-void dhcpv6_ia_enum_addrs(struct interface *iface, struct dhcpv6_lease *lease,
-			  time_t now, dhcpv6_binding_cb_handler_t func, void *arg);
-
 bool statefiles_write(void);
 
 #endif /* _STATEFILES_H_ */

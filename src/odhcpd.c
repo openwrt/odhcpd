@@ -42,7 +42,9 @@
 #include <sys/random.h>
 
 #include <libubox/uloop.h>
+
 #include "odhcpd.h"
+#include "dhcpv6-ia.h"
 
 static int ioctl_sock = -1;
 
@@ -663,6 +665,63 @@ void odhcpd_bmemcpy(void *av, const void *bv, size_t bits)
 	}
 }
 
+void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
+		       time_t now, odhcpd_enum_addr6_cb_t func, void *arg)
+{
+	struct odhcpd_ipaddr *addrs = iface->addr6;
+	size_t m = get_preferred_addr(addrs, iface->addr6_len);
+
+	for (size_t i = 0; i < iface->addr6_len; ++i) {
+		struct in6_addr addr;
+		uint32_t preferred_lt, valid_lt;
+		int prefix = lease->length;
+
+		if (!valid_addr(&addrs[i], now))
+			continue;
+
+		/* Filter Out Prefixes */
+		if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
+			char addrbuf[INET6_ADDRSTRLEN];
+			info("Address %s filtered out on %s",
+			     inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
+			     iface->name);
+			continue;
+		}
+
+		if (lease->flags & OAF_DHCPV6_NA) {
+			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
+				continue;
+
+			addr = in6_from_prefix_and_iid(&addrs[i], lease->assigned_host_id);
+		} else {
+			if (!valid_prefix_length(lease, addrs[i].prefix))
+				continue;
+
+			addr = addrs[i].addr.in6;
+			addr.s6_addr32[1] |= htonl(lease->assigned_subnet_id);
+			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
+		}
+
+		preferred_lt = addrs[i].preferred_lt;
+		if (preferred_lt > (uint32_t)lease->preferred_until)
+			preferred_lt = lease->preferred_until;
+
+		if (preferred_lt > (uint32_t)lease->valid_until)
+			preferred_lt = lease->valid_until;
+
+		if (preferred_lt != UINT32_MAX)
+			preferred_lt -= now;
+
+		valid_lt = addrs[i].valid_lt;
+		if (valid_lt > (uint32_t)lease->valid_until)
+			valid_lt = lease->valid_until;
+
+		if (valid_lt != UINT32_MAX)
+			valid_lt -= now;
+
+		func(lease, &addr, prefix, preferred_lt, valid_lt, arg);
+	}
+}
 
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix)
 {

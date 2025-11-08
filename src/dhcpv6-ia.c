@@ -884,7 +884,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 					.buf_len = sizeof(leasebuf),
 					.buf_idx = 0 };
 
-		dhcpv6_ia_enum_addrs(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
+		odhcpd_enum_addr6(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
 	info("DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",

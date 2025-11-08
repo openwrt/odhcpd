@@ -77,36 +77,6 @@ static void statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 	statefiles_write_host(ipbuf, lease->hostname, ctxt);
 }
 
-static void statefiles_write_state6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-				    _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
-{
-	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
-	char ipbuf[INET6_ADDRSTRLEN];
-	char exp_dn[256];
-
-	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-				  ctxt->buf_len - ctxt->buf_idx,
-				  "%s/%d ", ipbuf, prefix);
-
-	if (!(lease->flags & OAF_DHCPV6_NA))
-		return;
-
-	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
-		return;
-
-	fputs(ipbuf, ctxt->fp);
-
-	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
-		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
-		fprintf(ctxt->fp, "\t%s.%s", lease->hostname, exp_dn);
-
-	fprintf(ctxt->fp, "\t%s\n", lease->hostname);
-	md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
-	md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
-}
-
 static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt;
@@ -174,6 +144,36 @@ static void statefiles_write_hosts(time_t now)
 err:
 	error("Unable to write hostsfile: %m");
 	close(fd);
+}
+
+static void statefiles_write_state6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+				    _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+{
+	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
+	char ipbuf[INET6_ADDRSTRLEN];
+	char exp_dn[256];
+
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+
+	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
+				  ctxt->buf_len - ctxt->buf_idx,
+				  "%s/%d ", ipbuf, prefix);
+
+	if (!(lease->flags & OAF_DHCPV6_NA))
+		return;
+
+	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
+		return;
+
+	fputs(ipbuf, ctxt->fp);
+
+	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
+		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
+		fprintf(ctxt->fp, "\t%s.%s", lease->hostname, exp_dn);
+
+	fprintf(ctxt->fp, "\t%s\n", lease->hostname);
+	md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
+	md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 }
 
 static void statefiles_write_dhcpv6_lease(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)

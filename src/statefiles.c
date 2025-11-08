@@ -41,50 +41,56 @@ struct write_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_write_ia_addrhosts(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-				      _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+static void statefiles_write_host6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+				   _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
+	char exp_dn[DNS_MAX_NAME_LEN];
 
-	if ((lease->flags & OAF_DHCPV6_NA) && lease->hostname &&
-	    !(lease->flags & OAF_BROKEN_HOSTNAME)) {
-		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf) - 1);
-		fputs(ipbuf, ctxt->fp);
+	if (!(lease->flags & OAF_DHCPV6_NA))
+		return;
 
-		char b[256];
-		if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
-				ctxt->iface->search, b, sizeof(b)) > 0)
-			fprintf(ctxt->fp, "\t%s.%s", lease->hostname, b);
+	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
+		return;
 
-		fprintf(ctxt->fp, "\t%s\n", lease->hostname);
-	}
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+
+	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
+		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
+		fprintf(ctxt->fp, "%s\t%s.%s\t%s\n", ipbuf, lease->hostname, exp_dn, lease->hostname);
+	else
+		fprintf(ctxt->fp, "%s\t%s\n", ipbuf, lease->hostname);
 }
 
-static void dhcpv6_write_ia_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-				 _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+static void statefiles_write_state6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+				    _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
+	char exp_dn[256];
 
-	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf) - 1);
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
-	if ((lease->flags & OAF_DHCPV6_NA) && lease->hostname &&
-	    !(lease->flags & OAF_BROKEN_HOSTNAME)) {
-		fputs(ipbuf, ctxt->fp);
+	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
+				  ctxt->buf_len - ctxt->buf_idx,
+				  "%s/%d ", ipbuf, prefix);
 
-		char b[256];
-		if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
-				ctxt->iface->search, b, sizeof(b)) > 0)
-			fprintf(ctxt->fp, "\t%s.%s", lease->hostname, b);
+	if (!(lease->flags & OAF_DHCPV6_NA))
+		return;
 
-		fprintf(ctxt->fp, "\t%s\n", lease->hostname);
-		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
-		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
-	}
+	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
+		return;
 
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,ctxt->buf_len - ctxt->buf_idx,
-					"%s/%d ", ipbuf, prefix);
+	fputs(ipbuf, ctxt->fp);
+
+	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
+		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
+		fprintf(ctxt->fp, "\t%s.%s", lease->hostname, exp_dn);
+
+	fprintf(ctxt->fp, "\t%s\n", lease->hostname);
+	md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
+	md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 }
 
 static void statefiles_write_hosts(time_t now)
@@ -125,7 +131,7 @@ static void statefiles_write_hosts(time_t now)
 
 				if (INFINITE_VALID(lease->valid_until) || lease->valid_until > now)
 					odhcpd_enum_addr6(ctxt.iface, lease, now,
-							  dhcpv6_write_ia_addrhosts, &ctxt);
+							  statefiles_write_host6, &ctxt);
 			}
 		}
 
@@ -193,7 +199,7 @@ static void statefiles_write_dhcpv6_lease(struct write_ctxt *ctxt, struct dhcpv6
 					  lease->assigned_subnet_id, lease->length);
 
 	if (INFINITE_VALID(lease->valid_until) || lease->valid_until > ctxt->now)
-		odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, dhcpv6_write_ia_addr, ctxt);
+		odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6, ctxt);
 
 	ctxt->buf[ctxt->buf_idx - 1] = '\n';
 	fwrite(ctxt->buf, 1, ctxt->buf_idx, ctxt->fp);

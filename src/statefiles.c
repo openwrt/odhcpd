@@ -60,8 +60,11 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME || !(lease->flags & OAF_DHCPV6_NA))
 		return false;
 
-	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-	statefiles_write_host(ipbuf, lease->hostname, ctxt);
+	if (!ctxt->fp) {
+		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+		statefiles_write_host(ipbuf, lease->hostname, ctxt);
+	}
+
 	return true;
 }
 
@@ -81,8 +84,11 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
 		return false;
 
-	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
-	statefiles_write_host(ipbuf, lease->hostname, ctxt);
+	if (!ctxt->fp) {
+		inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
+		statefiles_write_host(ipbuf, lease->hostname, ctxt);
+	}
+
 	return true;
 }
 
@@ -168,6 +174,9 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
+	if (!ctxt->fp)
+		return;
+
 	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
 				  ctxt->buf_len - ctxt->buf_idx,
 				  " %s/%d", ipbuf, prefix);
@@ -179,6 +188,9 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 
 	ctxt->buf_idx = 0;
 	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
+
+	if (!ctxt->fp)
+		return;
 
 	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
 
@@ -211,6 +223,9 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
+	if (!ctxt->fp)
+		return;
+
 	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
 
 	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
@@ -225,6 +240,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		ntohl(lease->addr), ipbuf);
 }
 
+/* Returns true if there are changes to be written to the hosts file(s) */
 static bool statefiles_write_state(time_t now)
 {
 	char leasebuf[512];
@@ -235,31 +251,30 @@ static bool statefiles_write_state(time_t now)
 		.now = now,
 		.wall_time = time(NULL),
 	};
-	size_t tmp_statefile_strlen;
-	char *tmp_statefile;
+	char *tmp_statefile = NULL;
 	uint8_t newmd5[16];
 	int fd;
 
-	if (config.dhcp_statedir_fd < 0 || !config.dhcp_statefile)
-		return false;
+	if (config.dhcp_statedir_fd >= 0 && config.dhcp_statefile) {
+		size_t tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
 
-	tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
-	tmp_statefile = alloca(tmp_statefile_strlen);
-	sprintf(tmp_statefile, ".%s", config.dhcp_statefile);
+		tmp_statefile = alloca(tmp_statefile_strlen);
+		sprintf(tmp_statefile, ".%s", config.dhcp_statefile);
 
-	fd = openat(config.dhcp_statedir_fd, tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-	if (fd < 0)
-		goto err;
+		fd = openat(config.dhcp_statedir_fd, tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+		if (fd < 0)
+			goto err;
 
-	if (lockf(fd, F_LOCK, 0) < 0)
-		goto err;
+		if (lockf(fd, F_LOCK, 0) < 0)
+			goto err;
 
-	if (ftruncate(fd, 0) < 0)
-		goto err;
+		if (ftruncate(fd, 0) < 0)
+			goto err;
 
-	ctxt.fp = fdopen(fd, "w");
-	if (!ctxt.fp)
-		goto err;
+		ctxt.fp = fdopen(fd, "w");
+		if (!ctxt.fp)
+			goto err;
+	}
 
 	md5_begin(&ctxt.md5);
 
@@ -293,17 +308,18 @@ static bool statefiles_write_state(time_t now)
 		}
 	}
 
-	fclose(ctxt.fp);
+	if (ctxt.fp) {
+		fclose(ctxt.fp);
+
+		renameat(config.dhcp_statedir_fd, tmp_statefile,
+			 config.dhcp_statedir_fd, config.dhcp_statefile);
+	}
+
 	md5_end(newmd5, &ctxt.md5);
-
-	renameat(config.dhcp_statedir_fd, tmp_statefile,
-		 config.dhcp_statedir_fd, config.dhcp_statefile);
-
 	if (!memcmp(newmd5, statemd5, sizeof(newmd5)))
 		return false;
 
 	memcpy(statemd5, newmd5, sizeof(statemd5));
-
 	return true;
 
 err:

@@ -41,26 +41,40 @@ struct write_ctxt {
 	int buf_idx;
 };
 
+static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)
+{
+	char exp_dn[DNS_MAX_NAME_LEN];
+
+	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
+		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
+		fprintf(ctxt->fp, "%s\t%s.%s\t%s\n", ipbuf, hostname, exp_dn, hostname);
+	else
+		fprintf(ctxt->fp, "%s\t%s\n", ipbuf, hostname);
+}
+
 static void statefiles_write_host6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
 				   _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
-	char exp_dn[DNS_MAX_NAME_LEN];
 
-	if (!(lease->flags & OAF_DHCPV6_NA))
+	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME || !(lease->flags & OAF_DHCPV6_NA))
 		return;
+
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+	statefiles_write_host(ipbuf, lease->hostname, ctxt);
+}
+
+static void statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
+{
+	char ipbuf[INET_ADDRSTRLEN];
+	struct in_addr addr = { .s_addr = lease->addr };
 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
 		return;
 
-	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-
-	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
-		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
-		fprintf(ctxt->fp, "%s\t%s.%s\t%s\n", ipbuf, lease->hostname, exp_dn, lease->hostname);
-	else
-		fprintf(ctxt->fp, "%s\t%s\n", ipbuf, lease->hostname);
+	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
+	statefiles_write_host(ipbuf, lease->hostname, ctxt);
 }
 
 static void statefiles_write_state6(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
@@ -129,9 +143,11 @@ static void statefiles_write_hosts(time_t now)
 				if (!(lease->flags & OAF_BOUND))
 					continue;
 
-				if (INFINITE_VALID(lease->valid_until) || lease->valid_until > now)
-					odhcpd_enum_addr6(ctxt.iface, lease, now,
-							  statefiles_write_host6, &ctxt);
+				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
+					continue;
+
+				odhcpd_enum_addr6(ctxt.iface, lease, now,
+						  statefiles_write_host6, &ctxt);
 			}
 		}
 
@@ -142,22 +158,10 @@ static void statefiles_write_hosts(time_t now)
 				if (!(lease->flags & OAF_BOUND))
 					continue;
 
-				char ipbuf[INET_ADDRSTRLEN];
-				struct in_addr addr = { .s_addr = lease->addr };
-				inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf) - 1);
+				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
+					continue;
 
-				if (lease->hostname && !(lease->flags & OAF_BROKEN_HOSTNAME)) {
-					fputs(ipbuf, ctxt.fp);
-
-					char b[256];
-
-					if (dn_expand(ctxt.iface->search,
-							ctxt.iface->search + ctxt.iface->search_len,
-							ctxt.iface->search, b, sizeof(b)) > 0)
-						fprintf(ctxt.fp, "\t%s.%s", lease->hostname, b);
-
-					fprintf(ctxt.fp, "\t%s\n", lease->hostname);
-				}
+				statefiles_write_host4(&ctxt, lease);
 			}
 		}
 	}

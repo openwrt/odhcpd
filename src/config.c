@@ -40,7 +40,7 @@ struct config config = {
 	.dhcp_cb = NULL,
 	.dhcp_statefile = NULL,
 	.dhcp_statedir_fd = -1,
-	.dhcp_hostsfile = NULL,
+	.dhcp_hostsdir = NULL,
 	.dhcp_hostsdir_fd = -1,
 	.ra_piofolder = NULL,
 	.ra_piofolder_fd = -1,
@@ -213,7 +213,7 @@ enum {
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_LOGLEVEL,
-	ODHCPD_ATTR_HOSTSFILE,
+	ODHCPD_ATTR_HOSTSDIR,
 	ODHCPD_ATTR_PIOFOLDER,
 	ODHCPD_ATTR_ENABLE_TZ,
 	ODHCPD_ATTR_MAX
@@ -224,7 +224,7 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
-	[ODHCPD_ATTR_HOSTSFILE] = { .name = "hostsfile", .type = BLOBMSG_TYPE_STRING },
+	[ODHCPD_ATTR_HOSTSDIR] = { .name = "hostsdir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_PIOFOLDER] = { .name = "piofolder", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_ENABLE_TZ] = { .name = "enable_tz", .type = BLOBMSG_TYPE_BOOL },
 };
@@ -456,9 +456,9 @@ static void set_config(struct uci_section *s)
 		config.dhcp_statefile = strdup(blobmsg_get_string(c));
 	}
 
-	if ((c = tb[ODHCPD_ATTR_HOSTSFILE])) {
-		free(config.dhcp_hostsfile);
-		config.dhcp_hostsfile = strdup(blobmsg_get_string(c));
+	if ((c = tb[ODHCPD_ATTR_HOSTSDIR])) {
+		free(config.dhcp_hostsdir);
+		config.dhcp_hostsdir = strdup(blobmsg_get_string(c));
 	}
 
 	if ((c = tb[ODHCPD_ATTR_PIOFOLDER])) {
@@ -2321,11 +2321,9 @@ void odhcpd_reload(void)
 			error("Unable to open statedir: '%s': %m", dir);
 	}
 
-	if (config.dhcp_hostsfile) {
-		char *dir = dirname(strdupa(config.dhcp_hostsfile));
-		char *file = basename(config.dhcp_hostsfile);
+	if (config.dhcp_hostsdir) {
+		char *dir = strdupa(config.dhcp_hostsdir);
 
-		memmove(config.dhcp_hostsfile, file, strlen(file) + 1);
 		mkdir_p(dir, 0755);
 
 		close(config.dhcp_hostsdir_fd);

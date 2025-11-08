@@ -26,7 +26,7 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
      * stateless and stateful address assignment
      * prefix delegation support
      * dynamic reconfiguration in case prefixes change
-     * hostname detection and hosts-file creation
+     * hostname detection and hosts-files creation
 
    * relay: mostly standards-compliant DHCPv6-relay
      * support for rewriting announced DNS-server addresses
@@ -64,7 +64,7 @@ and may also receive information from ubus
 | maindhcp	| bool	| 0	| Use odhcpd as the main DHCPv4 service |
 | leasefile	| string|	| DHCP/v6 lease/hostfile |
 | leasetrigger	| string|	| Lease trigger script |
-| hostsfile	| string|	| DHCP/v6 hostfile |
+| hostsdir	| string|	| DHCP/v6 hostfile directory (one file per interface will be created) |
 | loglevel	|integer| 6	| Syslog level priority (0-7) |
 | piofolder	|string |	| Folder to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
 | enable_tz |bool | 1 | Toggle whether RFC4833 timezone information is sent to clients, if set in system  |

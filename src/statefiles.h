@@ -7,6 +7,8 @@
 #ifndef _STATEFILES_H_
 #define _STATEFILES_H_
 
+#define ODHCPD_HOSTS_FILE_PREFIX "odhcpd.hosts"
+
 bool statefiles_write(void);
 
 #endif /* _STATEFILES_H_ */

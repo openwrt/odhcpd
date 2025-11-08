@@ -200,7 +200,7 @@ struct config {
 
 	char *dhcp_statefile;
 	int dhcp_statedir_fd;
-	char *dhcp_hostsfile;
+	char *dhcp_hostsdir;
 	int dhcp_hostsdir_fd;
 
 	char *ra_piofolder;

@@ -60,7 +60,7 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME || !(lease->flags & OAF_DHCPV6_NA))
 		return false;
 
-	if (!ctxt->fp) {
+	if (ctxt->fp) {
 		inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 		statefiles_write_host(ipbuf, lease->hostname, ctxt);
 	}
@@ -84,7 +84,7 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
 		return false;
 
-	if (!ctxt->fp) {
+	if (ctxt->fp) {
 		inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
 		statefiles_write_host(ipbuf, lease->hostname, ctxt);
 	}
@@ -95,32 +95,32 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt;
-	size_t tmp_hostsfile_strlen;
-	char *tmp_hostsfile;
+	const char *tmp_hostsfile = ".odhcpd.hosts";
 	int fd;
 
-	if (config.dhcp_hostsdir_fd < 0 || !config.dhcp_hostsfile)
+	if (config.dhcp_hostsdir_fd < 0)
 		return;
 
-	tmp_hostsfile_strlen = strlen(config.dhcp_hostsfile) + 2;
-	tmp_hostsfile = alloca(tmp_hostsfile_strlen);
-	sprintf(tmp_hostsfile, ".%s", config.dhcp_hostsfile);
-
-	fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-	if (fd < 0)
-		goto err;
-
-	if (lockf(fd, F_LOCK, 0) < 0)
-		goto err;
-
-	if (ftruncate(fd, 0) < 0)
-		goto err;
-
-	ctxt.fp = fdopen(fd, "w");
-	if (!ctxt.fp)
-		goto err;
-
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
+		char *hostsfile;
+
+		hostsfile = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + strlen(ctxt.iface->name) + 1);
+		sprintf(hostsfile, "%s.%s", ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
+
+		fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+		if (fd < 0)
+			goto err;
+
+		if (lockf(fd, F_LOCK, 0) < 0)
+			goto err;
+
+		if (ftruncate(fd, 0) < 0)
+			goto err;
+
+		ctxt.fp = fdopen(fd, "w");
+		if (!ctxt.fp)
+			goto err;
+
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
 
@@ -149,11 +149,12 @@ static void statefiles_write_hosts(time_t now)
 				statefiles_write_host4(&ctxt, lease);
 			}
 		}
+
+		fclose(ctxt.fp);
+		renameat(config.dhcp_hostsdir_fd, tmp_hostsfile,
+			 config.dhcp_hostsdir_fd, hostsfile);
 	}
 
-	fclose(ctxt.fp);
-	renameat(config.dhcp_hostsdir_fd, tmp_hostsfile,
-		 config.dhcp_hostsdir_fd, config.dhcp_hostsfile);
 	return;
 
 err:

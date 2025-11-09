@@ -87,7 +87,8 @@ and may also receive information from ubus
 | dhcpv6_assignall	|bool	| 1	| Assign all viable DHCPv6 addresses in statefull mode; if disabled only the DHCPv6 address having the longest preferred lifetime is assigned |
 | dhcpv6_hostidlength	|integer| 12	| Host ID length of dynamically created leases, allowed values: 12 - 64 (bits). |
 | dhcpv6_na		|bool	| 1	| DHCPv6 stateful addressing hands out IA_NA - Internet Address - Network Address |
-| dhcpv6_pd		|bool	| 1	| DHCPv6 stateful addressing hands out IA_PD - Internet Address - Prefix Delegation |
+| dhcpv6_pd		|bool	| 1	| DHCPv6 stateful addressing hands out IA_PD - Internet Address - Prefix Delegation (PD) |
+| dhcpv6_pd_preferred   |bool | 0 | Set the DHCPv6-PD Preferred (P) flag in outgoing ICMPv6 RA message PIOs (RFC9762); requires `dhcpv6` and `dhcpv6_pd`. |
 | dhcpv6_pd_min_len	|integer| -	| Minimum prefix length to delegate with IA_PD (value is adjusted if needed to be greater than the interface prefix length).  Range [1,62] |
 | router		|list	|`<local address>`| Routers to announce, accepts IPv4 only |
 | dns			|list	|`<local address>`| DNS servers to announce, accepts IPv4 and IPv6 |

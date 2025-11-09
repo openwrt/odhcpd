@@ -93,3 +93,8 @@ struct icmpv6_opt {
 #define ND_RA_FLAG_PROXY		0x4
 #define ND_RA_PREF_HIGH			(1 << 3)
 #define ND_RA_PREF_LOW			(3 << 3)
+
+/* RFC9762 DHCPv6 PD Availability - Preferred Flag
+ * use this until it is defined in netinet/icmp6.h
+ */
+#define ND_OPT_PI_FLAG_PD_PREFERRED		0x10

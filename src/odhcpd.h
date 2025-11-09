@@ -440,6 +440,7 @@ struct interface {
 	size_t dhcpv6_raw_len;
 	bool dhcpv6_assignall;
 	bool dhcpv6_pd;
+	bool dhcpv6_pd_preferred;
 	bool dhcpv6_na;
 	uint32_t dhcpv6_hostid_len;
 	uint32_t dhcpv6_pd_min_len; // minimum delegated prefix length

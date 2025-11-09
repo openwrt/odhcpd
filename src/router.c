@@ -591,6 +591,15 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;
 	else if (iface->route_preference > 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_HIGH;
+ 
+	if (iface->dhcpv6 != MODE_DISABLED && iface->dhcpv6_pd && iface->dhcpv6_pd_preferred) {
+		/* RFC9762 § 5
+		 * If the network desires to delegate prefixes to devices that support
+		 * DHCPv6 prefix delegation but do not support the P flag, it SHOULD 
+		 * also set the M or O bits in the RA to 1
+		 */
+		adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
+	}
 
 	adv.h.nd_ra_reachable = htonl(iface->ra_reachabletime);
 	adv.h.nd_ra_retransmit = htonl(iface->ra_retranstime);
@@ -737,11 +746,23 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
 		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
+		/* RFC9762 DHCPv6-PD Preferred Flag § 6: 
+		 * Routers SHOULD set the P flag to zero by default...
+		 */
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
 		if (iface->ra_slaac && addr->prefix <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
+		if (iface->dhcpv6 != MODE_DISABLED && iface->dhcpv6_pd && iface->dhcpv6_pd_preferred)
+			/* RFC9762 DHCPv6-PD Preferred Flag
+			 * We can run both SLAAC and DHCPv6-PD.
+			 * §6:
+			 * "Routers MUST allow the P flag to be configured separately from the A flag. 
+			 * ...en/disabling the P flag MUST NOT trigger automatic changes in the A flag
+			 * value set by the router."
+			 */
+			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_PD_PREFERRED;
 		if (iface->ra_advrouter)
 			// RFC6275, §7.2
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;

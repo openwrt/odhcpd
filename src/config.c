@@ -670,15 +670,26 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 			goto err;
 	}
 
-	if ((c = tb[LEASE_CFG_ATTR_IP]))
-		if (inet_pton(AF_INET, blobmsg_get_string(c), &lease_cfg->ipaddr) < 0)
+	if ((c = tb[LEASE_CFG_ATTR_IP])) {
+		const char *ip = blobmsg_get_string(c);
+
+		if (!strcmp(ip, "ignore"))
+			lease_cfg->ignore4 = true;
+		else if (inet_pton(AF_INET, blobmsg_get_string(c), &lease_cfg->ipaddr) < 0)
 			goto err;
+	}
 
 	if ((c = tb[LEASE_CFG_ATTR_HOSTID])) {
-		errno = 0;
-		lease_cfg->hostid = strtoull(blobmsg_get_string(c), NULL, 16);
-		if (errno)
-			goto err;
+		const char *iid = blobmsg_get_string(c);
+
+		if (!strcmp(iid, "ignore")) {
+			lease_cfg->ignore6 = true;
+		} else {
+			errno = 0;
+			lease_cfg->hostid = strtoull(blobmsg_get_string(c), NULL, 16);
+			if (errno)
+				goto err;
+		}
 	} else {
 		uint32_t i4a = ntohl(lease_cfg->ipaddr) & 0xff;
 		lease_cfg->hostid = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);

@@ -993,6 +993,9 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		if (!lease_cfg)
 			lease_cfg = config_find_lease_cfg_by_mac(mac);
 
+		if (lease_cfg && lease_cfg->ignore6)
+			return -1;
+
 		/* Parse request hint for IA-PD */
 		if (is_pd) {
 			uint8_t *sdata;

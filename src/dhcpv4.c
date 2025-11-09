@@ -534,6 +534,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	if (!lease_cfg)
 		lease_cfg = config_find_lease_cfg_by_mac(req_mac);
 
+	if (lease_cfg && lease_cfg->ignore4)
+		return NULL;
+
 	/*
 	 * If we found a static lease cfg, but no old assignment for this
 	 * hwaddr, we need to clear out any old assignments given to other

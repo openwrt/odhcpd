@@ -302,6 +302,8 @@ struct lease_cfg {
 	struct duid *duids;
 	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
 	char *hostname;
+	bool ignore4;
+	bool ignore6;
 };
 
 // DNR - RFC9463

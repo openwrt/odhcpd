@@ -1,4 +1,5 @@
-#pragma once
+#ifndef _DHCPV6_PXE_H_
+#define _DHCPV6_PXE_H_
 
 #include <unistd.h>
 #include <stddef.h>
@@ -11,3 +12,5 @@ const struct ipv6_pxe_entry* ipv6_pxe_of_arch(uint16_t arch);
 void ipv6_pxe_serve_boot_url(uint16_t arch, struct iovec* iov);
 void ipv6_pxe_dump(void);
 void ipv6_pxe_clear(void);
+
+#endif /* _DHCPV6_PXE_H_ */

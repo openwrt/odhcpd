@@ -12,7 +12,9 @@
  *
  */
 
-#pragma once
+#ifndef _ROUTER_H_
+#define _ROUTER_H_
+
 #include <stdint.h>
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
@@ -98,3 +100,5 @@ struct icmpv6_opt {
  * use this until it is defined in netinet/icmp6.h
  */
 #define ND_OPT_PI_FLAG_PD_PREFERRED		0x10
+
+#endif /* _ROUTER_H_ */

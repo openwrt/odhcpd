@@ -12,7 +12,9 @@
  *
  */
 
-#pragma once
+#ifndef _ODHCPD_H_
+#define _ODHCPD_H_
+
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
 #include <netinet/ether.h>
@@ -626,3 +628,5 @@ int ndp_setup_interface(struct interface *iface, bool enable);
 void reload_services(struct interface *iface);
 
 void odhcpd_reload(void);
+
+#endif /* _ODHCPD_H_ */

@@ -12,7 +12,9 @@
  *   GNU General Public License version 2 for more details.
  *
  */
-#pragma once
+
+#ifndef _DHCPV4_H_
+#define _DHCPV4_H_
 
 #define DHCPV4_CLIENT_PORT 68
 #define DHCPV4_SERVER_PORT 67
@@ -178,3 +180,5 @@ struct dhcpv4_dnr {
 		&opt[1] <= (struct dhcpv4_option*)(end) && \
 			&opt->data[opt->len] <= (end); \
 		opt = (struct dhcpv4_option*)&opt->data[opt->len])
+
+#endif /* _DHCPV4_H_ */

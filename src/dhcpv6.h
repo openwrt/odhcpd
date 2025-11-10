@@ -11,7 +11,9 @@
  *   GNU General Public License version 2 for more details.
  *
  */
-#pragma once
+
+#ifndef _DHCPV6_H_
+#define _DHCPV6_H_
 
 #include "odhcpd.h"
 
@@ -168,3 +170,5 @@ struct dhcpv6_cer_id {
 		((otype) = _o[0] << 8 | _o[1]) && ((odata) = (void*)&_o[4]) &&\
 		((olen) = _o[2] << 8 | _o[3]) + (odata) <= (end); \
 		_o += 4 + (_o[2] << 8 | _o[3]))
+
+#endif /* _DHCPV6_H_ */

@@ -176,7 +176,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		uint8_t data[DUID_MAX_LEN];
 	} _packed clientid = {
 		.code = htons(DHCPV6_OPT_CLIENTID),
-		.len = htons(assign->clid_len),
+		.len = htons(assign->duid_len),
 		.data = { 0 },
 	};
 	struct {
@@ -209,7 +209,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
 	}
 
-	memcpy(clientid.data, assign->clid_data, assign->clid_len);
+	memcpy(clientid.data, assign->duid, assign->duid_len);
 
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HDR] = { &hdr, sizeof(hdr) },
@@ -426,8 +426,8 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 
 	/* Pick a starting point, using the last bytes of the DUID as seed... */
 	memcpy(xsubi,
-	       a->clid_data + (a->clid_len > sizeof(xsubi) ? a->clid_len - sizeof(xsubi) : 0),
-	       min(a->clid_len, sizeof(xsubi)));
+	       a->duid + (a->duid_len > sizeof(xsubi) ? a->duid_len - sizeof(xsubi) : 0),
+	       min(a->duid_len, sizeof(xsubi)));
 	try = ((uint64_t)jrand48(xsubi) << 32) | (jrand48(xsubi) & UINT32_MAX);
 	try = pool_start + try % pool_size;
 
@@ -473,8 +473,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	set_border_assignment_size(iface, border);
 
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
-		if (c->clid_len == 0 ||
-		    !(c->flags & OAF_DHCPV6_PD)	||
+		if (c->duid_len == 0 ||
+	            !(c->flags & OAF_DHCPV6_PD)	||
 		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now))
 			continue;
 
@@ -490,8 +490,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 			/* Leave all other assignments of that client alone */
 			list_for_each_entry(a, &iface->ia_assignments, head)
-				if (a != c && a->clid_len == c->clid_len &&
-						!memcmp(a->clid_data, c->clid_data, a->clid_len))
+				if (a != c && a->duid_len == c->duid_len &&
+						!memcmp(a->duid, c->duid, a->duid_len))
 					a->fr_cnt = INT_MAX;
 		}
 	}
@@ -548,7 +548,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (a->clid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
 				dhcpv6_free_lease(a);
 		}
 	}
@@ -942,17 +942,17 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	struct dhcpv6_lease *first = NULL;
 	const struct dhcpv6_client_header *hdr = data;
 	time_t now = odhcpd_time();
-	uint16_t otype, olen, clid_len = 0;
+	uint16_t otype, olen, duid_len = 0;
 	uint8_t *start = (uint8_t *)&hdr[1], *odata;
-	uint8_t *clid_data = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	uint8_t *duid = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
 	char duidbuf[DUID_HEXSTRLEN], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_CLIENTID) {
-			clid_data = odata;
-			clid_len = olen;
+			duid = odata;
+			duid_len = olen;
 
 			if (olen == 14 && odata[0] == 0 && odata[1] == 1)
 				memcpy(mac, &odata[8], sizeof(mac));
@@ -974,7 +974,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			rapid_commit = true;
 	}
 
-	if (!clid_data || !clid_len || clid_len > DUID_MAX_LEN)
+	if (!duid || duid_len < DUID_MIN_LEN || duid_len > DUID_MAX_LEN)
 		goto out;
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -990,7 +990,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		uint32_t reqhint = 0;
 		struct lease_cfg *lease_cfg;
 
-		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(clid_data, clid_len, ntohl(ia->iaid));
+		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, ntohl(ia->iaid));
 		if (!lease_cfg)
 			lease_cfg = config_find_lease_cfg_by_mac(mac);
 
@@ -1068,8 +1068,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				continue;
 
 			/* Does the DUID match? */
-			if (c->clid_len != clid_len || memcmp(c->clid_data, clid_data, clid_len))
-				continue;
+			if (c->duid_len != duid_len || memcmp(c->duid, duid, duid_len))
+			       continue;
 
 			/* Does the IAID match? */
 			if (c->iaid != ia->iaid) {
@@ -1092,10 +1092,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					if (lease_cfg->duids[i].iaid_set && lease_cfg->duids[i].iaid != htonl(ia->iaid))
 						continue;
 
-					if (lease_cfg->duids[i].len != clid_len)
+					if (lease_cfg->duids[i].len != duid_len)
 						continue;
 
-					if (memcmp(lease_cfg->duids[i].id, clid_data, clid_len))
+					if (memcmp(lease_cfg->duids[i].id, duid, duid_len))
 						continue;
 
 					/*
@@ -1138,11 +1138,11 @@ proceed:
 				if ((!iface->no_dynamic_dhcp || (lease_cfg && is_na)) &&
 				    (iface->dhcpv6_pd || iface->dhcpv6_na)) {
 					/* Create new binding */
-					a = dhcpv6_alloc_lease(clid_len);
+					a = dhcpv6_alloc_lease(duid_len);
 
 					if (a) {
-						a->clid_len = clid_len;
-						memcpy(a->clid_data, clid_data, clid_len);
+						a->duid_len = duid_len;
+						memcpy(a->duid, duid, duid_len);
 						a->iaid = ia->iaid;
 						a->length = reqlen;
 						a->peer = *addr;
@@ -1275,7 +1275,7 @@ proceed:
 				a->flags &= ~OAF_BOUND;
 
 				if (!(a->flags & OAF_STATIC) || a->lease_cfg->hostid != a->assigned_host_id) {
-					memset(a->clid_data, 0, a->clid_len);
+					memset(a->duid, 0, a->duid_len);
 					a->valid_until = now + 3600; /* Block address for 1h */
 				} else
 					a->valid_until = now - 1;

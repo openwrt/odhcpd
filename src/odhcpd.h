@@ -278,15 +278,15 @@ struct dhcpv6_lease {
 		uint64_t assigned_host_id;
 		uint32_t assigned_subnet_id;
 	};
-	uint32_t iaid;
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
 	unsigned int flags;
 	uint32_t leasetime;
 	char *hostname;
 
-	uint16_t clid_len;
-	uint8_t clid_data[];
+	uint32_t iaid;
+	uint16_t duid_len;
+	uint8_t duid[];
 };
 
 /* This corresponds to a UCI host section, i.e. a static lease cfg */

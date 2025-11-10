@@ -192,7 +192,7 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 	if (!ctxt->fp)
 		return;
 
-	odhcpd_hexlify(duidbuf, lease->clid_data, lease->clid_len);
+	odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
 
 	/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
 	fprintf(ctxt->fp,

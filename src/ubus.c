@@ -130,9 +130,9 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);
-			char *buf = blobmsg_alloc_string_buffer(&b, "duid", 264);
+			char *buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN);
 
-			odhcpd_hexlify(buf, a->clid_data, a->clid_len);
+			odhcpd_hexlify(buf, a->duid, a->duid_len);
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_u32(&b, "iaid", ntohl(a->iaid));

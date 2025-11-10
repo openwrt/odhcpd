@@ -563,9 +563,8 @@ int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
-void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr ipv4, const char *name,
-			   const char *interface);
+void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
+			     const struct dhcpv4_lease *lease);
 #else
 static inline int ubus_init(void)
 {
@@ -578,9 +577,8 @@ static inline void ubus_apply_network(void)
 }
 
 static inline
-void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr ipv4, const char *name,
-			   const char *interface)
+void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
+			     const struct dhcpv4_lease *lease)
 {
 	return;
 }

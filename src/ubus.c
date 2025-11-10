@@ -43,10 +43,17 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);
-			char *buf = blobmsg_alloc_string_buffer(&b, "mac", 13);
+			char *buf = blobmsg_alloc_string_buffer(&b, "mac", sizeof(c->hwaddr) * 2 + 1);
 
 			odhcpd_hexlify(buf, c->hwaddr, sizeof(c->hwaddr));
 			blobmsg_add_string_buffer(&b);
+
+			if (c->duid_len > 0) {
+				buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
+				odhcpd_hexlify(buf, c->duid, c->duid_len);
+				blobmsg_add_string_buffer(&b);
+				blobmsg_add_u32(&b, "iaid", ntohl(c->iaid));
+			}
 
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");
 			blobmsg_add_u8(&b, "accept-reconf", c->accept_fr_nonce);
@@ -130,7 +137,7 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);
-			char *buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN);
+			char *buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
 
 			odhcpd_hexlify(buf, a->duid, a->duid_len);
 			blobmsg_add_string_buffer(&b);
@@ -392,23 +399,26 @@ static const struct blobmsg_policy obj_attrs[OBJ_ATTR_MAX] = {
 	[OBJ_ATTR_PATH] = { .name = "path", .type = BLOBMSG_TYPE_STRING },
 };
 
-void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr ipv4, const char *name,
-			   const char *interface)
+void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
+			     const struct dhcpv4_lease *lease)
 {
 	char ipv4_str[INET_ADDRSTRLEN];
 
-	if (!ubus || !main_object.has_subscribers)
+	if (!ubus || !main_object.has_subscribers || !iface)
 		return;
 
 	blob_buf_init(&b, 0);
-	if (mac)
-		blobmsg_add_string(&b, "mac", odhcpd_print_mac(mac, ETH_ALEN));
-	blobmsg_add_string(&b, "ip", inet_ntop(AF_INET, &ipv4, ipv4_str, sizeof(ipv4_str)));
-	if (name)
-		blobmsg_add_string(&b, "name", name);
-	if (interface)
-		blobmsg_add_string(&b, "interface", interface);
+	blobmsg_add_string(&b, "interface", iface);
+	blobmsg_add_string(&b, "ipv4", inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
+	blobmsg_add_string(&b, "mac", odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)));
+	if (lease->hostname)
+		blobmsg_add_string(&b, "hostname", lease->hostname);
+	if (lease->duid_len > 0) {
+		char *buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
+		odhcpd_hexlify(buf, lease->duid, lease->duid_len);
+		blobmsg_add_string_buffer(&b);
+		blobmsg_add_u32(&b, "iaid", lease->iaid);
+	}
 
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }

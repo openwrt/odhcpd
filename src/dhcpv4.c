@@ -558,8 +558,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		if (!lease)
 			return NULL;
 
-		ubus_bcast_dhcp_event("dhcp.release", req_mac, lease->ipv4,
-				      lease->hostname, iface->ifname);
+		ubus_bcast_dhcpv4_event("dhcp.release4", iface->ifname, lease);
                 dhcpv4_free_lease(lease);
                 lease = NULL;
 		break;
@@ -1319,8 +1318,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	}
 
 	if (reply_msg.data == DHCPV4_MSG_ACK && lease)
-		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, lease->ipv4,
-				      lease->hostname, iface->ifname);
+		ubus_bcast_dhcpv4_event("dhcp.lease4", iface->ifname, lease);
 }
 
 /* Handler for DHCPv4 messages */
@@ -1585,8 +1583,7 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 
 		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp) {
 			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now) {
-				ubus_bcast_dhcp_event("dhcp.expire", lease->hwaddr, lease->ipv4,
-						      lease->hostname, iface->ifname);
+				ubus_bcast_dhcpv4_event("dhcp.expire4", iface->ifname, lease);
 				dhcpv4_free_lease(lease);
 				update_statefile = true;
 			}

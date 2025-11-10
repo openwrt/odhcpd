@@ -8,7 +8,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  */
@@ -349,10 +349,11 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
 			minival*1000;
 
-	/* RFC 2461 6.2.4 For the first MAX_INITIAL_RTR_ADVERTISEMENTS advertisements */
-	/* if the timer is bigger than MAX_INITIAL_RTR_ADVERT_INTERVAL it should be   */
-	/* set to MAX_INITIAL_RTR_ADVERT_INTERVAL                                     */
-	/* Off by one as an initial interval timer has already expired                */
+	/* RFC 2461 6.2.4 For the first MAX_INITIAL_RTR_ADVERTISEMENTS advertisements
+	 * if the timer is bigger than MAX_INITIAL_RTR_ADVERT_INTERVAL it should be
+	 * set to MAX_INITIAL_RTR_ADVERT_INTERVAL
+	 * Off by one as an initial interval timer has already expired
+	 */
 	if ((iface->ra_sent + 1) < MaxInitialRtAdvs && msecs > MaxInitialRtrAdvInterval*1000)
 		msecs = MaxInitialRtrAdvInterval*1000;
 
@@ -474,7 +475,7 @@ static void router_add_ra_pio(struct interface *iface,
 
 	new_pios = realloc(iface->pios, sizeof(struct ra_pio) * (iface->pio_cnt + 1));
 	if (!new_pios)
-        return;
+		return;
 
 	iface->pios = new_pios;
 	pio = &iface->pios[iface->pio_cnt];
@@ -882,7 +883,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		pref64->type = ND_OPT_PREF64;
 		pref64->len = 2;
 		pref64->lifetime_plc = htons((0xfff8 & pref64_lifetime) |
-					        (0x7 & iface->pref64_plc));
+					     (0x7 & iface->pref64_plc));
 		memcpy(pref64->prefix, iface->pref64_prefix, sizeof(pref64->prefix));
 	}
 	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
@@ -941,7 +942,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *    L-3:   An IPv6 CE router MUST advertise itself as a router for the
 	 *           delegated prefix(es) (and ULA prefix if configured to provide
 	 *           ULA addressing) using the "Route Information Option" specified
-	 *           in Section 2.3 of [RFC4191].  This advertisement is
+	 *           in Section 2.3 of [RFC4191]. This advertisement is
 	 *           independent of having or not having IPv6 connectivity on the
 	 *           WAN interface.
 	 */
@@ -1181,7 +1182,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		if (c->ra_mtu && mtu_opt) {
 			if (ingress_mtu_val != c->ra_mtu) {
 				debug("Rewriting RA MTU from %u to %u on %s",
-				       ingress_mtu_val, c->ra_mtu, c->name);
+				      ingress_mtu_val, c->ra_mtu, c->name);
 				mtu_opt->nd_opt_mtu_mtu = htonl(c->ra_mtu);
 			}
 		}

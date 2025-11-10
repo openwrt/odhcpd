@@ -8,9 +8,8 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
- *
  *
  */
 
@@ -564,9 +563,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		ubus_bcast_dhcp_event("dhcp.release", req_mac,
 				      (struct in_addr *)&lease->addr,
-                                      lease->hostname, iface->ifname);
-                dhcpv4_free_lease(lease);
-                lease = NULL;
+				      lease->hostname, iface->ifname);
+		dhcpv4_free_lease(lease);
+		lease = NULL;
 		break;
 
 	case DHCPV4_MSG_DECLINE:
@@ -1395,13 +1394,13 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {		/* /24, 150 of 256, [100..249] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
 		iface->dhcpv4_end_ip.s_addr = end | htonl(100 + 150 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {    /* /25, 100 of 128, [20..119] */
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {	/* /25, 100 of 128, [20..119] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(20);
 		iface->dhcpv4_end_ip.s_addr = end | htonl(20 + 100 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {    /* /26, 50 of 64, [10..59] */
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {	/* /26, 50 of 64, [10..59] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
 		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 50 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {    /* /27, 20 of 32, [10..29] */
+	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {	/* /27, 20 of 32, [10..29] */
 		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
 		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 20 - 1);
 	} else {							/* /28, 10 of 16, [3..12] */

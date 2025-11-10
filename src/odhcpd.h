@@ -7,7 +7,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  */
@@ -69,7 +69,7 @@
 #define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
 							    &(iface)->pio_filter_addr, \
 							    (iface)->pio_filter_length) != 0 || \
-		                             (_addr)->prefix < (iface)->pio_filter_length)
+					     (_addr)->prefix < (iface)->pio_filter_length)
 
 struct interface;
 struct nl_sock;
@@ -77,13 +77,13 @@ extern struct config config;
 extern struct sys_conf sys_conf;
 
 void __iflog(int lvl, const char *fmt, ...);
-#define debug(fmt, ...)     __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define info(fmt, ...)      __iflog(LOG_INFO, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define notice(fmt, ...)    __iflog(LOG_NOTICE, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define warn(fmt, ...)      __iflog(LOG_WARNING, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define error(fmt, ...)     __iflog(LOG_ERR, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define critical(fmt, ...)  __iflog(LOG_CRIT, fmt __VA_OPT__(, ) __VA_ARGS__)
-#define alert(fmt, ...)     __iflog(LOG_ALERT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define debug(fmt, ...) __iflog(LOG_DEBUG, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define info(fmt, ...) __iflog(LOG_INFO, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define notice(fmt, ...) __iflog(LOG_NOTICE, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define warn(fmt, ...) __iflog(LOG_WARNING, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define error(fmt, ...) __iflog(LOG_ERR, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define critical(fmt, ...) __iflog(LOG_CRIT, fmt __VA_OPT__(, ) __VA_ARGS__)
+#define alert(fmt, ...) __iflog(LOG_ALERT, fmt __VA_OPT__(, ) __VA_ARGS__)
 #define emergency(fmt, ...) __iflog(LOG_EMERG, fmt __VA_OPT__(, ) __VA_ARGS__)
 
 

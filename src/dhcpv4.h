@@ -1,15 +1,15 @@
 /**
- *   Copyright (C) 2012 Steven Barth <steven@midlink.org>
- *   Copyright (C) 2016 Hans Dedecker <dedeckeh@gmail.com>
+ * Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2016 Hans Dedecker <dedeckeh@gmail.com>
  *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License version 2
- *   as published by the Free Software Foundation.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2
+ * as published by the Free Software Foundation.
  *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License version 2 for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License version 2 for more details.
  *
  */
 
@@ -19,7 +19,7 @@
 #define DHCPV4_CLIENT_PORT 68
 #define DHCPV4_SERVER_PORT 67
 
-#define DHCPV4_FLAG_BROADCAST  0x8000
+#define DHCPV4_FLAG_BROADCAST 0x8000
 
 // RFC951, §3; RFC1542, §2.1; RFC2131, §2
 #define DHCPV4_MIN_PACKET_SIZE 300

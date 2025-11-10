@@ -8,9 +8,8 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
- *
  *
  */
 
@@ -525,13 +524,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		case DHCPV6_OPT_NEW_POSIX_TIMEZONE:
 			posix_want = true;
 			posix_tz.type = htons(DHCPV6_OPT_NEW_POSIX_TIMEZONE);
-			posix_tz.len  = htons(posix_len);
+			posix_tz.len = htons(posix_len);
 			break;
 
 		case DHCPV6_OPT_NEW_TZDB_TIMEZONE:
 			tzdb_want = true;
 			tzdb_tz.type = htons(DHCPV6_OPT_NEW_TZDB_TIMEZONE);
-			tzdb_tz.len  = htons(tzdb_len);
+			tzdb_tz.len = htons(tzdb_len);
 			break;
 
 		case DHCPV6_OPT_DNR:

@@ -49,7 +49,7 @@ struct config config = {
 	.log_level_cmdline = false,
 	.log_syslog = true,
 	.default_duid = { 0 },
-	.default_duid_len  = 0,
+	.default_duid_len = 0,
 };
 
 struct sys_conf sys_conf = {
@@ -1179,7 +1179,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		else
 			error("Invalid %s value configured for interface '%s'",
 			      iface_attrs[IFACE_ATTR_LEASETIME].name, iface->name);
-
 	}
 
 	if ((c = tb[IFACE_ATTR_MAX_PREFERRED_LIFETIME])) {
@@ -1470,7 +1469,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		if(ra_hoplimit > AdvCurHopLimit)
 			warn("Clamped invalid %s value configured for interface '%s' to %d",
 			     iface_attrs[IFACE_ATTR_RA_HOPLIMIT].name, iface->name, iface->ra_hoplimit);
-
 	}
 
 	iface->if_mtu = odhcpd_get_interface_config(iface->ifname, "mtu");

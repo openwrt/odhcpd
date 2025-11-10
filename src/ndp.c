@@ -7,7 +7,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  */
@@ -121,7 +121,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 		}
 
 		if (setsockopt(iface->ndp_ping_fd, IPPROTO_RAW, IPV6_CHECKSUM,
-				&val, sizeof(val)) < 0) {
+			       &val, sizeof(val)) < 0) {
 			error("setsockopt(IPV6_CHECKSUM): %m");
 			ret = -1;
 			goto out;

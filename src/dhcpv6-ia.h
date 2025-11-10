@@ -8,7 +8,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  */
@@ -17,8 +17,9 @@
 #define _DHCPV6_IA_H_
 
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
-    ((iface)->dhcpv6_assignall || (i) == (m) || \
-     (addrs)[(i)].prefix > 64)
+	((iface)->dhcpv6_assignall || \
+	 (i) == (m) || \
+	 (addrs)[(i)].prefix > 64)
 
 size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen);
 

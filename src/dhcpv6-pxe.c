@@ -82,10 +82,10 @@ void ipv6_pxe_dump(void) {
 		info("IPv6 PxE URLs:\n");
 
 		list_for_each_entry(entry, &ipv6_pxe_list, list)
-			info("    arch %04d = %s\n", entry->arch, entry->bootfile_url.payload);
+			info("\tarch %04d = %s\n", entry->arch, entry->bootfile_url.payload);
 
 		if (ipv6_pxe_default)
-			info("    Default   = %s\n", ipv6_pxe_default->bootfile_url.payload);
+			info("\tDefault   = %s\n", ipv6_pxe_default->bootfile_url.payload);
 	}
 }
 

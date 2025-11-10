@@ -8,7 +8,7 @@
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  *
  */
@@ -188,7 +188,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		.len = htons(1),
 		.id = DHCPV6_MSG_RENEW,
 	};
-	struct dhcpv6_auth_reconfigure auth =  {
+	struct dhcpv6_auth_reconfigure auth = {
 		.type = htons(DHCPV6_OPT_AUTH),
 		.len = htons(sizeof(struct dhcpv6_auth_reconfigure)),
 		.protocol = 3,
@@ -383,8 +383,8 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 }
 
 /* Check iid against reserved IPv6 interface identifiers.
-   Refer to:
-     http://www.iana.org/assignments/ipv6-interface-ids */
+ * Refer to: http://www.iana.org/assignments/ipv6-interface-ids
+ */
 static bool is_reserved_ipv6_iid(uint64_t iid)
 {
 	if (iid == 0x0000000000000000)
@@ -393,7 +393,8 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 
 	if ((iid & 0xFFFFFFFFFF000000) == 0x02005EFFFE000000)
 		/* Reserved IPv6 Interface Identifiers corresponding
-		   to the IANA Ethernet Block [RFC4291] */
+		 * to the IANA Ethernet Block [RFC4291]
+		 */
 		return true;
 
 	if ((iid & 0xFFFFFFFFFFFFFF80) == 0xFDFFFFFFFFFFFF80)
@@ -473,7 +474,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
 		if (c->clid_len == 0 ||
-	            !(c->flags & OAF_DHCPV6_PD)	||
+		    !(c->flags & OAF_DHCPV6_PD)	||
 		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now))
 			continue;
 
@@ -1018,7 +1019,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			/*
 			 * A requesting router can include a desired prefix length for its
-			 * delegation.  The delegating router (us) is not required to honor
+			 * delegation. The delegating router (us) is not required to honor
 			 * the hint (RFC3633, section 11.2, we MAY choose to use the
 			 * information in the option; RFC8168, section 3.2 has several SHOULDs
 			 * about desired choices for selecting a prefix to delegate).
@@ -1028,17 +1029,17 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			 *
 			 * If the minimum prefix length is set in this interface's
 			 * configuration, we use it as a floor for the requested (hinted)
-			 * prefix length.  This allows us to conserve prefix space so that
-			 * any single router can't grab too much of it.  Consider if we have
-			 * an interface with a /56 prefix.  A requesting router could ask for
-			 * a /58 and take 1/4 of our total address space.  But if we set a
+			 * prefix length. This allows us to conserve prefix space so that
+			 * any single router can't grab too much of it. Consider if we have
+			 * an interface with a /56 prefix. A requesting router could ask for
+			 * a /58 and take 1/4 of our total address space. But if we set a
 			 * minimum of /60, we can limit each requesting router to get only
 			 * 1/16 of our total address space.
 			 */
 			if (iface->dhcpv6_pd_min_len && reqlen < iface->dhcpv6_pd_min_len) {
-			    info("clamping requested PD from %d to %d", reqlen,
-				 iface->dhcpv6_pd_min_len);
-			    reqlen = iface->dhcpv6_pd_min_len;
+				info("clamping requested PD from %d to %d", reqlen,
+				     iface->dhcpv6_pd_min_len);
+				reqlen = iface->dhcpv6_pd_min_len;
 			}
 		} else if (is_na) {
 			uint8_t *sdata;
@@ -1068,7 +1069,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			/* Does the DUID match? */
 			if (c->clid_len != clid_len || memcmp(c->clid_data, clid_data, clid_len))
-			       continue;
+				continue;
 
 			/* Does the IAID match? */
 			if (c->iaid != ia->iaid) {
@@ -1149,8 +1150,8 @@ proceed:
 							a->assigned_host_id = lease_cfg ? lease_cfg->hostid : 0;
 						else
 							a->assigned_subnet_id = reqhint;
-						a->valid_until =  now;
-						a->preferred_until =  now;
+						a->valid_until = now;
+						a->preferred_until = now;
 						a->iface = iface;
 						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);
 

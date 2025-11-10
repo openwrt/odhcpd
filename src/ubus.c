@@ -247,13 +247,13 @@ static struct ubus_method main_object_methods[] = {
 };
 
 static struct ubus_object_type main_object_type =
-		UBUS_OBJECT_TYPE("dhcp", main_object_methods);
+	UBUS_OBJECT_TYPE("dhcp", main_object_methods);
 
 static struct ubus_object main_object = {
-        .name = "dhcp",
-        .type = &main_object_type,
-        .methods = main_object_methods,
-        .n_methods = ARRAY_SIZE(main_object_methods),
+	.name = "dhcp",
+	.type = &main_object_type,
+	.methods = main_object_methods,
+	.n_methods = ARRAY_SIZE(main_object_methods),
 };
 
 
@@ -413,8 +413,9 @@ void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }
 
-static void handle_event(_unused struct ubus_context *ctx, _unused struct ubus_event_handler *ev,
-                _unused const char *type, struct blob_attr *msg)
+static void handle_event(_unused struct ubus_context *ctx,
+			 _unused struct ubus_event_handler *ev,
+			 _unused const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[OBJ_ATTR_MAX];
 	blobmsg_parse(obj_attrs, OBJ_ATTR_MAX, tb, blob_data(msg), blob_len(msg));

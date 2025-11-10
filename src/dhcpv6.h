@@ -1,14 +1,14 @@
 /**
- *   Copyright (C) 2012 Steven Barth <steven@midlink.org>
+ * Copyright (C) 2012 Steven Barth <steven@midlink.org>
  *
- *   This program is free software; you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License version 2
- *   as published by the Free Software Foundation.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2
+ * as published by the Free Software Foundation.
  *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License version 2 for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License version 2 for more details.
  *
  */
 
@@ -86,7 +86,7 @@
 #define DHCPV6_STATUS_NOPREFIXAVAIL 6
 
 // I just remembered I have an old one lying around...
-#define DHCPV6_ENT_NO  30462
+#define DHCPV6_ENT_NO 30462
 #define DHCPV6_ENT_TYPE 1
 
 

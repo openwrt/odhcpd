@@ -87,7 +87,7 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *add
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
 		if ((lease->accept_fr_nonce || iface->dhcpv4_forcereconf) &&
 		    !lease->fr_ip &&
-		    ((lease->addr & mask) == (addr->addr.in.s_addr & mask))) {
+		    ((lease->ipv4.s_addr & mask) == (addr->addr.in.s_addr & mask))) {
 			if (!fr_ip) {
 				fr_ip = calloc(1, sizeof(*fr_ip));
 				if (!fr_ip)
@@ -231,7 +231,7 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	struct sockaddr_in dest = {
 		.sin_family = AF_INET,
 		.sin_port = htons(DHCPV4_CLIENT_PORT),
-		.sin_addr = { lease->addr },
+		.sin_addr = lease->ipv4,
 	};
 
 	odhcpd_urandom(&fr.xid, sizeof(fr.xid));
@@ -272,12 +272,19 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	}
 
 	if (dhcpv4_send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest),
-			      &lease->iface->dhcpv4_event.uloop.fd) < 0)
+			      &lease->iface->dhcpv4_event.uloop.fd) < 0) {
+		char ipv4_str[INET_ADDRSTRLEN];
+
 		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
-		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)), inet_ntoa(dest.sin_addr));
-	else
+		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
+		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+	} else {
+		char ipv4_str[INET_ADDRSTRLEN];
+
 		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
-		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)), inet_ntoa(dest.sin_addr));
+		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
+		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+	}
 }
 
 static void dhcpv4_fr_stop(struct dhcpv4_lease *lease)
@@ -365,7 +372,7 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
 	if (!lease)
 		return NULL;
 
-	lease->iface_avl.key = &lease->addr;
+	lease->iface_avl.key = &lease->ipv4;
 	lease->hwaddr_len = hwaddr_len;
 	memcpy(lease->hwaddr, hwaddr, hwaddr_len);
 	if (duid_len > 0) {
@@ -379,9 +386,9 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
 }
 
 static bool dhcpv4_insert_lease(struct avl_tree *avl, struct dhcpv4_lease *lease,
-				uint32_t addr)
+				struct in_addr addr)
 {
-	lease->addr = addr;
+	lease->ipv4 = addr;
 	if (!avl_insert(avl, &lease->iface_avl))
 		return true;
 	else
@@ -389,7 +396,7 @@ static bool dhcpv4_insert_lease(struct avl_tree *avl, struct dhcpv4_lease *lease
 }
 
 static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
-			  uint32_t raddr)
+			  struct in_addr req_addr)
 {
 	uint32_t start = ntohl(iface->dhcpv4_start_ip.s_addr);
 	uint32_t end = ntohl(iface->dhcpv4_end_ip.s_addr);
@@ -398,33 +405,33 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 	char ipv4_str[INET_ADDRSTRLEN];
 
 	/* Preconfigured IP address by static lease */
-	if (lease->addr) {
-		if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, lease->addr)) {
+	if (lease->ipv4.s_addr) {
+		if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, lease->ipv4)) {
 			error("The static IP address is already assigned: %s",
-			      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)));
+			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
 			return false;
 		}
 
 		debug("Assigned static IP address: %s",
-		      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
 
 		iface->update_statefile = true;
 		return true;
 	}
 
 	/* The client asked for a specific address, let's try... */
-	if (ntohl(raddr) < start || ntohl(raddr) > end) {
+	if (ntohl(req_addr.s_addr) < start || ntohl(req_addr.s_addr) > end) {
 		debug("The requested IP address is outside the pool: %s",
-		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
-	} else if (config_find_lease_cfg_by_ipaddr(raddr)) {
+		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
+	} else if (config_find_lease_cfg_by_ipv4(req_addr)) {
 		debug("The requested IP address is statically assigned: %s",
-		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
-	} else if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, raddr)) {
+		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
+	} else if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, req_addr)) {
 		debug("The requested IP address is already assigned: %s",
-		      inet_ntop(AF_INET, &raddr, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)));
 	} else {
 		debug("Assigned the requested IP address: %s",
-		      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
 		iface->update_statefile = true;
 		return true;
 	}
@@ -442,14 +449,14 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 	/* ...and try a bunch of times to assign a randomly chosen address */
 	for (uint32_t i = 0, try = (((uint32_t)rand()) % count) + start; i < count;
 	     ++i, try = (((try - start) + 1) % count) + start) {
-		uint32_t n_try = htonl(try);
+		struct in_addr n_try = { .s_addr = htonl(try) };
 
-		if (config_find_lease_cfg_by_ipaddr(n_try))
+		if (config_find_lease_cfg_by_ipv4(n_try))
 			continue;
 
 		if (dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, n_try)) {
 			debug("Assigned IP adress from pool: %s (succeeded on attempt %u of %u)",
-			      inet_ntop(AF_INET, &lease->addr, ipv4_str, sizeof(ipv4_str)),
+			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)),
 			      i + 1, count);
 
 			iface->update_statefile = true;
@@ -467,7 +474,7 @@ static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const 
 	struct dhcpv4_lease *lease;
 
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl)
-		if (!memcmp(lease->hwaddr, hwaddr, 6))
+		if (!memcmp(lease->hwaddr, hwaddr, ETH_ALEN))
 			return lease;
 
 	return NULL;
@@ -491,7 +498,7 @@ find_lease_by_duid_iaid(struct interface *iface, const uint8_t *duid,
 
 static struct dhcpv4_lease *
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
-	     const uint8_t *clid, size_t clid_len, const uint32_t req_addr,
+	     const uint8_t *clid, size_t clid_len, const struct in_addr req_addr,
 	     uint32_t *req_leasetime, const char *req_hostname, const size_t
 	     req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
 	     uint32_t *fr_serverid)
@@ -551,11 +558,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		if (!lease)
 			return NULL;
 
-		ubus_bcast_dhcp_event("dhcp.release", req_mac,
-				      (struct in_addr *)&lease->addr,
+		ubus_bcast_dhcp_event("dhcp.release", req_mac, lease->ipv4,
 				      lease->hostname, iface->ifname);
-		dhcpv4_free_lease(lease);
-		lease = NULL;
+                dhcpv4_free_lease(lease);
+                lease = NULL;
 		break;
 
 	case DHCPV4_MSG_DECLINE:
@@ -564,7 +570,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		lease->flags &= ~OAF_BOUND;
 
-		if (!(lease->flags & OAF_STATIC) || lease->lease_cfg->ipaddr != lease->addr) {
+		if (!(lease->flags & OAF_STATIC) || lease->lease_cfg->ipv4.s_addr != lease->ipv4.s_addr) {
 			memset(lease->hwaddr, 0, sizeof(lease->hwaddr));
 			lease->valid_until = now + 3600; /* Block address for 1h */
 		} else {
@@ -580,12 +586,12 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			return NULL;
 
 		/* Old lease, but with an address that is out-of-scope? */
-		if (lease && ((lease->addr & iface->dhcpv4_mask.s_addr) !=
+		if (lease && ((lease->ipv4.s_addr & iface->dhcpv4_mask.s_addr) !=
 		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
 		    !(lease->flags & OAF_STATIC)) {
 			/* Try to reassign to an address that is in-scope */
 			avl_delete(&iface->dhcpv4_leases, &lease->iface_avl);
-			lease->addr = INADDR_ANY;
+			lease->ipv4.s_addr = INADDR_ANY;
 			if (!dhcpv4_assign(iface, lease, req_addr)) {
 				dhcpv4_free_lease(lease);
 				lease = NULL;
@@ -603,7 +609,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 			/* static lease => infinite (0), else a placeholder */
 			lease->valid_until = lease_cfg ? 0 : now;
-			lease->addr = lease_cfg ? lease_cfg->ipaddr : INADDR_ANY;
+			lease->ipv4.s_addr = lease_cfg ? lease_cfg->ipv4.s_addr : INADDR_ANY;
 
 			if (!dhcpv4_assign(iface, lease, req_addr)) {
 				dhcpv4_free_lease(lease);
@@ -779,7 +785,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint8_t req_msg = DHCPV4_MSG_REQUEST;
 	uint8_t *req_opts = NULL;
 	size_t req_opts_len = 0;
-	uint32_t req_addr = INADDR_ANY;
+	struct in_addr req_addr = { .s_addr = INADDR_ANY };
 	uint32_t req_leasetime = 0;
 	char *req_hostname = NULL;
 	size_t req_hostname_len = 0;
@@ -1041,8 +1047,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 		}
 
-		if ((req_addr && req_addr != lease->addr) ||
-		    (req->ciaddr.s_addr && req->ciaddr.s_addr != lease->addr)) {
+		if ((req_addr.s_addr && req_addr.s_addr != lease->ipv4.s_addr) ||
+		    (req->ciaddr.s_addr && req->ciaddr.s_addr != lease->ipv4.s_addr)) {
 			reply_msg.data = DHCPV4_MSG_NAK;
 			/*
 			 * DHCP client requested an IP which we can't offer to him. Probably the
@@ -1288,28 +1294,32 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	}
 
 	if (lease)
-		reply.yiaddr.s_addr = lease->addr;
+		reply.yiaddr = lease->ipv4;
 
 	memcpy(reply.chaddr, req->chaddr, sizeof(reply.chaddr));
 	dhcpv4_set_dest_addr(iface, reply_msg.data, req, &reply, src_addr, &dest_addr);
 	dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 
-	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0)
+	if (send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest_addr, sizeof(dest_addr), opaque) < 0) {
+		char ipv4_str[INET_ADDRSTRLEN];
+
 		error("Failed to send %s to %s - %s: %m",
 		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-		      inet_ntoa(dest_addr.sin_addr));
-	else
+		      inet_ntop(AF_INET, &dest_addr.sin_addr, ipv4_str, sizeof(ipv4_str)));
+	} else {
+		char ipv4_str[INET_ADDRSTRLEN];
+
 		error("Sent %s to %s - %s",
 		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
-		      inet_ntoa(dest_addr.sin_addr));
+		      inet_ntop(AF_INET, &dest_addr.sin_addr, ipv4_str, sizeof(ipv4_str)));
+	}
 
 	if (reply_msg.data == DHCPV4_MSG_ACK && lease)
-		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr,
-				      (struct in_addr *)&lease->addr,
+		ubus_bcast_dhcp_event("dhcp.ack", req->chaddr, lease->ipv4,
 				      lease->hostname, iface->ifname);
 }
 
@@ -1575,8 +1585,7 @@ static void dhcpv4_valid_until_cb(struct uloop_timeout *event)
 
 		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp) {
 			if (!INFINITE_VALID(lease->valid_until) && lease->valid_until < now) {
-				ubus_bcast_dhcp_event("dhcp.expire", lease->hwaddr,
-						      (struct in_addr *)&lease->addr,
+				ubus_bcast_dhcp_event("dhcp.expire", lease->hwaddr, lease->ipv4,
 						      lease->hostname, iface->ifname);
 				dhcpv4_free_lease(lease);
 				update_statefile = true;

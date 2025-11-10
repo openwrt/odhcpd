@@ -63,8 +63,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 			blobmsg_close_array(&b, m);
 
 			buf = blobmsg_alloc_string_buffer(&b, "address", INET_ADDRSTRLEN);
-			struct in_addr addr = {.s_addr = c->addr};
-			inet_ntop(AF_INET, &addr, buf, INET_ADDRSTRLEN);
+			inet_ntop(AF_INET, &c->ipv4, buf, INET_ADDRSTRLEN);
 			blobmsg_add_string_buffer(&b);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(c->valid_until) ?
@@ -394,17 +393,18 @@ static const struct blobmsg_policy obj_attrs[OBJ_ATTR_MAX] = {
 };
 
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr *addr, const char *name,
+			   const struct in_addr ipv4, const char *name,
 			   const char *interface)
 {
+	char ipv4_str[INET_ADDRSTRLEN];
+
 	if (!ubus || !main_object.has_subscribers)
 		return;
 
 	blob_buf_init(&b, 0);
 	if (mac)
 		blobmsg_add_string(&b, "mac", odhcpd_print_mac(mac, ETH_ALEN));
-	if (addr)
-		blobmsg_add_string(&b, "ip", inet_ntoa(*addr));
+	blobmsg_add_string(&b, "ip", inet_ntop(AF_INET, &ipv4, ipv4_str, sizeof(ipv4_str)));
 	if (name)
 		blobmsg_add_string(&b, "name", name);
 	if (interface)

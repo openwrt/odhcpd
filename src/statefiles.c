@@ -79,13 +79,12 @@ static void statefiles_write_host6_cb(struct dhcpv6_lease *lease, struct in6_add
 static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
 	char ipbuf[INET_ADDRSTRLEN];
-	struct in_addr addr = { .s_addr = lease->addr };
 
 	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
 		return false;
 
 	if (ctxt->fp) {
-		inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
+		inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf));
 		statefiles_write_host(ipbuf, lease->hostname, ctxt);
 	}
 
@@ -214,10 +213,9 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
 	char hexhwaddr[sizeof(lease->hwaddr) * 2 + 1];
-	struct in_addr addr = { .s_addr = lease->addr };
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	inet_ntop(AF_INET, &addr, ipbuf, sizeof(ipbuf));
+	inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf));
 
 	if (statefiles_write_host4(ctxt, lease)) {
 		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
@@ -238,7 +236,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		(lease->valid_until > ctxt->now ?
 		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
-		ntohl(lease->addr), ipbuf);
+		ntohl(lease->ipv4.s_addr), ipbuf);
 }
 
 /* Returns true if there are changes to be written to the hosts file(s) */

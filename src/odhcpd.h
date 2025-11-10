@@ -237,12 +237,12 @@ struct dhcpv4_lease {
 	struct interface *iface;		// assignment interface, non-null
 	struct lease_cfg *lease_cfg;		// host lease cfg, nullable
 
-	uint32_t addr;				// client IP address
+	struct in_addr ipv4;			// client IPv4 address
 	unsigned int flags;			// OAF_*
 	time_t valid_until;			// CLOCK_MONOTONIC time, 0 = inf
 	char *hostname;				// client hostname
 	size_t hwaddr_len;			// hwaddr length
-	uint8_t hwaddr[6];			// hwaddr (only MAC supported)
+	uint8_t hwaddr[ETH_ALEN];		// hwaddr (only MAC supported)
 
 	// ForceRenew Nonce - RFC6704 §3.1.2
 	struct uloop_timeout fr_timer;		// FR message transmission timer
@@ -294,7 +294,7 @@ struct lease_cfg {
 	struct vlist_node node;
 	struct list_head dhcpv6_leases;
 	struct dhcpv4_lease *dhcpv4_lease;
-	uint32_t ipaddr;
+	struct in_addr ipv4;
 	uint64_t hostid;
 	size_t mac_count;
 	struct ether_addr *macs;
@@ -475,7 +475,7 @@ struct interface {
 extern struct avl_tree interfaces;
 
 enum {
-	LEASE_CFG_ATTR_IP,
+	LEASE_CFG_ATTR_IPV4,
 	LEASE_CFG_ATTR_MAC,
 	LEASE_CFG_ATTR_DUID,
 	LEASE_CFG_ATTR_HOSTID,
@@ -553,7 +553,7 @@ struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint32_t iaid);
 struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
-struct lease_cfg *config_find_lease_cfg_by_ipaddr(const uint32_t ipaddr);
+struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);
 int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba);
 void config_load_ra_pio(struct interface *iface);
 void config_save_ra_pio(struct interface *iface);
@@ -564,7 +564,7 @@ const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr *addr, const char *name,
+			   const struct in_addr ipv4, const char *name,
 			   const char *interface);
 #else
 static inline int ubus_init(void)
@@ -579,7 +579,7 @@ static inline void ubus_apply_network(void)
 
 static inline
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
-			   const struct in_addr *addr, const char *name,
+			   const struct in_addr ipv4, const char *name,
 			   const char *interface)
 {
 	return;

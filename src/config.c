@@ -195,7 +195,7 @@ const struct uci_blob_param_list interface_attr_list = {
 };
 
 const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX] = {
-	[LEASE_CFG_ATTR_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_CFG_ATTR_IPV4] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_CFG_ATTR_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_ARRAY },
 	[LEASE_CFG_ATTR_DUID] = { .name = "duid", .type = BLOBMSG_TYPE_ARRAY },
 	[LEASE_CFG_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
@@ -670,12 +670,12 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 			goto err;
 	}
 
-	if ((c = tb[LEASE_CFG_ATTR_IP])) {
+	if ((c = tb[LEASE_CFG_ATTR_IPV4])) {
 		const char *ip = blobmsg_get_string(c);
 
 		if (!strcmp(ip, "ignore"))
 			lease_cfg->ignore4 = true;
-		else if (inet_pton(AF_INET, blobmsg_get_string(c), &lease_cfg->ipaddr) < 0)
+		else if (inet_pton(AF_INET, blobmsg_get_string(c), &lease_cfg->ipv4) != 1)
 			goto err;
 	}
 
@@ -691,7 +691,7 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 				goto err;
 		}
 	} else {
-		uint32_t i4a = ntohl(lease_cfg->ipaddr) & 0xff;
+		uint32_t i4a = ntohl(lease_cfg->ipv4.s_addr) & 0xff;
 		lease_cfg->hostid = ((i4a / 100) << 8) | (((i4a % 100) / 10) << 4) | (i4a % 10);
 	}
 
@@ -1791,8 +1791,8 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 		update = true;
 	}
 
-	if (lease_cfg_old->ipaddr != lease_cfg_new->ipaddr) {
-		lease_cfg_old->ipaddr = lease_cfg_new->ipaddr;
+	if (lease_cfg_old->ipv4.s_addr != lease_cfg_new->ipv4.s_addr) {
+		lease_cfg_old->ipv4 = lease_cfg_new->ipv4;
 		dhcpv4_free_lease(lease_cfg_old->dhcpv4_lease);
 	}
 
@@ -1884,12 +1884,12 @@ struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid)
 	return NULL;
 }
 
-struct lease_cfg *config_find_lease_cfg_by_ipaddr(const uint32_t ipaddr)
+struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4)
 {
 	struct lease_cfg *lease_cfg;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
-		if (lease_cfg->ipaddr == ipaddr)
+		if (lease_cfg->ipv4.s_addr == ipv4.s_addr)
 			return lease_cfg;
 	}
 

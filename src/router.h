@@ -66,11 +66,11 @@ struct icmpv6_opt {
 	define is used to cap values to a sane ceiling, i.e. ND_VALID_LIMIT.
 */
 #define RouterLifetime					5400
-/* RFC4861 §6.2.1 : AdvReachableTime : 
+/* RFC4861 §6.2.1 : AdvReachableTime :
  * MUST be no greater than 3,600,000 msec
  */
 #define AdvReachableTime				3600000
-/* RFC4861 §6.2.1 : AdvCurHopLimit 
+/* RFC4861 §6.2.1 : AdvCurHopLimit
 	The value should be set to the current
 	diameter of the Internet.  The value zero means
 	unspecified (by this router).
@@ -85,7 +85,7 @@ struct icmpv6_opt {
 #define RETRANS_TIMER_MAX				60000
 /* RFC2460 §5
    IPv6 requires that every link in the internet have an MTU of 1280
-   octets or greater. 
+   octets or greater.
 */
 #define RA_MTU_MIN						1280
 #define RA_MTU_MAX						65535

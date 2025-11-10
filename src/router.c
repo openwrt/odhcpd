@@ -563,7 +563,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0, dnrs_sz = 0;
 	size_t pfxs_cnt = 0, routes_cnt = 0;
 	size_t total_addr_cnt = 0, valid_addr_cnt = 0;
-	/* 
+	/*
 	 * lowest_found_lifetime stores the lowest lifetime of all prefixes;
 	 * necessary to find longest adv interval necessary
 	 * for shortest lived prefix
@@ -591,11 +591,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_LOW;
 	else if (iface->route_preference > 0)
 		adv.h.nd_ra_flags_reserved |= ND_RA_PREF_HIGH;
- 
+
 	if (iface->dhcpv6 != MODE_DISABLED && iface->dhcpv6_pd && iface->dhcpv6_pd_preferred) {
 		/* RFC9762 § 5
 		 * If the network desires to delegate prefixes to devices that support
-		 * DHCPv6 prefix delegation but do not support the P flag, it SHOULD 
+		 * DHCPv6 prefix delegation but do not support the P flag, it SHOULD
 		 * also set the M or O bits in the RA to 1
 		 */
 		adv.h.nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
@@ -722,7 +722,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		}
 
 		if (preferred_lt > valid_lt) {
-			/* 
+			/*
 			 * RFC4861 § 6.2.1
 			 * This value [AdvPreferredLifetime] MUST NOT be larger than
 			 * AdvValidLifetime.
@@ -746,7 +746,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
 		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
-		/* RFC9762 DHCPv6-PD Preferred Flag § 6: 
+		/* RFC9762 DHCPv6-PD Preferred Flag § 6:
 		 * Routers SHOULD set the P flag to zero by default...
 		 */
 		p->nd_opt_pi_flags_reserved = 0;
@@ -758,7 +758,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			/* RFC9762 DHCPv6-PD Preferred Flag
 			 * We can run both SLAAC and DHCPv6-PD.
 			 * §6:
-			 * "Routers MUST allow the P flag to be configured separately from the A flag. 
+			 * "Routers MUST allow the P flag to be configured separately from the A flag.
 			 * ...en/disabling the P flag MUST NOT trigger automatic changes in the A flag
 			 * value set by the router."
 			 */
@@ -767,7 +767,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			// RFC6275, §7.2
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
 		if (i >= valid_addr_cnt || !preferred_lt) {
-			/* 
+			/*
 			 * RFC9096 § 3.5
 			 *
 			 * - Any prefixes that were previously advertised by the CE router

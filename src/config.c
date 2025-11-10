@@ -1431,7 +1431,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_REACHABLETIME])) {
 		uint32_t ra_reachabletime = blobmsg_get_u32(c);
 
-		/* RFC4861 §6.2.1 : AdvReachableTime : 
+		/* RFC4861 §6.2.1 : AdvReachableTime :
 		 * MUST be no greater than 3,600,000 msec
 		 */
 		iface->ra_reachabletime = ra_reachabletime <= AdvReachableTime ? ra_reachabletime : AdvReachableTime;
@@ -1504,7 +1504,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		uint32_t ra_maxinterval = blobmsg_get_u32(c);
 		if (ra_maxinterval < 4)
 			ra_maxinterval = 4;
-		else if (ra_maxinterval > MaxRtrAdvInterval) 
+		else if (ra_maxinterval > MaxRtrAdvInterval)
 				ra_maxinterval = MaxRtrAdvInterval;
 		iface->ra_maxinterval = ra_maxinterval;
 	}
@@ -1518,12 +1518,12 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		uint32_t ra_mininterval = blobmsg_get_u32(c);
 		if (ra_mininterval < MinRtrAdvInterval)
 			ra_mininterval = MinRtrAdvInterval; // clamp min
-		else if (ra_mininterval > (0.75 * iface->ra_maxinterval)) 
+		else if (ra_mininterval > (0.75 * iface->ra_maxinterval))
 				ra_mininterval = 0.75 * iface->ra_maxinterval; // clamp max
 		iface->ra_mininterval = ra_mininterval;
 	}
 
-	/* 
+	/*
 	 * RFC4861: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 9000 seconds.
 	 * RFC8319: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 65535 seconds.
 	 * Default: 3 * MaxRtrAdvInterval
@@ -1532,7 +1532,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_RA_LIFETIME])){
 		uint32_t ra_lifetime = blobmsg_get_u32(c);
 		if (ra_lifetime != 0){
-			if (ra_lifetime < iface->ra_maxinterval) 
+			if (ra_lifetime < iface->ra_maxinterval)
 				ra_lifetime = iface->ra_maxinterval; // clamp min
 			else if (ra_lifetime > AdvDefaultLifetime)
 				ra_lifetime = AdvDefaultLifetime; // clamp max

@@ -194,7 +194,7 @@ int main(int argc, char **argv)
 int odhcpd_get_interface_config(const char *ifname, const char *what)
 {
 	char buf[64];
-	
+
 	snprintf(buf, sizeof(buf), "/proc/sys/net/ipv6/conf/%s/%s", ifname, what);
 
 	int fd = open(buf, O_RDONLY);

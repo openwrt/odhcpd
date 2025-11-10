@@ -775,7 +775,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_DHCPV6_RAW].iov_len +
 				      iov[IOV_NTP].iov_len + iov[IOV_NTP_ADDR].iov_len +
 				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
-				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len + 
+				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len +
 				      iov[IOV_TZDB_TZ].iov_len + iov[IOV_TZDB_TZ_STR].iov_len +
 				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
 				      (4 + opts_end - opts));

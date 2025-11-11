@@ -423,7 +423,7 @@ static int handle_rtm_neigh(struct nlmsghdr *hdr, bool add)
 		if (iface->ifindex != ndm->ndm_ifindex)
 			continue;
 
-		debug("Netlink %s %s on %s", true ? "newneigh" : "delneigh",
+		debug("Netlink %s %s on %s", add ? "newneigh" : "delneigh",
 		      buf, iface->name);
 
 		event_info.iface = iface;

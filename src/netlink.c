@@ -439,7 +439,7 @@ static int handle_rtm_neigh(struct nlmsghdr *hdr, bool add)
 
 /* Handler for neighbor cache entries from the kernel. This is our source
  * to learn and unlearn hosts on interfaces. */
-static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
+static int cb_rtnl_valid(struct nl_msg *msg, _o_unused void *arg)
 {
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	int ret = NL_SKIP;
@@ -452,21 +452,21 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 	case RTM_NEWROUTE:
 		add = true;
-		_fallthrough;
+		_o_fallthrough;
 	case RTM_DELROUTE:
 		ret = handle_rtm_route(hdr, add);
 		break;
 
 	case RTM_NEWADDR:
 		add = true;
-		_fallthrough;
+		_o_fallthrough;
 	case RTM_DELADDR:
 		ret = handle_rtm_addr(hdr, add);
 		break;
 
 	case RTM_NEWNEIGH:
 		add = true;
-		_fallthrough;
+		_o_fallthrough;
 	case RTM_DELNEIGH:
 		ret = handle_rtm_neigh(hdr, add);
 		break;
@@ -599,7 +599,7 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_addr_finish(_unused struct nl_msg *msg, void *arg)
+static int cb_addr_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
@@ -609,7 +609,7 @@ static int cb_addr_finish(_unused struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_addr_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+static int cb_addr_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
 		void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
@@ -770,7 +770,7 @@ static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_linklocal_finish(_unused struct nl_msg *msg, void *arg)
+static int cb_linklocal_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
@@ -780,7 +780,7 @@ static int cb_linklocal_finish(_unused struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_linklocal_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+static int cb_linklocal_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
 		void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
@@ -886,7 +886,7 @@ static int cb_proxy_neigh_valid(struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_proxy_neigh_finish(_unused struct nl_msg *msg, void *arg)
+static int cb_proxy_neigh_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
 
@@ -896,7 +896,7 @@ static int cb_proxy_neigh_finish(_unused struct nl_msg *msg, void *arg)
 }
 
 
-static int cb_proxy_neigh_error(_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
+static int cb_proxy_neigh_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr *err,
 		void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;

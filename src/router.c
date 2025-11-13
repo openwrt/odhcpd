@@ -1052,7 +1052,7 @@ static void trigger_router_advert(struct uloop_timeout *event)
 
 /* Event handler for incoming ICMPv6 packets */
 static void handle_icmpv6(void *addr, void *data, size_t len,
-		struct interface *iface, _unused void *dest)
+		struct interface *iface, _o_unused void *dest)
 {
 	struct icmp6_hdr *hdr = data;
 	struct sockaddr_in6 *from = addr;

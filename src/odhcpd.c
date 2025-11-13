@@ -67,7 +67,7 @@ void __iflog(int lvl, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void sighandler(_unused int signal)
+static void sighandler(_o_unused int signal)
 {
 	uloop_end();
 }
@@ -420,7 +420,7 @@ struct interface* odhcpd_get_interface_by_index(int ifindex)
 }
 
 /* Convenience function to receive and do basic validation of packets */
-static void odhcpd_receive_packets(struct uloop_fd *u, _unused unsigned int events)
+static void odhcpd_receive_packets(struct uloop_fd *u, _o_unused unsigned int events)
 {
 	struct odhcpd_event *e = container_of(u, struct odhcpd_event, uloop);
 

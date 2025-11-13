@@ -19,9 +19,9 @@ static uint32_t objid = 0;
 static struct ubus_request req_dump = { .list = LIST_HEAD_INIT(req_dump.list) };
 
 #ifdef DHCPV4_SUPPORT
-static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_object *obj,
-		struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
@@ -90,8 +90,8 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _unused struct ubus_ob
 }
 #endif /* DHCPV4_SUPPORT */
 
-static void dhcpv6_blobmsg_ia_addr(_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-				   uint32_t pref_lt, uint32_t valid_lt, _unused void *arg)
+static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+				   uint32_t pref_lt, uint32_t valid_lt, _o_unused void *arg)
 {
 	void *a	= blobmsg_open_table(&b, NULL);
 	char *buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
@@ -109,9 +109,9 @@ static void dhcpv6_blobmsg_ia_addr(_unused struct dhcpv6_lease *lease, struct in
 	blobmsg_close_table(&b, a);
 }
 
-static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
@@ -177,9 +177,9 @@ static int handle_dhcpv6_leases(_unused struct ubus_context *ctx, _unused struct
 	return 0;
 }
 
-static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
-		_unused struct blob_attr *msg)
+static int handle_ra_pio(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
+		_o_unused struct blob_attr *msg)
 {
 	char ipv6_str[INET6_ADDRSTRLEN];
 	time_t now = odhcpd_time();
@@ -233,8 +233,8 @@ static int handle_ra_pio(_unused struct ubus_context *ctx, _unused struct ubus_o
 	return 0;
 }
 
-static int handle_add_lease_cfg(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-				_unused struct ubus_request_data *req, _unused const char *method,
+static int handle_add_lease_cfg(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+				_o_unused struct ubus_request_data *req, _o_unused const char *method,
 				struct blob_attr *msg)
 {
 	if (!config_set_lease_cfg_from_blobmsg(msg))
@@ -292,7 +292,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_ADDRESS] = { .name = "ipv6-address", .type = BLOBMSG_TYPE_ARRAY },
 };
 
-static void handle_dump(_unused struct ubus_request *req, _unused int type, struct blob_attr *msg)
+static void handle_dump(_o_unused struct ubus_request *req, _o_unused int type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[DUMP_ATTR_MAX];
 	blobmsg_parse(dump_attrs, DUMP_ATTR_MAX, tb, blob_data(msg), blob_len(msg));
@@ -321,8 +321,8 @@ static void update_netifd(bool subscribe)
 }
 
 
-static int handle_update(_unused struct ubus_context *ctx, _unused struct ubus_object *obj,
-		_unused struct ubus_request_data *req, _unused const char *method,
+static int handle_update(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
+		_o_unused struct ubus_request_data *req, _o_unused const char *method,
 		struct blob_attr *msg)
 {
 	struct blob_attr *tb[IFACE_ATTR_MAX];
@@ -423,9 +423,9 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }
 
-static void handle_event(_unused struct ubus_context *ctx,
-			 _unused struct ubus_event_handler *ev,
-			 _unused const char *type, struct blob_attr *msg)
+static void handle_event(_o_unused struct ubus_context *ctx,
+			 _o_unused struct ubus_event_handler *ev,
+			 _o_unused const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[OBJ_ATTR_MAX];
 	blobmsg_parse(obj_attrs, OBJ_ATTR_MAX, tb, blob_data(msg), blob_len(msg));

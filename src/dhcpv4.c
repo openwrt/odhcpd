@@ -774,7 +774,7 @@ enum {
 };
 
 void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
-		struct interface *iface, _unused void *our_dest_addr,
+		struct interface *iface, _o_unused void *our_dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
 	/* Request variables */
@@ -1319,7 +1319,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 /* Handler for DHCPv4 messages */
 static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
-				struct interface *iface, _unused void *dest_addr)
+				struct interface *iface, _o_unused void *dest_addr)
 {
 	int sock = iface->dhcpv4_event.uloop.fd;
 

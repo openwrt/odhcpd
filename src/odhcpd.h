@@ -21,6 +21,7 @@
 #include <stdbool.h>
 #include <syslog.h>
 
+#include <libubox/avl.h>
 #include <libubox/blobmsg.h>
 #include <libubox/list.h>
 #include <libubox/uloop.h>
@@ -52,9 +53,17 @@
 
 #define INFINITE_VALID(x) ((x) == 0)
 
-#define _unused __attribute__((unused))
-#define _packed __attribute__((packed))
-#define _fallthrough __attribute__((__fallthrough__))
+#ifndef _o_fallthrough
+#define _o_fallthrough __attribute__((__fallthrough__))
+#endif /* _o_fallthrough */
+
+#ifndef _o_packed
+#define _o_packed __attribute__((packed))
+#endif /* _o_packed */
+
+#ifndef _o_unused
+#define _o_unused __attribute__((unused))
+#endif /* _o_unused */
 
 #define ALL_IPV6_NODES "ff02::1"
 #define ALL_IPV6_ROUTERS "ff02::2"
@@ -616,7 +625,7 @@ int dhcpv4_init(void);
 void dhcpv4_free_lease(struct dhcpv4_lease *a);
 int dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
-		       struct interface *iface, _unused void *dest_addr,
+		       struct interface *iface, _o_unused void *dest_addr,
 		       send_reply_cb_t send_reply, void *opaque);
 #else
 static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {

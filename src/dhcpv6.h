@@ -98,7 +98,7 @@
 struct dhcpv6_client_header {
 	uint8_t msg_type;
 	uint8_t transaction_id[3];
-} __attribute__((packed));
+} _o_packed;
 
 struct dhcpv6_relay_header {
 	uint8_t msg_type;
@@ -106,7 +106,7 @@ struct dhcpv6_relay_header {
 	struct in6_addr link_address;
 	struct in6_addr peer_address;
 	uint8_t options[];
-} __attribute__((packed));
+} _o_packed;
 
 struct dhcpv6_relay_forward_envelope {
 	uint8_t msg_type;
@@ -118,7 +118,7 @@ struct dhcpv6_relay_forward_envelope {
 	uint32_t interface_id_data;
 	uint16_t relay_message_type;
 	uint16_t relay_message_len;
-} __attribute__((packed));
+} _o_packed;
 
 struct dhcpv6_auth_reconfigure {
 	uint16_t type;
@@ -129,7 +129,7 @@ struct dhcpv6_auth_reconfigure {
 	uint32_t replay[2];
 	uint8_t reconf_type;
 	uint8_t key[16];
-} _packed;
+} _o_packed;
 
 struct dhcpv6_ia_hdr {
 	uint16_t type;
@@ -137,7 +137,7 @@ struct dhcpv6_ia_hdr {
 	uint32_t iaid;
 	uint32_t t1;
 	uint32_t t2;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_ia_prefix {
 	uint16_t type;
@@ -146,7 +146,7 @@ struct dhcpv6_ia_prefix {
 	uint32_t valid_lt;
 	uint8_t prefix;
 	struct in6_addr addr;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_ia_addr {
 	uint16_t type;
@@ -154,7 +154,7 @@ struct dhcpv6_ia_addr {
 	struct in6_addr addr;
 	uint32_t preferred_lt;
 	uint32_t valid_lt;
-} _packed;
+} _o_packed;
 
 struct dhcpv6_cer_id {
 	uint16_t type;

@@ -101,7 +101,7 @@ struct dhcpv4_message {
 	char file[128];
 	uint32_t cookie;
 	uint8_t options[];
-} _packed;
+} _o_packed;
 
 // RFC2131, §3
 #define DHCPV4_MAGIC_COOKIE 0x63825363
@@ -114,7 +114,7 @@ struct dhcpv4_auth_forcerenew {
 	uint32_t replay[2];
 	uint8_t type;
 	uint8_t key[16];
-} _packed;
+} _o_packed;
 
 // https://www.iana.org/assignments/auth-namespaces/auth-namespaces.xhtml#auth-namespaces-1
 enum dhcpv4_auth_protocol {
@@ -164,7 +164,7 @@ struct dhcpv4_option_u32 {
 	uint8_t code;
 	uint8_t len;
 	uint32_t data;
-} _packed;
+} _o_packed;
 
 /* DNR */
 struct dhcpv4_dnr {

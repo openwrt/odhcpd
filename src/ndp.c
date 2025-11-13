@@ -244,13 +244,13 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 	case NETEV_ADDR6_DEL:
 		add = false;
 		netlink_dump_neigh_table(false);
-		_fallthrough;
+		_o_fallthrough;
 	case NETEV_ADDR6_ADD:
 		setup_addr_for_relaying(&info->addr.in6, iface, add);
 		break;
 	case NETEV_NEIGH6_DEL:
 		add = false;
-		_fallthrough;
+		_o_fallthrough;
 	case NETEV_NEIGH6_ADD:
 		if (info->neigh.flags & NTF_PROXY) {
 			if (add) {
@@ -328,7 +328,7 @@ static void send_na(struct in6_addr *to_addr,
 
 /* Handle solicitations */
 static void handle_solicit(void *addr, void *data, size_t len,
-		struct interface *iface, _unused void *dest)
+		struct interface *iface, _o_unused void *dest)
 {
 	struct ip6_hdr *ip6 = data;
 	struct nd_neighbor_solicit *req = (struct nd_neighbor_solicit*)&ip6[1];

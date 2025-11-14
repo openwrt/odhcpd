@@ -21,6 +21,9 @@ jobs:
           - arch: mips
             gcc: /usr/bin/mips-linux-gnu-gcc
             packages: gcc-mips-linux-gnu
+          - arch: powerpc
+            gcc: /usr/bin/powerpc-linux-gnu-gcc
+            packages: gcc-powerpc-linux-gnu
           - arch: x86_64
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
@@ -37,6 +40,10 @@ jobs:
       size-mips-dhcpv4: ${{ steps.dhcpv4.outputs.size_mips }}
       size-mips-ubus: ${{ steps.ubus.outputs.size_mips }}
       size-mips-full: ${{ steps.full.outputs.size_mips }}
+      size-powerpc-basic: ${{ steps.basic.outputs.size_powerpc }}
+      size-powerpc-dhcpv4: ${{ steps.dhcpv4.outputs.size_powerpc }}
+      size-powerpc-ubus: ${{ steps.ubus.outputs.size_powerpc }}
+      size-powerpc-full: ${{ steps.full.outputs.size_powerpc }}
       size-x86_64-basic: ${{ steps.basic.outputs.size_x86_64 }}
       size-x86_64-dhcpv4: ${{ steps.dhcpv4.outputs.size_x86_64 }}
       size-x86_64-ubus: ${{ steps.ubus.outputs.size_x86_64 }}
@@ -226,15 +233,19 @@ jobs:
           size_mips_dhcpv4: ${{needs.build.outputs.size-mips-dhcpv4}}
           size_mips_ubus: ${{needs.build.outputs.size-mips-ubus}}
           size_mips_full: ${{needs.build.outputs.size-mips-full}}
+          size_powerpc_basic: ${{needs.build.outputs.size-powerpc-basic}}
+          size_powerpc_dhcpv4: ${{needs.build.outputs.size-powerpc-dhcpv4}}
+          size_powerpc_ubus: ${{needs.build.outputs.size-powerpc-ubus}}
+          size_powerpc_full: ${{needs.build.outputs.size-powerpc-full}}
           size_x86_64_basic: ${{needs.build.outputs.size-x86_64-basic}}
           size_x86_64_dhcpv4: ${{needs.build.outputs.size-x86_64-dhcpv4}}
           size_x86_64_ubus: ${{needs.build.outputs.size-x86_64-ubus}}
           size_x86_64_full: ${{needs.build.outputs.size-x86_64-full}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant | aarch64 | arm | mips | x86_64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| basic | ${size_aarch64_basic} | ${size_arm_basic} | ${size_mips_basic} | ${size_x86_64_basic} |" >> $GITHUB_STEP_SUMMARY
-          echo "| DHCPv4 | ${size_aarch64_dhcpv4} | ${size_arm_dhcpv4} | ${size_mips_dhcpv4} | ${size_x86_64_dhcpv4} |" >> $GITHUB_STEP_SUMMARY
-          echo "| UBUS | ${size_aarch64_ubus} | ${size_arm_ubus} | ${size_mips_ubus} | ${size_x86_64_ubus} |" >> $GITHUB_STEP_SUMMARY
-          echo "| full | ${size_aarch64_full} | ${size_arm_full} | ${size_mips_full} | ${size_x86_64_full} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Variant | aarch64 | arm | mips | powerpc | x86_64 |" >> $GITHUB_STEP_SUMMARY
+          echo "| :---: | :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
+          echo "| basic | ${size_aarch64_basic} | ${size_arm_basic} | ${size_mips_basic} | ${size_powerpc_basic} | ${size_x86_64_basic} |" >> $GITHUB_STEP_SUMMARY
+          echo "| DHCPv4 | ${size_aarch64_dhcpv4} | ${size_arm_dhcpv4} | ${size_mips_dhcpv4} | ${size_powerpc_dhcpv4} | ${size_x86_64_dhcpv4} |" >> $GITHUB_STEP_SUMMARY
+          echo "| UBUS | ${size_aarch64_ubus} | ${size_arm_ubus} | ${size_mips_ubus} | ${size_powerpc_ubus} | ${size_x86_64_ubus} |" >> $GITHUB_STEP_SUMMARY
+          echo "| full | ${size_aarch64_full} | ${size_arm_full} | ${size_mips_full} | ${size_powerpc_full} | ${size_x86_64_full} |" >> $GITHUB_STEP_SUMMARY

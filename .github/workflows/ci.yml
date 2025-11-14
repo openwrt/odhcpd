@@ -93,7 +93,8 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DDISABLE_EXTRA_LIBS=ON \
             -DBUILD_TESTING=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
           make
           make install
 
@@ -103,7 +104,8 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            --install-prefix ${GITHUB_WORKSPACE}/build
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
           make
           make install
 
@@ -113,8 +115,10 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build
+            -DBUILD_LUA=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
           make
           make install
 
@@ -124,8 +128,10 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_LUA=OFF -DBUILD_EXAMPLES=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build
+            -DBUILD_LUA=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
           make
           make install
 
@@ -136,7 +142,8 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
-            --install-prefix ${GITHUB_WORKSPACE}/build
+            --install-prefix ${GITHUB_WORKSPACE}/build \
+            -B . -S .
           make
           make install
 
@@ -148,7 +155,7 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -B $BUILD_DIR
+            -B $BUILD_DIR -S .
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
 
@@ -161,7 +168,7 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DDHCPV4_SUPPORT=ON \
-            -B $BUILD_DIR
+            -B $BUILD_DIR -S .
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
 
@@ -174,7 +181,7 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DUBUS=ON \
-            -B $BUILD_DIR
+            -B $BUILD_DIR -S .
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
 
@@ -186,8 +193,9 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DDHCPV4_SUPPORT=ON -DUBUS=ON \
-            -B $BUILD_DIR
+            -DDHCPV4_SUPPORT=ON \
+            -DUBUS=ON \
+            -B $BUILD_DIR -S .
           make -C $BUILD_DIR
           echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
 

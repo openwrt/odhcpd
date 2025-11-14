@@ -39,6 +39,7 @@ cmake							\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
 	-DBUILD_SHARED_LIBS=OFF				\
 	-DDISABLE_EXTRA_LIBS=ON				\
+	-DBUILD_TESTING=OFF				\
 	--install-prefix "${BUILDDIR}"
 make
 make install

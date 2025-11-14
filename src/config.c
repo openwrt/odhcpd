@@ -352,6 +352,7 @@ static void clean_interface(struct interface *iface)
 		free(iface->dnr[i].svc);
 	}
 	free(iface->dnr);
+	free(iface->pios);
 	memset(&iface->ra, 0, sizeof(*iface) - offsetof(struct interface, ra));
 	set_interface_defaults(iface);
 }
@@ -373,7 +374,6 @@ static void close_interface(struct interface *iface)
 	clean_interface(iface);
 	free(iface->addr4);
 	free(iface->addr6);
-	free(iface->pios);
 	free(iface->ifname);
 	free(iface);
 }
@@ -2019,6 +2019,7 @@ static json_object *config_load_ra_pio_json(struct interface *iface)
 void config_load_ra_pio(struct interface *iface)
 {
 	json_object *json, *slaac_json;
+	struct ra_pio *new_pios;
 	size_t pio_cnt;
 	time_t now;
 
@@ -2038,12 +2039,13 @@ void config_load_ra_pio(struct interface *iface)
 	now = odhcpd_time();
 
 	pio_cnt = json_object_array_length(slaac_json);
-	iface->pios = malloc(sizeof(struct ra_pio) * pio_cnt);
-	if (!iface->pios) {
+	new_pios = realloc(iface->pios, sizeof(struct ra_pio) * pio_cnt);
+	if (!new_pios) {
 		json_object_put(json);
 		return;
 	}
 
+	iface->pios = new_pios;
 	iface->pio_cnt = 0;
 	for (size_t i = 0; i < pio_cnt; i++) {
 		json_object *cur_pio_json, *length_json, *prefix_json;

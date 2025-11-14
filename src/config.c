@@ -1011,14 +1011,12 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			break;
 
 		case DNR_SVC_NO_DEFAULT_ALPN:
-			/* fall through */
-
 		case DNR_SVC_OHTTP:
 			if (strlen(svc_val_str) > 0) {
 				error("Invalid value '%s' for SvcParam 'port'", svc_val_str);
 				goto err;
 			}
-			/* fall through */
+			_o_fallthrough;
 
 		case DNR_SVC_DOHPATH:
 			/* plain string */
@@ -1042,8 +1040,6 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			goto err;
 
 		case DNR_SVC_IPV4HINT:
-			/* fall through */
-
 		case DNR_SVC_IPV6HINT:
 			error("SvcParam '%s' is not allowed", svc_param_key_names[svc_key]);
 			goto err;
@@ -1069,7 +1065,7 @@ err:
 	return -1;
 }
 
-static int avl_ipv4_cmp(const void *k1, const void *k2, _unused void *ptr)
+static int avl_ipv4_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 {
 	return memcmp(k1, k2, sizeof(struct in_addr));
 }
@@ -1737,7 +1733,7 @@ static void lease_cfg_update_leases(struct lease_cfg *lease_cfg)
 	}
 }
 
-static int lease_cfg_cmp(const void *k1, const void *k2, _unused void *ptr)
+static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 {
 	const struct lease_cfg *lease_cfg1 = k1, *lease_cfg2 = k2;
 	int cmp = 0;
@@ -1814,7 +1810,7 @@ static void lease_cfg_delete(struct lease_cfg *lease_cfg)
 	free_lease_cfg(lease_cfg);
 }
 
-static void lease_cfg_update(_unused struct vlist_tree *tree, struct vlist_node *node_new,
+static void lease_cfg_update(_o_unused struct vlist_tree *tree, struct vlist_node *node_new,
 			    struct vlist_node *node_old)
 {
 	struct lease_cfg *lease_cfg_new = container_of(node_new, struct lease_cfg, node);
@@ -2447,7 +2443,7 @@ static void handle_signal(int signal)
 		uloop_end();
 }
 
-static void reload_cb(struct uloop_fd *u, _unused unsigned int events)
+static void reload_cb(struct uloop_fd *u, _o_unused unsigned int events)
 {
 	char b[512];
 	if (read(u->fd, b, sizeof(b)) < 0) {}

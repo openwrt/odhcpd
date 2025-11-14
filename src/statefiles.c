@@ -68,8 +68,8 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 	return true;
 }
 
-static void statefiles_write_host6_cb(struct dhcpv6_lease *lease, struct in6_addr *addr, _unused int prefix,
-				      _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+static void statefiles_write_host6_cb(struct dhcpv6_lease *lease, struct in6_addr *addr, _o_unused int prefix,
+				      _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 
@@ -162,7 +162,7 @@ err:
 }
 
 static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-					 _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+					 _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];

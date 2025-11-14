@@ -257,8 +257,8 @@ struct dhcpv4_msg_data {
 };
 
 static ssize_t dhcpv6_4o6_send_reply(struct iovec *iov, size_t iov_len,
-				     _unused struct sockaddr *dest,
-				     _unused socklen_t dest_len,
+				     _o_unused struct sockaddr *dest,
+				     _o_unused socklen_t dest_len,
 				     void *opaque)
 {
 	struct dhcpv4_msg_data *reply = opaque;
@@ -363,7 +363,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	debug("Got a DHCPv6-request on %s", iface->name);
 
 	/* Construct reply message */
-	struct _packed {
+	struct _o_packed {
 		uint8_t msg_type;
 		uint8_t tr_id[3];
 		uint16_t serverid_type;
@@ -386,7 +386,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		dest.serverid_length = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
 	}
 
-	struct _packed {
+	struct _o_packed {
 		uint16_t type;
 		uint16_t len;
 		uint8_t buf[DUID_MAX_LEN];
@@ -396,26 +396,26 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.buf = { 0 },
 	};
 
-	struct __attribute__((packed)) {
+	struct _o_packed {
 		uint16_t type;
 		uint16_t len;
 		uint32_t value;
 	} maxrt = {htons(DHCPV6_OPT_SOL_MAX_RT), htons(sizeof(maxrt) - 4),
 			htonl(60)};
 
-	struct __attribute__((packed)) {
+	struct _o_packed {
 		uint16_t type;
 		uint16_t len;
 	} rapid_commit = {htons(DHCPV6_OPT_RAPID_COMMIT), 0};
 
-	struct __attribute__((packed)) {
+	struct _o_packed {
 		uint16_t type;
 		uint16_t len;
 		uint16_t value;
 	} stat = {htons(DHCPV6_OPT_STATUS), htons(sizeof(stat) - 4),
 			htons(DHCPV6_STATUS_USEMULTICAST)};
 
-	struct __attribute__((packed)) {
+	struct _o_packed {
 		uint16_t type;
 		uint16_t len;
 		uint32_t value;
@@ -614,7 +614,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} search = {htons(DHCPV6_OPT_DNS_DOMAIN), htons(search_len)};
 
 
-	struct __attribute__((packed)) dhcpv4o6_server {
+	struct _o_packed dhcpv4o6_server {
 		uint16_t type;
 		uint16_t len;
 		struct in6_addr addr;
@@ -733,7 +733,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 #ifdef DHCPV4_SUPPORT
 	if (hdr->msg_type == DHCPV6_MSG_DHCPV4_QUERY) {
-		struct _packed dhcpv4_msg_data {
+		struct _o_packed dhcpv4_msg_data {
 			uint16_t type;
 			uint16_t len;
 			uint8_t msg[1];

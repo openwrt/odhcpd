@@ -11,7 +11,7 @@ struct ipv6_pxe_entry {
 	uint32_t arch;
 
 	// Ready to send
-	struct __attribute__((packed)) {
+	struct _o_packed {
 		uint16_t type;		// In network endianess
 		uint16_t len;		// In network endianess, without /0
 		char payload[];		// Null-terminated here

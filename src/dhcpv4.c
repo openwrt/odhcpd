@@ -578,8 +578,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		break;
 
 	case DHCPV4_MSG_DISCOVER:
-		_fallthrough;
-
 	case DHCPV4_MSG_REQUEST:
 		if (!lease && iface->no_dynamic_dhcp && !lease_cfg)
 			return NULL;
@@ -776,7 +774,7 @@ enum {
 };
 
 void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
-		struct interface *iface, _unused void *our_dest_addr,
+		struct interface *iface, _o_unused void *our_dest_addr,
 	        send_reply_cb_t send_reply, void *opaque)
 {
 	/* Request variables */
@@ -1013,7 +1011,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_INFORM:
 		break;
 	case DHCPV4_MSG_DECLINE:
-		_fallthrough;
 	case DHCPV4_MSG_RELEASE:
 		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 			     req_clientid_len, req_addr, &req_leasetime,
@@ -1021,7 +1018,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			     &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
-		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
 		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,
@@ -1323,7 +1319,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 /* Handler for DHCPv4 messages */
 static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
-				struct interface *iface, _unused void *dest_addr)
+				struct interface *iface, _o_unused void *dest_addr)
 {
 	int sock = iface->dhcpv4_event.uloop.fd;
 

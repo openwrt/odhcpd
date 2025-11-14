@@ -166,7 +166,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		uint16_t code;
 		uint16_t len;
 		uint8_t data[DUID_MAX_LEN];
-	} _packed serverid = {
+	} _o_packed serverid = {
 		.code = htons(DHCPV6_OPT_SERVERID),
 		.len = 0,
 		.data = { 0 },
@@ -175,7 +175,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		uint16_t code;
 		uint16_t len;
 		uint8_t data[DUID_MAX_LEN];
-	} _packed clientid = {
+	} _o_packed clientid = {
 		.code = htons(DHCPV6_OPT_CLIENTID),
 		.len = htons(assign->duid_len),
 		.data = { 0 },
@@ -184,7 +184,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		uint16_t code;
 		uint16_t len;
 		uint8_t id;
-	} _packed message = {
+	} _o_packed message = {
 		.code = htons(DHCPV6_OPT_RECONF_MSG),
 		.len = htons(1),
 		.id = DHCPV6_MSG_RENEW,
@@ -574,7 +574,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		return 0;
 
 	if (status) {
-		struct __attribute__((packed)) {
+		struct _o_packed {
 			uint16_t type;
 			uint16_t len;
 			uint16_t val;
@@ -820,8 +820,8 @@ struct log_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_log_ia_addr(_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
-			       _unused uint32_t pref_lt, _unused uint32_t valid_lt, void *arg)
+static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+			       _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
 	char addrbuf[INET6_ADDRSTRLEN];

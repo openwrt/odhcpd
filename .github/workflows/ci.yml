@@ -90,7 +90,9 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_SHARED_LIBS=OFF -DDISABLE_EXTRA_LIBS=ON  \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DDISABLE_EXTRA_LIBS=ON \
+            -DBUILD_TESTING=OFF \
             --install-prefix ${GITHUB_WORKSPACE}/build
           make
           make install

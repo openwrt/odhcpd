@@ -578,8 +578,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		break;
 
 	case DHCPV4_MSG_DISCOVER:
-		_fallthrough;
-
 	case DHCPV4_MSG_REQUEST:
 		if (!lease && iface->no_dynamic_dhcp && !lease_cfg)
 			return NULL;
@@ -1013,7 +1011,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	case DHCPV4_MSG_INFORM:
 		break;
 	case DHCPV4_MSG_DECLINE:
-		_fallthrough;
 	case DHCPV4_MSG_RELEASE:
 		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 			     req_clientid_len, req_addr, &req_leasetime,
@@ -1021,7 +1018,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			     &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
-		_fallthrough;
 	case DHCPV4_MSG_REQUEST:
 		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,

@@ -452,21 +452,21 @@ static int cb_rtnl_valid(struct nl_msg *msg, _unused void *arg)
 
 	case RTM_NEWROUTE:
 		add = true;
-		/* fall through */
+		_fallthrough;
 	case RTM_DELROUTE:
 		ret = handle_rtm_route(hdr, add);
 		break;
 
 	case RTM_NEWADDR:
 		add = true;
-		/* fall through */
+		_fallthrough;
 	case RTM_DELADDR:
 		ret = handle_rtm_addr(hdr, add);
 		break;
 
 	case RTM_NEWNEIGH:
 		add = true;
-		/* fall through */
+		_fallthrough;
 	case RTM_DELNEIGH:
 		ret = handle_rtm_neigh(hdr, add);
 		break;

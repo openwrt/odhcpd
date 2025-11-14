@@ -21,6 +21,7 @@
 
 #include <time.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <resolv.h>
 #include <stdlib.h>

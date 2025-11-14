@@ -30,6 +30,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE -Werror=implicit-function-declara
 target_compile_options(${PROJECT_NAME} PRIVATE -Wformat)
 target_compile_options(${PROJECT_NAME} PRIVATE -Werror=format-security)
 target_compile_options(${PROJECT_NAME} PRIVATE -Werror=format-nonliteral)
+target_compile_options(${PROJECT_NAME} PRIVATE -Wimplicit-fallthrough=5)
 target_compile_options(${PROJECT_NAME} PRIVATE -Wno-unused-parameter)
 target_compile_options(${PROJECT_NAME} PRIVATE -Wmissing-declarations)
 

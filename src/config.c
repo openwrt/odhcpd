@@ -1011,14 +1011,12 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			break;
 
 		case DNR_SVC_NO_DEFAULT_ALPN:
-			/* fall through */
-
 		case DNR_SVC_OHTTP:
 			if (strlen(svc_val_str) > 0) {
 				error("Invalid value '%s' for SvcParam 'port'", svc_val_str);
 				goto err;
 			}
-			/* fall through */
+			_fallthrough;
 
 		case DNR_SVC_DOHPATH:
 			/* plain string */
@@ -1042,8 +1040,6 @@ static int parse_dnr_str(char *str, struct interface *iface)
 			goto err;
 
 		case DNR_SVC_IPV4HINT:
-			/* fall through */
-
 		case DNR_SVC_IPV6HINT:
 			error("SvcParam '%s' is not allowed", svc_param_key_names[svc_key]);
 			goto err;

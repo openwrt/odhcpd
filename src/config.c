@@ -37,6 +37,11 @@ struct config config = {
 	.enable_tz = true,
 	.main_dhcpv4 = false,
 	.dhcp_cb = NULL,
+#ifdef WITH_UBUS
+	.use_ubus = true,
+#else
+	.use_ubus = false,
+#endif /* WITH_UBUS */
 	.dhcp_statefile = NULL,
 	.dhcp_statedir_fd = -1,
 	.dhcp_hostsdir = NULL,
@@ -1119,10 +1124,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			ifname = blobmsg_get_string(c);
 	}
 
-#ifdef WITH_UBUS
 	if (overwrite || !iface->ifname)
-		ifname = ubus_get_ifname(name);
-#endif
+		if (config.use_ubus)
+			ifname = ubus_get_ifname(name);
 
 	if (!iface->ifname && !ifname)
 		goto err;
@@ -2381,10 +2385,9 @@ void odhcpd_reload(void)
 			continue;
 
 		enum odhcpd_mode hybrid_mode = MODE_DISABLED;
-#ifdef WITH_UBUS
-		if (!ubus_has_prefix(i->name, i->ifname))
+
+		if (config.use_ubus && !ubus_has_prefix(i->name, i->ifname))
 			hybrid_mode = MODE_RELAY;
-#endif
 
 		if (i->dhcpv6 == MODE_HYBRID)
 			i->dhcpv6 = hybrid_mode;
@@ -2441,10 +2444,12 @@ int odhcpd_run(void)
 {
 	static struct uloop_signal sighup = { .signo = SIGHUP, .cb = signal_reload };
 
-	while (ubus_init()) {
-		if (uloop_cancelled)
-			return EXIT_FAILURE;
-		sleep(1);
+	if (config.use_ubus) {
+		while (ubus_init()) {
+			if (uloop_cancelled)
+				return EXIT_FAILURE;
+			sleep(1);
+		}
 	}
 
 	odhcpd_reload();

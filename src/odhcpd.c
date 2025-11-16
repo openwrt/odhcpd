@@ -67,7 +67,7 @@ void __iflog(int lvl, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void print_usage(const char *app)
+_o_noreturn static void print_usage(const char *app, int exit_status)
 {
 	printf("== %s Usage ==\n"
 	       "Features: ra ndp dhcpv6"
@@ -86,8 +86,13 @@ static void print_usage(const char *app)
 	       "	-c <dir>	Read UCI configuration files from <dir>\n"
 	       "	-l <int>	Specify log level 0..7 (default %d)\n"
 	       "	-f		Log to stderr instead of syslog\n"
+#ifdef WITH_UBUS
+	       "	-u		Disable ubus support\n"
+#endif /* WITH_UBUS */
 	       "	-h		Print this help text and exit\n",
 	       app, config.log_level);
+
+	exit(exit_status);
 }
 
 static bool ipv6_enabled(void)
@@ -106,7 +111,7 @@ int main(int argc, char **argv)
 {
 	int opt;
 
-	while ((opt = getopt(argc, argv, "c:l:fh")) != -1) {
+	while ((opt = getopt(argc, argv, "c:l:fuh")) != -1) {
 		switch (opt) {
 		case 'c':
 			struct stat sb;
@@ -135,9 +140,15 @@ int main(int argc, char **argv)
 			config.log_syslog = false;
 			fprintf(stderr, "Logging to stderr\n");
 			break;
+		case 'u':
+			config.use_ubus = false;
+			fprintf(stderr, "Ubus support disabled\n");
+			break;
 		case 'h':
-			print_usage(argv[0]);
-			return 0;
+			print_usage(argv[0], EXIT_SUCCESS);
+		case '?':
+		default:
+			print_usage(argv[0], EXIT_FAILURE);
 		}
 	}
 

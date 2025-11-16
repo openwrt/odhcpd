@@ -473,7 +473,7 @@ bool ubus_has_prefix(const char *name, const char *ifname)
 	unsigned rem;
 
 	if (!dump)
-		return NULL;
+		return false;
 
 	blobmsg_for_each_attr(c, dump, rem) {
 		struct blob_attr *tb[IFACE_ATTR_MAX];

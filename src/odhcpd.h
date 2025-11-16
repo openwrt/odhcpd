@@ -65,6 +65,10 @@
 #define _o_unused __attribute__((unused))
 #endif /* _o_unused */
 
+#ifndef _o_noreturn
+#define _o_noreturn __attribute__((__noreturn__))
+#endif /* _o_noreturn */
+
 #define ALL_IPV6_NODES "ff02::1"
 #define ALL_IPV6_ROUTERS "ff02::2"
 
@@ -202,10 +206,10 @@ enum duid_type {
 };
 
 struct config {
-	bool legacy;
 	bool enable_tz;
 	bool main_dhcpv4;
 	char *dhcp_cb;
+	bool use_ubus;
 
 	char *dhcp_statefile;
 	int dhcp_statedir_fd;
@@ -580,9 +584,19 @@ static inline int ubus_init(void)
 	return 0;
 }
 
+static inline const char *ubus_get_ifname(const char *name)
+{
+	return NULL;
+}
+
 static inline void ubus_apply_network(void)
 {
 	return;
+}
+
+static inline bool ubus_has_prefix(const char *name, const char *ifname)
+{
+	return false;
 }
 
 static inline

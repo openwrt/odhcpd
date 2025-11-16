@@ -24,7 +24,6 @@
 #include "dhcpv6-pxe.h"
 
 static struct blob_buf b;
-static int reload_pipe[2] = { -1, -1 };
 
 static int lease_cfg_cmp(const void *k1, const void *k2, void *ptr);
 static void lease_cfg_update(struct vlist_tree *tree, struct vlist_node *node_new,
@@ -2433,40 +2432,28 @@ void odhcpd_reload(void)
 	uci_free_context(uci);
 }
 
-static void handle_signal(int signal)
+static void signal_reload(_o_unused struct uloop_signal *signal)
 {
-	char b[1] = {0};
-
-	if (signal == SIGHUP) {
-		if (write(reload_pipe[1], b, sizeof(b)) < 0) {}
-	} else
-		uloop_end();
-}
-
-static void reload_cb(struct uloop_fd *u, _o_unused unsigned int events)
-{
-	char b[512];
-	if (read(u->fd, b, sizeof(b)) < 0) {}
-
 	odhcpd_reload();
 }
 
-static struct uloop_fd reload_fd = { .fd = -1, .cb = reload_cb };
-
-void odhcpd_run(void)
+int odhcpd_run(void)
 {
-	if (pipe2(reload_pipe, O_NONBLOCK | O_CLOEXEC) < 0) {}
+	static struct uloop_signal sighup = { .signo = SIGHUP, .cb = signal_reload };
 
-	reload_fd.fd = reload_pipe[0];
-	uloop_fd_add(&reload_fd, ULOOP_READ);
-
-	signal(SIGTERM, handle_signal);
-	signal(SIGINT, handle_signal);
-	signal(SIGHUP, handle_signal);
-
-	while (ubus_init())
+	while (ubus_init()) {
+		if (uloop_cancelled)
+			return EXIT_FAILURE;
 		sleep(1);
+	}
 
 	odhcpd_reload();
+
+	/* uloop_init() already handles SIGINT/SIGTERM */
+	if (uloop_signal_add(&sighup) < 0)
+		return EXIT_FAILURE;
+
 	uloop_run();
+
+	return EXIT_SUCCESS;
 }

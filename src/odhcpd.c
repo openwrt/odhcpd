@@ -67,11 +67,6 @@ void __iflog(int lvl, const char *fmt, ...)
 	va_end(ap);
 }
 
-static void sighandler(_o_unused int signal)
-{
-	uloop_end();
-}
-
 static void print_usage(const char *app)
 {
 	printf("== %s Usage ==\n"
@@ -146,6 +141,11 @@ int main(int argc, char **argv)
 		}
 	}
 
+	if (getuid() != 0) {
+		error("Must be run as root!");
+		return 2;
+	}
+
 	if (config.log_syslog) {
 		openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 		setlogmask(LOG_UPTO(config.log_level));
@@ -153,18 +153,9 @@ int main(int argc, char **argv)
 
 	uloop_init();
 
-	if (getuid() != 0) {
-		error("Must be run as root!");
-		return 2;
-	}
-
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ioctl_sock < 0)
 		return 4;
-
-	signal(SIGUSR1, SIG_IGN);
-	signal(SIGINT, sighandler);
-	signal(SIGTERM, sighandler);
 
 	if (netlink_init())
 		return 4;
@@ -187,8 +178,7 @@ int main(int argc, char **argv)
 		return 4;
 #endif
 
-	odhcpd_run();
-	return 0;
+	return odhcpd_run();
 }
 
 

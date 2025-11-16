@@ -188,6 +188,8 @@ enum {
 	IOV_POSIX_TZ_STR,
 	IOV_TZDB_TZ,
 	IOV_TZDB_TZ_STR,
+	IOV_CAPT_PORTAL,
+	IOV_CAPT_PORTAL_URI,
 	IOV_TOTAL
 };
 
@@ -489,6 +491,21 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	struct dhcpv6_dnr *dnrs = NULL;
 	size_t dnrs_len = 0;
 
+	/* RFC8910 Captive-Portal URI */
+	uint8_t *capt_portal_ptr = (uint8_t *)iface->captive_portal_uri;
+	size_t capt_portal_len = iface->captive_portal_uri_len;
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} capt_portal;
+
+	/* RFC8910 §2:
+	 * DHCP servers MAY send the Captive Portal option without any explicit request
+	 * If it is configured, send it.
+	 */
+	capt_portal.type = htons(DHCPV6_OPT_CAPTIVE_PORTAL);
+	capt_portal.len = htons(capt_portal_len);
+
 	uint16_t otype, olen;
 	uint8_t *odata;
 	uint16_t *reqopts = NULL;
@@ -645,6 +662,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DNR] = {dnrs, dnrs_len},
 		[IOV_RELAY_MSG] = {NULL, 0},
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
+		[IOV_CAPT_PORTAL] = {&capt_portal, capt_portal_len ? sizeof(capt_portal) : 0},
+		[IOV_CAPT_PORTAL_URI] = {capt_portal_ptr, capt_portal_len ? capt_portal_len : 0},
 		[IOV_BOOTFILE_URL] = {NULL, 0}
 	};
 
@@ -782,6 +801,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_SNTP].iov_len + iov[IOV_SNTP_ADDR].iov_len +
 				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len +
 				      iov[IOV_TZDB_TZ].iov_len + iov[IOV_TZDB_TZ_STR].iov_len +
+				      iov[IOV_CAPT_PORTAL].iov_len + iov[IOV_CAPT_PORTAL_URI].iov_len +
 				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
 				      (4 + opts_end - opts));
 

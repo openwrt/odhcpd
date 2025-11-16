@@ -41,6 +41,9 @@
 #define ND_OPT_RECURSIVE_DNS 25
 #define ND_OPT_DNS_SEARCH 31
 
+// RFC 8910 defines captive portal option
+#define ND_OPT_CAPTIVE_PORTAL 37
+
 // RFC 8781 defines PREF64 option
 #define ND_OPT_PREF64 38
 
@@ -382,6 +385,10 @@ struct interface {
 	struct odhcpd_event dhcpv4_event;
 	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
+
+	// RFC8910
+	char *captive_portal_uri;
+	size_t captive_portal_uri_len;
 
 	// Services
 	enum odhcpd_mode ra;

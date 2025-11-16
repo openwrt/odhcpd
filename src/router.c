@@ -385,6 +385,7 @@ enum {
 	IOV_RA_PREF64,
 	IOV_RA_DNR,
 	IOV_RA_ADV_INTERVAL,
+	IOV_RA_CAPT_PORTAL,
 	IOV_RA_TOTAL,
 };
 
@@ -435,6 +436,12 @@ struct nd_opt_dnr_info {
 	uint32_t lifetime;
 	uint16_t adn_len;
 	uint8_t body[];
+};
+
+struct nd_opt_capt_portal {
+	uint8_t type;
+	uint8_t len;
+	uint8_t data[];
 };
 
 /* IPv6 RA PIOs */
@@ -559,11 +566,13 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct nd_opt_pref64_info *pref64 = NULL;
 	struct nd_opt_dnr_info *dnrs = NULL;
 	struct nd_opt_adv_interval adv_interval;
+	struct nd_opt_capt_portal *capt_portal = NULL;
 	struct iovec iov[IOV_RA_TOTAL];
 	struct sockaddr_in6 dest;
 	size_t dns_sz = 0, search_sz = 0, pref64_sz = 0, dnrs_sz = 0;
 	size_t pfxs_cnt = 0, routes_cnt = 0;
 	size_t total_addr_cnt = 0, valid_addr_cnt = 0;
+	size_t capt_portal_sz = 0;
 	/*
 	 * lowest_found_lifetime stores the lowest lifetime of all prefixes;
 	 * necessary to find longest adv interval necessary
@@ -1014,6 +1023,25 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	iov[IOV_RA_ADV_INTERVAL].iov_base = (char *)&adv_interval;
 	iov[IOV_RA_ADV_INTERVAL].iov_len = adv_interval.nd_opt_adv_interval_len * 8;
+
+	/* RFC 8910 Captive Portal */
+	uint8_t *captive_portal_uri = (uint8_t *)iface->captive_portal_uri;
+	if (iface->captive_portal_uri_len > 0) {
+		/* compute pad so that (header + data + pad) is a multiple of 8 */
+		capt_portal_sz = (sizeof(struct nd_opt_capt_portal) + iface->captive_portal_uri_len + 7) & ~7;
+
+		capt_portal = alloca(capt_portal_sz);
+		memset(capt_portal, 0, capt_portal_sz);
+
+		capt_portal->type = ND_OPT_CAPTIVE_PORTAL;
+		capt_portal->len = capt_portal_sz / 8;
+
+		memcpy(capt_portal->data, captive_portal_uri, iface->captive_portal_uri_len);
+		/* remaining padding bytes already set to 0x00 */
+	}
+
+	iov[IOV_RA_CAPT_PORTAL].iov_base = capt_portal;
+	iov[IOV_RA_CAPT_PORTAL].iov_len = capt_portal_sz;
 
 	memset(&dest, 0, sizeof(dest));
 	dest.sin6_family = AF_INET6;

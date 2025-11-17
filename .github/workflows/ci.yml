@@ -4,6 +4,10 @@ on:
   pull_request:
   push:
 
+env:
+  archs: "aarch64 arm mips mips64 powerpc powerpc64 riscv64 x86_64"
+  variants: "basic DHCPv4 UBUS full"
+
 jobs:
   build:
     name: Build ${{ matrix.arch }}
@@ -21,9 +25,18 @@ jobs:
           - arch: mips
             gcc: /usr/bin/mips-linux-gnu-gcc
             packages: gcc-mips-linux-gnu
+          - arch: mips64
+            gcc: /usr/bin/mips64-linux-gnuabi64-gcc
+            packages: gcc-mips64-linux-gnuabi64
           - arch: powerpc
             gcc: /usr/bin/powerpc-linux-gnu-gcc
             packages: gcc-powerpc-linux-gnu
+          - arch: powerpc64
+            gcc: /usr/bin/powerpc64-linux-gnu-gcc
+            packages: gcc-powerpc64-linux-gnu
+          - arch: riscv64
+            gcc: /usr/bin/riscv64-linux-gnu-gcc
+            packages: gcc-riscv64-linux-gnu
           - arch: x86_64
             gcc: /usr/bin/x86_64-linux-gnu-gcc
             packages: gcc-x86-64-linux-gnu
@@ -40,10 +53,22 @@ jobs:
       size-mips-dhcpv4: ${{ steps.dhcpv4.outputs.size_mips }}
       size-mips-ubus: ${{ steps.ubus.outputs.size_mips }}
       size-mips-full: ${{ steps.full.outputs.size_mips }}
+      size-mips64-basic: ${{ steps.basic.outputs.size_mips64 }}
+      size-mips64-dhcpv4: ${{ steps.dhcpv4.outputs.size_mips64 }}
+      size-mips64-ubus: ${{ steps.ubus.outputs.size_mips64 }}
+      size-mips64-full: ${{ steps.full.outputs.size_mips64 }}
       size-powerpc-basic: ${{ steps.basic.outputs.size_powerpc }}
       size-powerpc-dhcpv4: ${{ steps.dhcpv4.outputs.size_powerpc }}
       size-powerpc-ubus: ${{ steps.ubus.outputs.size_powerpc }}
       size-powerpc-full: ${{ steps.full.outputs.size_powerpc }}
+      size-powerpc64-basic: ${{ steps.basic.outputs.size_powerpc64 }}
+      size-powerpc64-dhcpv4: ${{ steps.dhcpv4.outputs.size_powerpc64 }}
+      size-powerpc64-ubus: ${{ steps.ubus.outputs.size_powerpc64 }}
+      size-powerpc64-full: ${{ steps.full.outputs.size_powerpc64 }}
+      size-riscv64-basic: ${{ steps.basic.outputs.size_riscv64 }}
+      size-riscv64-dhcpv4: ${{ steps.dhcpv4.outputs.size_riscv64 }}
+      size-riscv64-ubus: ${{ steps.ubus.outputs.size_riscv64 }}
+      size-riscv64-full: ${{ steps.full.outputs.size_riscv64 }}
       size-x86_64-basic: ${{ steps.basic.outputs.size_x86_64 }}
       size-x86_64-dhcpv4: ${{ steps.dhcpv4.outputs.size_x86_64 }}
       size-x86_64-ubus: ${{ steps.ubus.outputs.size_x86_64 }}
@@ -233,19 +258,43 @@ jobs:
           size_mips_dhcpv4: ${{needs.build.outputs.size-mips-dhcpv4}}
           size_mips_ubus: ${{needs.build.outputs.size-mips-ubus}}
           size_mips_full: ${{needs.build.outputs.size-mips-full}}
+          size_mips64_basic: ${{needs.build.outputs.size-mips64-basic}}
+          size_mips64_dhcpv4: ${{needs.build.outputs.size-mips64-dhcpv4}}
+          size_mips64_ubus: ${{needs.build.outputs.size-mips64-ubus}}
+          size_mips64_full: ${{needs.build.outputs.size-mips64-full}}
           size_powerpc_basic: ${{needs.build.outputs.size-powerpc-basic}}
           size_powerpc_dhcpv4: ${{needs.build.outputs.size-powerpc-dhcpv4}}
           size_powerpc_ubus: ${{needs.build.outputs.size-powerpc-ubus}}
           size_powerpc_full: ${{needs.build.outputs.size-powerpc-full}}
+          size_powerpc64_basic: ${{needs.build.outputs.size-powerpc64-basic}}
+          size_powerpc64_dhcpv4: ${{needs.build.outputs.size-powerpc64-dhcpv4}}
+          size_powerpc64_ubus: ${{needs.build.outputs.size-powerpc64-ubus}}
+          size_powerpc64_full: ${{needs.build.outputs.size-powerpc64-full}}
+          size_riscv64_basic: ${{needs.build.outputs.size-riscv64-basic}}
+          size_riscv64_dhcpv4: ${{needs.build.outputs.size-riscv64-dhcpv4}}
+          size_riscv64_ubus: ${{needs.build.outputs.size-riscv64-ubus}}
+          size_riscv64_full: ${{needs.build.outputs.size-riscv64-full}}
           size_x86_64_basic: ${{needs.build.outputs.size-x86_64-basic}}
           size_x86_64_dhcpv4: ${{needs.build.outputs.size-x86_64-dhcpv4}}
           size_x86_64_ubus: ${{needs.build.outputs.size-x86_64-ubus}}
           size_x86_64_full: ${{needs.build.outputs.size-x86_64-full}}
         run: |
           echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
-          echo "| Variant | aarch64 | arm | mips | powerpc | x86_64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| :---: | :---: | :---: | :---: | :---: | :---: |" >> $GITHUB_STEP_SUMMARY
-          echo "| basic | ${size_aarch64_basic} | ${size_arm_basic} | ${size_mips_basic} | ${size_powerpc_basic} | ${size_x86_64_basic} |" >> $GITHUB_STEP_SUMMARY
-          echo "| DHCPv4 | ${size_aarch64_dhcpv4} | ${size_arm_dhcpv4} | ${size_mips_dhcpv4} | ${size_powerpc_dhcpv4} | ${size_x86_64_dhcpv4} |" >> $GITHUB_STEP_SUMMARY
-          echo "| UBUS | ${size_aarch64_ubus} | ${size_arm_ubus} | ${size_mips_ubus} | ${size_powerpc_ubus} | ${size_x86_64_ubus} |" >> $GITHUB_STEP_SUMMARY
-          echo "| full | ${size_aarch64_full} | ${size_arm_full} | ${size_mips_full} | ${size_powerpc_full} | ${size_x86_64_full} |" >> $GITHUB_STEP_SUMMARY
+
+          header="| arch |"
+          table="| :---: |"
+          for variant in ${{ env.variants }}; do
+            header="$header $variant |"
+            table="$table :---: |"
+          done
+          echo $header >> $GITHUB_STEP_SUMMARY
+          echo $table >> $GITHUB_STEP_SUMMARY
+
+          for arch in ${{ env.archs }}; do
+            row="| $arch | "
+            for variant in $variants; do
+              value=size_${arch}_$(echo "$variant" | tr "[:upper:]" "[:lower:]")
+              row="$row ${!value} |"
+            done
+            echo $row >> $GITHUB_STEP_SUMMARY
+          done

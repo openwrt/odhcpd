@@ -63,8 +63,9 @@ struct sys_conf sys_conf = {
 	.tzdb_tz_len = 0,
 };
 
-#define START_DEFAULT	100
-#define LIMIT_DEFAULT	150
+#define DHCPV4_POOL_START_DEFAULT	100
+#define DHCPV4_POOL_LIMIT_DEFAULT	150
+#define DHCPV4_POOL_END_DEFAULT		(DHCPV4_POOL_START_DEFAULT + DHCPV4_POOL_LIMIT_DEFAULT - 1)
 
 #define HOSTID_LEN_MIN	12
 #define HOSTID_LEN_MAX	64
@@ -96,8 +97,8 @@ enum {
 	IFACE_ATTR_NETWORKID,
 	IFACE_ATTR_DYNAMICDHCP,
 	IFACE_ATTR_LEASETIME,
-	IFACE_ATTR_LIMIT,
-	IFACE_ATTR_START,
+	IFACE_ATTR_DHCPV4_POOL_START,
+	IFACE_ATTR_DHCPV4_POOL_LIMIT,
 	IFACE_ATTR_MASTER,
 	IFACE_ATTR_UPSTREAM,
 	IFACE_ATTR_RA,
@@ -149,8 +150,8 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NETWORKID] = { .name = "networkid", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DYNAMICDHCP] = { .name = "dynamicdhcp", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
-	[IFACE_ATTR_START] = { .name = "start", .type = BLOBMSG_TYPE_INT32 },
-	[IFACE_ATTR_LIMIT] = { .name = "limit", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_DHCPV4_POOL_START] = { .name = "start", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_DHCPV4_POOL_LIMIT] = { .name = "limit", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_MASTER] = { .name = "master", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_UPSTREAM] = { .name = "upstream", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_RA] = { .name = "ra", .type = BLOBMSG_TYPE_STRING },
@@ -318,8 +319,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->max_preferred_lifetime = ND_PREFERRED_LIMIT;
 	iface->max_valid_lifetime = ND_VALID_LIMIT;
 	iface->captive_portal_uri = NULL;
-	iface->dhcpv4_start.s_addr = htonl(START_DEFAULT);
-	iface->dhcpv4_end.s_addr = htonl(START_DEFAULT + LIMIT_DEFAULT - 1);
+	iface->dhcpv4_pool_start = DHCPV4_POOL_START_DEFAULT;
+	iface->dhcpv4_pool_end = DHCPV4_POOL_END_DEFAULT;
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_pd_preferred = false;
@@ -1207,15 +1208,21 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			      iface_attrs[IFACE_ATTR_MAX_VALID_LIFETIME].name, iface->name);
 	}
 
-	if ((c = tb[IFACE_ATTR_START])) {
-		iface->dhcpv4_start.s_addr = htonl(blobmsg_get_u32(c));
-		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
-							LIMIT_DEFAULT - 1);
+	if ((c = tb[IFACE_ATTR_DHCPV4_POOL_START])) {
+		iface->dhcpv4_pool_start = blobmsg_get_u32(c);
+		iface->dhcpv4_pool_end = iface->dhcpv4_pool_start + DHCPV4_POOL_LIMIT_DEFAULT - 1;
 	}
 
-	if ((c = tb[IFACE_ATTR_LIMIT]))
-		iface->dhcpv4_end.s_addr = htonl(ntohl(iface->dhcpv4_start.s_addr) +
-							blobmsg_get_u32(c) - 1);
+	if ((c = tb[IFACE_ATTR_DHCPV4_POOL_LIMIT]))
+		iface->dhcpv4_pool_end = iface->dhcpv4_pool_start + blobmsg_get_u32(c) - 1;
+
+	if (iface->dhcpv4_pool_start == 0 ||
+	    iface->dhcpv4_pool_start > UINT16_MAX ||
+	    iface->dhcpv4_pool_end > UINT16_MAX ||
+	    iface->dhcpv4_pool_start > iface->dhcpv4_pool_end) {
+		warn("Invalid DHCPv4 pool range for %s, disabling dynamic leases", iface->name);
+		iface->no_dynamic_dhcp = true;
+	}
 
 	if ((c = tb[IFACE_ATTR_MASTER]))
 		iface->master = blobmsg_get_bool(c);

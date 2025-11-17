@@ -439,8 +439,8 @@ struct interface {
 	uint32_t dhcp_leasetime;
 
 	// DHCPv4
-	struct in_addr dhcpv4_start;
-	struct in_addr dhcpv4_end;
+	uint32_t dhcpv4_pool_start;	// Offset to first dynamic address
+	uint32_t dhcpv4_pool_end;	// Offset to last dynamic address
 	struct in_addr dhcpv4_start_ip;
 	struct in_addr dhcpv4_end_ip;
 	struct in_addr dhcpv4_local;

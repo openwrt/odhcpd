@@ -1352,27 +1352,19 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 
 static int dhcpv4_setup_addresses(struct interface *iface)
 {
+	uint32_t start = iface->dhcpv4_pool_start;
+	uint32_t end = iface->dhcpv4_pool_end;
+
 	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_local.s_addr = INADDR_ANY;
 	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
 	iface->dhcpv4_mask.s_addr = INADDR_ANY;
 
-	/* Sanity checks */
-	if (iface->dhcpv4_start.s_addr & htonl(0xffff0000) ||
-	    iface->dhcpv4_end.s_addr & htonl(0xffff0000) ||
-	    ntohl(iface->dhcpv4_start.s_addr) > ntohl(iface->dhcpv4_end.s_addr)) {
-		warn("Invalid DHCP range for %s", iface->name);
-		return -1;
-	}
-
 	if (!iface->addr4_len) {
 		warn("No network(s) available on %s", iface->name);
 		return -1;
 	}
-
-	uint32_t start = ntohl(iface->dhcpv4_start.s_addr);
-	uint32_t end = ntohl(iface->dhcpv4_end.s_addr);
 
 	for (size_t i = 0; i < iface->addr4_len && start && end; i++) {
 		struct in_addr *addr = &iface->addr4[i].addr.in;

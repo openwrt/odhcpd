@@ -450,6 +450,11 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 		goto out;
 	}
 
+	if (iface->no_dynamic_dhcp) {
+		debug("Dynamic leases disabled, not assigning lease");
+		return false;
+	}
+
 	if (req_addr.s_addr != INADDR_ANY) {
 		/* The client asked for a specific address, let's try... */
 		if (ntohl(req_addr.s_addr) < pool_start || ntohl(req_addr.s_addr) > pool_end) {
@@ -957,11 +962,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	debug("Got DHCPv4 request on %s", iface->name);
 
-	if (!iface->dhcpv4_start_ip.s_addr && !iface->dhcpv4_end_ip.s_addr) {
-		warn("No DHCP range available on %s", iface->name);
-		return;
-	}
-
 	struct dhcpv4_option *opt;
 	dhcpv4_for_each_option(req->options, (uint8_t *)data + len, opt) {
 		switch (opt->code) {
@@ -1350,7 +1350,7 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 	dhcpv4_handle_msg(addr, data, len, iface, dest_addr, dhcpv4_send_reply, &sock);
 }
 
-static int dhcpv4_setup_addresses(struct interface *iface)
+static bool dhcpv4_setup_addresses(struct interface *iface)
 {
 	uint32_t start = iface->dhcpv4_pool_start;
 	uint32_t end = iface->dhcpv4_pool_end;
@@ -1361,9 +1361,16 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
 	iface->dhcpv4_mask.s_addr = INADDR_ANY;
 
-	if (!iface->oaddrs4_cnt) {
-		warn("No network(s) available on %s", iface->name);
-		return -1;
+	if (!iface->oaddrs4_cnt)
+		goto out;
+
+	if (iface->no_dynamic_dhcp) {
+		iface->dhcpv4_local.s_addr = iface->oaddrs4[0].addr.in.s_addr;
+		iface->dhcpv4_bcast.s_addr = iface->oaddrs4[0].broadcast.s_addr;
+		odhcpd_bitlen2netmask(false, iface->oaddrs4[0].prefix_len, &iface->dhcpv4_mask);
+
+		info("DHCPv4: providing static leases on interface '%s'", iface->name);
+		return true;
 	}
 
 	for (size_t i = 0; i < iface->oaddrs4_cnt && start && end; i++) {
@@ -1419,6 +1426,10 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	}
 
 	return 0;
+
+out:
+	warn("DHCPv4: no suitable networks on interface '%s'", iface->name);
+	return false;
 }
 
 struct dhcpv4_packet {
@@ -1533,7 +1544,7 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 		goto error;
 	}
 
-	if (dhcpv4_setup_addresses(iface) < 0)
+	if (!dhcpv4_setup_addresses(iface))
 		goto error;
 
 	iface->dhcpv4_event.uloop.fd = fd;

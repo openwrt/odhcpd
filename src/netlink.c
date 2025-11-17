@@ -204,7 +204,7 @@ static void refresh_iface_addr6(int ifindex)
 			change = len != (ssize_t)iface->addr6_len;
 			for (ssize_t i = 0; !change && i < len; ++i) {
 				if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
-				    addr[i].prefix != iface->addr6[i].prefix ||
+				    addr[i].prefix_len != iface->addr6[i].prefix_len ||
 				    (addr[i].preferred_lt > (uint32_t)now) != (iface->addr6[i].preferred_lt > (uint32_t)now) ||
 				    addr[i].valid_lt < iface->addr6[i].valid_lt || addr[i].preferred_lt < iface->addr6[i].preferred_lt)
 					change = true;
@@ -569,7 +569,7 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 		return NL_SKIP;
 
 	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
-	addrs[ctxt->ret].prefix = ifa->ifa_prefixlen;
+	addrs[ctxt->ret].prefix_len = ifa->ifa_prefixlen;
 
 	nla_memcpy(&addrs[ctxt->ret].addr, nla_addr,
 			sizeof(addrs[ctxt->ret].addr));
@@ -624,15 +624,14 @@ static int cb_addr_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr *err
 static int prefix_cmp(const void *va, const void *vb)
 {
 	const struct odhcpd_ipaddr *a = va, *b = vb;
-	int ret = 0;
 
-	if (a->prefix == b->prefix) {
-		ret = (ntohl(a->addr.in.s_addr) < ntohl(b->addr.in.s_addr)) ? 1 :
-			(ntohl(a->addr.in.s_addr) > ntohl(b->addr.in.s_addr)) ? -1 : 0;
-	} else
-		ret = a->prefix < b->prefix ? 1 : -1;
+	if (a->prefix_len != b->prefix_len)
+		return a->prefix_len < b->prefix_len ? 1 : -1;
 
-	return ret;
+	if (ntohl(a->addr.in.s_addr) == ntohl(b->addr.in.s_addr))
+		return 0;
+
+	return ntohl(a->addr.in.s_addr) < ntohl(b->addr.in.s_addr) ? 1 : -1;
 }
 
 
@@ -1037,7 +1036,7 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
 		.ifa_family = v6 ? AF_INET6 : AF_INET,
-		.ifa_prefixlen = addr->prefix,
+		.ifa_prefixlen = addr->prefix_len,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
 		.ifa_index = ifindex, };

@@ -695,7 +695,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 
 			addr = in6_from_prefix_and_iid(&addrs[i], lease->assigned_host_id);
 		} else {
-			if (!valid_prefix_length(lease, addrs[i].prefix))
+			if (!valid_prefix_length(lease, addrs[i].prefix_len))
 				continue;
 
 			addr = addrs[i].addr.in6;

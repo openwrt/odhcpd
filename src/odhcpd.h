@@ -85,7 +85,7 @@
 #define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
 							    &(iface)->pio_filter_addr, \
 							    (iface)->pio_filter_length) != 0 || \
-					     (_addr)->prefix < (iface)->pio_filter_length)
+					     (_addr)->prefix_len < (iface)->pio_filter_length)
 
 struct interface;
 struct nl_sock;
@@ -162,14 +162,14 @@ struct netevent_handler {
 
 struct odhcpd_ipaddr {
 	union in46_addr addr;
-	uint8_t prefix;
+	uint8_t prefix_len;
 	uint32_t preferred_lt;
 	uint32_t valid_lt;
 
 	union {
 		/* ipv6 only */
 		struct {
-			uint8_t dprefix;
+			uint8_t dprefix_len;
 			bool tentative;
 		};
 

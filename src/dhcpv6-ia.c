@@ -271,7 +271,7 @@ static void in6_copy_iid(struct in6_addr *dest, uint64_t iid, unsigned n)
 struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint64_t iid)
 {
 	struct in6_addr addr;
-	uint8_t iid_len = min(128 - prefix->prefix, 64);
+	uint8_t iid_len = min(128 - prefix->prefix_len, 64);
 
 	addr = prefix->addr.in6;
 	in6_copy_iid(&addr, iid, iid_len);
@@ -321,9 +321,9 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_le
 			continue;
 
 		if (addr->preferred_lt > (uint32_t)now &&
-		    addr->prefix < 64 &&
-		    addr->prefix > minprefix)
-			minprefix = addr->prefix;
+		    addr->prefix_len < 64 &&
+		    addr->prefix_len > minprefix)
+			minprefix = addr->prefix_len;
 	}
 
 	if (minprefix > 32 && minprefix <= 64)
@@ -664,14 +664,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.len = htons(sizeof(o_ia_p) - 4),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
-					.prefix = a->length,
+					.prefix_len = a->length,
 					.addr = addrs[i].addr.in6,
 				};
 
 				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
 
-				if (!valid_prefix_length(a, addrs[i].prefix))
+				if (!valid_prefix_length(a, addrs[i].prefix_len))
 					continue;
 
 				if (buflen < ia_len + sizeof(o_ia_p))
@@ -751,7 +751,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					if (!valid_addr(&addrs[i], now))
 						continue;
 
-					if (!valid_prefix_length(a, addrs[i].prefix))
+					if (!valid_prefix_length(a, addrs[i].prefix_len))
 						continue;
 
 					if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
@@ -763,7 +763,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
 
 						if (!memcmp(&ia_p->addr, &addr, sizeof(addr)) &&
-							    ia_p->prefix == a->length)
+							    ia_p->prefix_len == a->length)
 							found = true;
 					} else {
 						addr = in6_from_prefix_and_iid(&addrs[i], a->assigned_host_id);
@@ -781,7 +781,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						.len = htons(sizeof(o_ia_p) - 4),
 						.preferred_lt = 0,
 						.valid_lt = 0,
-						.prefix = ia_p->prefix,
+						.prefix_len = ia_p->prefix_len,
 						.addr = ia_p->addr,
 					};
 
@@ -920,11 +920,11 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 				continue;
 
 			if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
-				if (p->prefix < addrs[i].prefix ||
-				    odhcpd_bmemcmp(&p->addr, &addrs[i].addr.in6, addrs[i].prefix))
+				if (p->prefix_len < addrs[i].prefix_len ||
+				    odhcpd_bmemcmp(&p->addr, &addrs[i].addr.in6, addrs[i].prefix_len))
 					continue;
 
-			} else if (odhcpd_bmemcmp(&n->addr, &addrs[i].addr.in6, addrs[i].prefix))
+			} else if (odhcpd_bmemcmp(&n->addr, &addrs[i].addr.in6, addrs[i].prefix_len))
 				continue;
 
 			onlink = true;
@@ -1007,8 +1007,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					continue;
 
 				struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&sdata[-4];
-				if (p->prefix) {
-					reqlen = p->prefix;
+				if (p->prefix_len) {
+					reqlen = p->prefix_len;
 					reqhint = ntohl(p->addr.s6_addr32[1]);
 					if (reqlen > 32 && reqlen <= 64)
 						reqhint &= (1U << (64 - reqlen)) - 1;

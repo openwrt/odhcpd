@@ -300,8 +300,13 @@ static bool router_icmpv6_valid(struct sockaddr_in6 *source, uint8_t *data, size
 /* Detect whether a default route exists, also find the source prefixes */
 static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 {
-	struct odhcpd_ipaddr p = { .addr.in6 = IN6ADDR_ANY_INIT, .prefix = 0,
-					.dprefix = 0, .preferred_lt = 0, .valid_lt = 0};
+	struct odhcpd_ipaddr p = {
+		.addr.in6 = IN6ADDR_ANY_INIT,
+		.prefix_len = 0,
+		.dprefix_len = 0,
+		.preferred_lt = 0,
+		.valid_lt = 0
+	};
 	bool found_default = false;
 	char line[512], ifname[16];
 
@@ -315,16 +320,16 @@ static bool parse_routes(struct odhcpd_ipaddr *n, ssize_t len)
 			found_default = true;
 		} else if (sscanf(line, "%8" SCNx32 "%8" SCNx32 "%*8" SCNx32 "%*8" SCNx32 " %hhx %*s "
 				"%*s 00000000000000000000000000000000 %*s %*s %*s %" SCNx32 " lo",
-				&p.addr.in6.s6_addr32[0], &p.addr.in6.s6_addr32[1], &p.prefix, &rflags) &&
-				p.prefix > 0 && (rflags & RTF_NONEXTHOP) && (rflags & RTF_REJECT)) {
+				&p.addr.in6.s6_addr32[0], &p.addr.in6.s6_addr32[1], &p.prefix_len, &rflags) &&
+				p.prefix_len > 0 && (rflags & RTF_NONEXTHOP) && (rflags & RTF_REJECT)) {
 			// Find source prefixes by scanning through unreachable-routes
 			p.addr.in6.s6_addr32[0] = htonl(p.addr.in6.s6_addr32[0]);
 			p.addr.in6.s6_addr32[1] = htonl(p.addr.in6.s6_addr32[1]);
 
 			for (ssize_t i = 0; i < len; ++i) {
-				if (n[i].prefix <= 64 && n[i].prefix >= p.prefix &&
-						!odhcpd_bmemcmp(&p.addr.in6, &n[i].addr.in6, p.prefix)) {
-					n[i].dprefix = p.prefix;
+				if (n[i].prefix_len <= 64 && n[i].prefix_len >= p.prefix_len &&
+				    !odhcpd_bmemcmp(&p.addr.in6, &n[i].addr.in6, p.prefix_len)) {
+					n[i].dprefix_len = p.prefix_len;
 					break;
 				}
 			}
@@ -416,7 +421,7 @@ struct nd_opt_search_list {
 struct nd_opt_route_info {
 	uint8_t type;
 	uint8_t len;
-	uint8_t prefix;
+	uint8_t prefix_len;
 	uint8_t flags;
 	uint32_t lifetime;
 	uint32_t addr[4];
@@ -451,8 +456,8 @@ static struct ra_pio *router_find_ra_pio(struct interface *iface,
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
-		if (addr->prefix == cur_pio->length &&
-			!odhcpd_bmemcmp(&addr->addr.in6, &cur_pio->prefix, cur_pio->length))
+		if (addr->prefix_len == cur_pio->length &&
+		    !odhcpd_bmemcmp(&addr->addr.in6, &cur_pio->prefix, cur_pio->length))
 			return cur_pio;
 	}
 
@@ -489,7 +494,7 @@ static void router_add_ra_pio(struct interface *iface,
 	iface->pio_cnt++;
 
 	memcpy(&pio->prefix, &addr->addr.in6, sizeof(pio->prefix));
-	pio->length = addr->prefix;
+	pio->length = addr->prefix_len;
 	pio->lifetime = 0;
 
 	iface->pio_update = true;
@@ -655,8 +660,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
 				struct odhcpd_ipaddr *cur_addr = &addrs[j];
 
-				if (cur_pio->length == cur_addr->prefix &&
-					!odhcpd_bmemcmp(&cur_pio->prefix, &cur_addr->addr.in6, cur_pio->length)) {
+				if (cur_pio->length == cur_addr->prefix_len &&
+				    !odhcpd_bmemcmp(&cur_pio->prefix, &cur_addr->addr.in6, cur_pio->length)) {
 					pio_found = true;
 					break;
 				}
@@ -666,7 +671,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				struct odhcpd_ipaddr *addr = &addrs[total_addr_cnt];
 
 				memcpy(&addr->addr.in6, &cur_pio->prefix, sizeof(addr->addr.in6));
-				addr->prefix = cur_pio->length;
+				addr->prefix_len = cur_pio->length;
 				addr->preferred_lt = 0;
 				addr->valid_lt = (uint32_t) (now + ND_VALID_LIMIT);
 				total_addr_cnt++;
@@ -681,9 +686,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint32_t preferred_lt = 0;
 		uint32_t valid_lt = 0;
 
-		if (addr->prefix > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
+		if (addr->prefix_len > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
 			info("Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
-			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix,
+			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)), addr->prefix_len,
 			     addr->valid_lt, iface->name);
 			continue;
 		}
@@ -696,9 +701,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		}
 
 		for (size_t i = 0; i < pfxs_cnt; ++i) {
-			if (addr->prefix == pfxs[i].nd_opt_pi_prefix_len &&
-					!odhcpd_bmemcmp(&pfxs[i].nd_opt_pi_prefix,
-					&addr->addr.in6, addr->prefix))
+			if (addr->prefix_len == pfxs[i].nd_opt_pi_prefix_len &&
+			    !odhcpd_bmemcmp(&pfxs[i].nd_opt_pi_prefix,
+					    &addr->addr.in6, addr->prefix_len))
 				p = &pfxs[i];
 		}
 
@@ -752,17 +757,17 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		}
 
 		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
-				(iface->ra_advrouter) ? 128 : addr->prefix);
+				(iface->ra_advrouter) ? 128 : addr->prefix_len);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
-		p->nd_opt_pi_prefix_len = (addr->prefix < 64) ? 64 : addr->prefix;
+		p->nd_opt_pi_prefix_len = (addr->prefix_len < 64) ? 64 : addr->prefix_len;
 		/* RFC9762 DHCPv6-PD Preferred Flag § 6:
 		 * Routers SHOULD set the P flag to zero by default...
 		 */
 		p->nd_opt_pi_flags_reserved = 0;
 		if (!iface->ra_not_onlink)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
-		if (iface->ra_slaac && addr->prefix <= 64)
+		if (iface->ra_slaac && addr->prefix_len <= 64)
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
 		if (iface->dhcpv6 != MODE_DISABLED && iface->dhcpv6_pd && iface->dhcpv6_pd_preferred)
 			/* RFC9762 DHCPv6-PD Preferred Flag
@@ -961,10 +966,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;
 
-		if (addr->dprefix >= 64 || addr->dprefix == 0 || addr->valid_lt <= (uint32_t)now) {
+		if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 || addr->valid_lt <= (uint32_t)now) {
 			info("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
 			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			     addr->dprefix, addr->valid_lt, iface->name);
+			     addr->dprefix_len, addr->valid_lt, iface->name);
 
 			continue; /* Address not suitable */
 		}
@@ -976,10 +981,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue; /* PIO filtered out of this RA */
 		}
 
-		if (addr->dprefix > 32) {
-			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix)) - 1));
-		} else if (addr->dprefix <= 32) {
-			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix)) - 1));
+		if (addr->dprefix_len > 32) {
+			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix_len)) - 1));
+		} else if (addr->dprefix_len <= 32) {
+			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix_len)) - 1));
 			addr->addr.in6.s6_addr32[1] = 0;
 		}
 
@@ -994,7 +999,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		memset(&routes[routes_cnt], 0, sizeof(*routes));
 		routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
 		routes[routes_cnt].len = sizeof(*routes) / 8;
-		routes[routes_cnt].prefix = addr->dprefix;
+		routes[routes_cnt].prefix_len = addr->dprefix_len;
 		routes[routes_cnt].flags = 0;
 		if (iface->route_preference < 0)
 			routes[routes_cnt].flags |= ND_RA_PREF_LOW;

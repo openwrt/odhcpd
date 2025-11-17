@@ -19,7 +19,7 @@
 #define ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs) \
 	((iface)->dhcpv6_assignall || \
 	 (i) == (m) || \
-	 (addrs)[(i)].prefix > 64)
+	 (addrs)[(i)].prefix_len > 64)
 
 size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen);
 
@@ -32,7 +32,7 @@ static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)
 {
-	return (addr->prefix <= 96 && addr->valid_lt > (uint32_t)now && addr->preferred_lt > (uint32_t)now);
+	return (addr->prefix_len <= 96 && addr->valid_lt > (uint32_t)now && addr->preferred_lt > (uint32_t)now);
 }
 
 #endif /* _DHCPV6_IA_H_ */

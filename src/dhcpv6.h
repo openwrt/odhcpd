@@ -146,7 +146,7 @@ struct dhcpv6_ia_prefix {
 	uint16_t len;
 	uint32_t preferred_lt;
 	uint32_t valid_lt;
-	uint8_t prefix;
+	uint8_t prefix_len;
 	struct in6_addr addr;
 } _o_packed;
 

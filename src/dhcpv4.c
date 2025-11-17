@@ -1373,7 +1373,7 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 		if (addr_is_fr_ip(iface, addr))
 			continue;
 
-		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix, &mask);
+		odhcpd_bitlen2netmask(false, iface->addr4[i].prefix_len, &mask);
 		if ((start & ntohl(~mask.s_addr)) == start &&
 				(end & ntohl(~mask.s_addr)) == end &&
 				end < ntohl(~mask.s_addr)) {	/* Exclude broadcast address */
@@ -1389,7 +1389,7 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 	}
 
 	/* Don't allocate IP range for subnets smaller than /28 */
-	if (iface->addr4[0].prefix > MAX_PREFIX_LEN) {
+	if (iface->addr4[0].prefix_len > MAX_PREFIX_LEN) {
 		warn("Auto allocation of DHCP range fails on %s (prefix length must be < %d).",
 		     iface->name, MAX_PREFIX_LEN + 1);
 		return -1;
@@ -1397,7 +1397,7 @@ static int dhcpv4_setup_addresses(struct interface *iface)
 
 	iface->dhcpv4_local = iface->addr4[0].addr.in;
 	iface->dhcpv4_bcast = iface->addr4[0].broadcast;
-	odhcpd_bitlen2netmask(false, iface->addr4[0].prefix, &iface->dhcpv4_mask);
+	odhcpd_bitlen2netmask(false, iface->addr4[0].prefix_len, &iface->dhcpv4_mask);
 	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
 
 	/* Auto allocate ranges */
@@ -1555,7 +1555,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 
 	memset(&ip, 0, sizeof(ip));
 	ip.addr.in = iface->dhcpv4_local;
-	ip.prefix = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
+	ip.prefix_len = odhcpd_netmask2bitlen(false, &iface->dhcpv4_mask);
 	ip.broadcast = iface->dhcpv4_bcast;
 
 	dhcpv4_setup_addresses(iface);

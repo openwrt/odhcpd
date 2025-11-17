@@ -708,6 +708,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		}
 	}
 
+	if (dest.serverid_length == clientid.len && 
+	    !memcmp(clientid.buf, dest.serverid_buf, dest.serverid_length)) {
+		/* Bail if we are in a network loop where we talk with ourself */
+		return;		
+	}
+
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_REQUEST || hdr->msg_type == DHCPV6_MSG_RENEW ||
 	     hdr->msg_type == DHCPV6_MSG_RELEASE || hdr->msg_type == DHCPV6_MSG_DECLINE)) {

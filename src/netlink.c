@@ -130,12 +130,12 @@ static void handle_rtnl_event(struct odhcpd_event *e)
 
 static void refresh_iface_addr4(int ifindex)
 {
-	struct odhcpd_ipaddr *addr = NULL;
+	struct odhcpd_ipaddr *oaddrs4 = NULL;
 	struct interface *iface;
-	ssize_t len = netlink_get_interface_addrs(ifindex, false, &addr);
+	ssize_t oaddrs4_cnt = netlink_get_interface_addrs(ifindex, false, &oaddrs4);
 	bool change = false;
 
-	if (len < 0)
+	if (oaddrs4_cnt < 0)
 		return;
 
 	avl_for_each_element(&interfaces, iface, avl) {
@@ -146,36 +146,36 @@ static void refresh_iface_addr4(int ifindex)
 
 		memset(&event_info, 0, sizeof(event_info));
 		event_info.iface = iface;
-		event_info.addrs_old.addrs = iface->addr4;
-		event_info.addrs_old.len = iface->addr4_len;
+		event_info.addrs_old.addrs = iface->oaddrs4;
+		event_info.addrs_old.len = iface->oaddrs4_cnt;
 
 		if (!change) {
-			change = len != (ssize_t)iface->addr4_len;
-			for (ssize_t i = 0; !change && i < len; ++i) {
-				if (addr[i].addr.in.s_addr != iface->addr4[i].addr.in.s_addr)
+			change = oaddrs4_cnt != (ssize_t)iface->oaddrs4_cnt;
+			for (ssize_t i = 0; !change && i < oaddrs4_cnt; i++) {
+				if (oaddrs4[i].addr.in.s_addr != iface->oaddrs4[i].addr.in.s_addr)
 					change = true;
 			}
 		}
 
-		iface->addr4 = addr;
-		iface->addr4_len = len;
+		iface->oaddrs4 = oaddrs4;
+		iface->oaddrs4_cnt = oaddrs4_cnt;
 
 		if (change)
 			call_netevent_handler_list(NETEV_ADDRLIST_CHANGE, &event_info);
 
 		free(event_info.addrs_old.addrs);
 
-		if (!len)
+		if (!oaddrs4_cnt)
 			continue;
 
-		addr = malloc(len * sizeof(*addr));
-		if (!addr)
+		oaddrs4 = malloc(oaddrs4_cnt * sizeof(*oaddrs4));
+		if (!oaddrs4)
 			break;
 
-		memcpy(addr, iface->addr4, len * sizeof(*addr));
+		memcpy(oaddrs4, iface->oaddrs4, oaddrs4_cnt * sizeof(*oaddrs4));
 	}
 
-	free(addr);
+	free(oaddrs4);
 }
 
 static void refresh_iface_addr6(int ifindex)

@@ -378,8 +378,8 @@ struct interface {
 	int ndp_ping_fd;
 
 	// IPv4 runtime data
-	struct odhcpd_ipaddr *addr4;
-	size_t addr4_len;
+	struct odhcpd_ipaddr *oaddrs4;		// IPv4 addresses assigned to this interface
+	size_t oaddrs4_cnt;			// Number of IPv4 addresses assigned to this interface
 
 	// DHCPv4 runtime data
 	struct odhcpd_event dhcpv4_event;

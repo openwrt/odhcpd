@@ -379,7 +379,7 @@ static void close_interface(struct interface *iface)
 	uloop_timeout_cancel(&iface->timer_rs);
 
 	clean_interface(iface);
-	free(iface->addr4);
+	free(iface->oaddrs4);
 	free(iface->addr6);
 	free(iface->ifname);
 	free(iface);
@@ -1079,10 +1079,10 @@ static int avl_ipv4_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 
 int config_parse_interface(void *data, size_t len, const char *name, bool overwrite)
 {
-	struct odhcpd_ipaddr *addrs = NULL;
 	struct interface *iface;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
-	ssize_t addrs_len;
+	struct odhcpd_ipaddr *oaddrs = NULL;
+	ssize_t oaddrs_cnt;
 	bool get_addrs = false;
 	int mode;
 	const char *ifname = NULL;
@@ -1150,27 +1150,27 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if (get_addrs) {
-		addrs_len = netlink_get_interface_addrs(iface->ifindex,
-						true, &iface->addr6);
+		oaddrs_cnt = netlink_get_interface_addrs(iface->ifindex,
+							 true, &iface->addr6);
 
-		if (addrs_len > 0)
-			iface->addr6_len = addrs_len;
+		if (oaddrs_cnt > 0)
+			iface->addr6_len = oaddrs_cnt;
 
-		addrs_len = netlink_get_interface_addrs(iface->ifindex,
-						false, &iface->addr4);
-		if (addrs_len > 0)
-			iface->addr4_len = addrs_len;
+		oaddrs_cnt = netlink_get_interface_addrs(iface->ifindex,
+							 false, &iface->oaddrs4);
+		if (oaddrs_cnt > 0)
+			iface->oaddrs4_cnt = oaddrs_cnt;
 	}
 
-	addrs_len = netlink_get_interface_linklocal(iface->ifindex, &addrs);
-	if (addrs_len > 0) {
-		for (ssize_t i = 0; i < addrs_len; i++) {
-			if (!addrs[i].tentative) {
+	oaddrs_cnt = netlink_get_interface_linklocal(iface->ifindex, &oaddrs);
+	if (oaddrs_cnt > 0) {
+		for (ssize_t i = 0; i < oaddrs_cnt; i++) {
+			if (!oaddrs[i].tentative) {
 				iface->have_link_local = true;
 				break;
 			}
 		}
-		free(addrs);
+		free(oaddrs);
 	}
 
 	iface->inuse = true;

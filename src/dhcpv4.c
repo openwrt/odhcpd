@@ -779,6 +779,7 @@ enum {
 	IOV_FR_NONCE_CAP,
 	IOV_DNR,
 	IOV_DNR_BODY,
+	IOV_CAPTIVE_PORTAL,
 	IOV_END,
 	IOV_PADDING,
 	IOV_TOTAL
@@ -920,6 +921,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_FR_NONCE_CAP]	= { &reply_fr_nonce_cap, 0 },
 		[IOV_DNR]		= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]		= { NULL, 0 },
+		[IOV_CAPTIVE_PORTAL]	= { NULL, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
 		[IOV_PADDING]		= { NULL, 0 },
 	};
@@ -938,6 +940,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		DHCPV4_OPT_CLIENTID, // Must be in reply if present in req, RFC6842, §3
 		DHCPV4_OPT_AUTHENTICATION,
 		DHCPV4_OPT_SEARCH_DOMAIN,
+		DHCPV4_OPT_CAPTIVE_PORTAL,
 		DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 	};
 
@@ -1295,6 +1298,22 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_DNR].iov_len = sizeof(reply_dnr);
 			iov[IOV_DNR_BODY].iov_base = dnrs;
 			iov[IOV_DNR_BODY].iov_len = dnrs_len;
+			break;
+
+		case DHCPV4_OPT_CAPTIVE_PORTAL:
+			size_t uri_len = iface->captive_portal_uri_len;
+			if (uri_len == 0 || uri_len > UINT8_MAX)
+				break;
+
+			uint8_t *buf = alloca(2 + uri_len);
+			struct dhcpv4_option *opt = (struct dhcpv4_option *)buf;
+
+			opt->code = DHCPV4_OPT_CAPTIVE_PORTAL;
+			opt->len  = uri_len;
+			memcpy(opt->data, iface->captive_portal_uri, uri_len);
+
+			iov[IOV_CAPTIVE_PORTAL].iov_base = opt;
+			iov[IOV_CAPTIVE_PORTAL].iov_len  = 2 + uri_len;
 			break;
 		}
 	}

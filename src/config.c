@@ -1310,6 +1310,11 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_CAPTIVE_PORTAL_URI])) {
 		iface->captive_portal_uri = strdup(blobmsg_get_string(c));
 		iface->captive_portal_uri_len = strlen(iface->captive_portal_uri);
+		if (iface->captive_portal_uri_len > UINT8_MAX) {
+			warn("RFC8910 captive portal URI > %d characters for interface '%s': option via DHCPv4 not possible",
+				UINT8_MAX,
+				iface->name);
+		}
 		debug("Set RFC8910 captive portal URI: '%s' for interface '%s'",
 			iface->captive_portal_uri, iface->name);
 	}

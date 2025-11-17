@@ -115,7 +115,7 @@ typedef	ssize_t (*send_reply_cb_t)(struct iovec *iov, size_t iov_len,
 				   struct sockaddr *dest, socklen_t dest_len,
 				   void *opaque);
 
-union if_addr {
+union in46_addr {
 	struct in_addr in;
 	struct in6_addr in6;
 };
@@ -124,12 +124,12 @@ struct netevent_handler_info {
 	struct interface *iface;
 	union {
 		struct {
-			union if_addr dst;
+			union in46_addr dst;
 			uint8_t dst_len;
-			union if_addr gateway;
+			union in46_addr gateway;
 		} rt;
 		struct {
-			union if_addr dst;
+			union in46_addr dst;
 			uint16_t state;
 			uint8_t flags;
 		} neigh;
@@ -137,7 +137,7 @@ struct netevent_handler_info {
 			struct odhcpd_ipaddr *addrs;
 			size_t len;
 		} addrs_old;
-		union if_addr addr;
+		union in46_addr addr;
 	};
 };
 
@@ -161,7 +161,7 @@ struct netevent_handler {
 };
 
 struct odhcpd_ipaddr {
-	union if_addr addr;
+	union in46_addr addr;
 	uint8_t prefix;
 	uint32_t preferred_lt;
 	uint32_t valid_lt;

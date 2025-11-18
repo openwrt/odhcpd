@@ -571,6 +571,9 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 	memset(&oaddrs[ctxt->ret], 0, sizeof(oaddrs[ctxt->ret]));
 	oaddrs[ctxt->ret].prefix_len = ifa->ifa_prefixlen;
 
+	if (ifa->ifa_family == AF_INET)
+		oaddrs[ctxt->ret].netmask = htonl(~((1U << (32 - ifa->ifa_prefixlen)) - 1));
+
 	nla_memcpy(&oaddrs[ctxt->ret].addr, nla_addr, sizeof(oaddrs[ctxt->ret].addr));
 
 	if (nla[IFA_BROADCAST])

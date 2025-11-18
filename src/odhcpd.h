@@ -176,6 +176,7 @@ struct odhcpd_ipaddr {
 		/* IPv4 only */
 		struct {
 			struct in_addr broadcast;
+			in_addr_t netmask;
 		};
 	};
 };

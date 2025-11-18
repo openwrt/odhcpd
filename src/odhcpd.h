@@ -167,14 +167,16 @@ struct odhcpd_ipaddr {
 	uint32_t valid_lt;
 
 	union {
-		/* ipv6 only */
+		/* IPv6 only */
 		struct {
 			uint8_t dprefix_len;
 			bool tentative;
 		};
 
-		/* ipv4 only */
-		struct in_addr broadcast;
+		/* IPv4 only */
+		struct {
+			struct in_addr broadcast;
+		};
 	};
 };
 
@@ -622,16 +624,16 @@ void dhcpv6_free_lease(struct dhcpv6_lease *lease);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
-		struct odhcpd_ipaddr **addrs);
-ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **addrs);
+				    struct odhcpd_ipaddr **oaddrs);
+ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **oaddrs);
 int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr);
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
-		const int ifindex, const struct in6_addr *gw,
-		const uint32_t metric, const bool add);
+			const int ifindex, const struct in6_addr *gw,
+			const uint32_t metric, const bool add);
 int netlink_setup_proxy_neigh(const struct in6_addr *addr,
-		const int ifindex, const bool add);
-int netlink_setup_addr(struct odhcpd_ipaddr *addr,
-		const int ifindex, const bool v6, const bool add);
+			      const int ifindex, const bool add);
+int netlink_setup_addr(struct odhcpd_ipaddr *oaddr,
+		       const int ifindex, const bool v6, const bool add);
 void netlink_dump_neigh_table(const bool proxy);
 void netlink_dump_addr_table(const bool v6);
 

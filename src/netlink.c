@@ -180,13 +180,13 @@ static void refresh_iface_addr4(int ifindex)
 
 static void refresh_iface_addr6(int ifindex)
 {
-	struct odhcpd_ipaddr *addr = NULL;
+	struct odhcpd_ipaddr *oaddrs6 = NULL;
 	struct interface *iface;
-	ssize_t len = netlink_get_interface_addrs(ifindex, true, &addr);
+	ssize_t oaddrs6_cnt = netlink_get_interface_addrs(ifindex, true, &oaddrs6);
 	time_t now = odhcpd_time();
 	bool change = false;
 
-	if (len < 0)
+	if (oaddrs6_cnt < 0)
 		return;
 
 	avl_for_each_element(&interfaces, iface, avl) {
@@ -201,35 +201,35 @@ static void refresh_iface_addr6(int ifindex)
 		event_info.addrs_old.len = iface->addr6_len;
 
 		if (!change) {
-			change = len != (ssize_t)iface->addr6_len;
-			for (ssize_t i = 0; !change && i < len; ++i) {
-				if (!IN6_ARE_ADDR_EQUAL(&addr[i].addr.in6, &iface->addr6[i].addr.in6) ||
-				    addr[i].prefix_len != iface->addr6[i].prefix_len ||
-				    (addr[i].preferred_lt > (uint32_t)now) != (iface->addr6[i].preferred_lt > (uint32_t)now) ||
-				    addr[i].valid_lt < iface->addr6[i].valid_lt || addr[i].preferred_lt < iface->addr6[i].preferred_lt)
+			change = oaddrs6_cnt != (ssize_t)iface->addr6_len;
+			for (ssize_t i = 0; !change && i < oaddrs6_cnt; ++i) {
+				if (!IN6_ARE_ADDR_EQUAL(&oaddrs6[i].addr.in6, &iface->addr6[i].addr.in6) ||
+				    oaddrs6[i].prefix_len != iface->addr6[i].prefix_len ||
+				    (oaddrs6[i].preferred_lt > (uint32_t)now) != (iface->addr6[i].preferred_lt > (uint32_t)now) ||
+				    oaddrs6[i].valid_lt < iface->addr6[i].valid_lt || oaddrs6[i].preferred_lt < iface->addr6[i].preferred_lt)
 					change = true;
 			}
 		}
 
-		iface->addr6 = addr;
-		iface->addr6_len = len;
+		iface->addr6 = oaddrs6;
+		iface->addr6_len = oaddrs6_cnt;
 
 		if (change)
 			call_netevent_handler_list(NETEV_ADDR6LIST_CHANGE, &event_info);
 
 		free(event_info.addrs_old.addrs);
 
-		if (!len)
+		if (!oaddrs6_cnt)
 			continue;
 
-		addr = malloc(len * sizeof(*addr));
-		if (!addr)
+		oaddrs6 = malloc(oaddrs6_cnt * sizeof(*oaddrs6));
+		if (!oaddrs6)
 			break;
 
-		memcpy(addr, iface->addr6, len * sizeof(*addr));
+		memcpy(oaddrs6, iface->addr6, oaddrs6_cnt * sizeof(*oaddrs6));
 	}
 
-	free(addr);
+	free(oaddrs6);
 }
 
 static int handle_rtm_link(struct nlmsghdr *hdr)
@@ -522,8 +522,8 @@ err:
 struct addr_info {
 	int ifindex;
 	int af;
-	struct odhcpd_ipaddr **addrs;
-	int pending;
+	struct odhcpd_ipaddr **oaddrs;
+	bool pending;
 	ssize_t ret;
 };
 
@@ -531,7 +531,7 @@ struct addr_info {
 static int cb_addr_valid(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
-	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
+	struct odhcpd_ipaddr *oaddrs = *(ctxt->oaddrs);
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
 	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
@@ -564,36 +564,35 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 	if (!nla_addr)
 		return NL_SKIP;
 
-	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
-	if (!addrs)
+	oaddrs = realloc(oaddrs, sizeof(*oaddrs) * (ctxt->ret + 1));
+	if (!oaddrs)
 		return NL_SKIP;
 
-	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
-	addrs[ctxt->ret].prefix_len = ifa->ifa_prefixlen;
+	memset(&oaddrs[ctxt->ret], 0, sizeof(oaddrs[ctxt->ret]));
+	oaddrs[ctxt->ret].prefix_len = ifa->ifa_prefixlen;
 
-	nla_memcpy(&addrs[ctxt->ret].addr, nla_addr,
-			sizeof(addrs[ctxt->ret].addr));
+	nla_memcpy(&oaddrs[ctxt->ret].addr, nla_addr, sizeof(oaddrs[ctxt->ret].addr));
 
 	if (nla[IFA_BROADCAST])
-		nla_memcpy(&addrs[ctxt->ret].broadcast, nla[IFA_BROADCAST],
-				sizeof(addrs[ctxt->ret].broadcast));
+		nla_memcpy(&oaddrs[ctxt->ret].broadcast, nla[IFA_BROADCAST],
+			   sizeof(oaddrs[ctxt->ret].broadcast));
 
 	if (nla[IFA_CACHEINFO]) {
 		struct ifa_cacheinfo *ifc = nla_data(nla[IFA_CACHEINFO]);
 
-		addrs[ctxt->ret].preferred_lt = ifc->ifa_prefered;
-		addrs[ctxt->ret].valid_lt = ifc->ifa_valid;
+		oaddrs[ctxt->ret].preferred_lt = ifc->ifa_prefered;
+		oaddrs[ctxt->ret].valid_lt = ifc->ifa_valid;
 	}
 
 	if (ifa->ifa_flags & IFA_F_DEPRECATED)
-		addrs[ctxt->ret].preferred_lt = 0;
+		oaddrs[ctxt->ret].preferred_lt = 0;
 
 	if (ifa->ifa_family == AF_INET6 &&
 	    ifa->ifa_flags & IFA_F_TENTATIVE)
-		addrs[ctxt->ret].tentative = true;
+		oaddrs[ctxt->ret].tentative = true;
 
 	ctxt->ret++;
-	*(ctxt->addrs) = addrs;
+	*(ctxt->oaddrs) = oaddrs;
 
 	return NL_OK;
 }
@@ -603,7 +602,7 @@ static int cb_addr_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 
 	return NL_STOP;
 }
@@ -614,7 +613,7 @@ static int cb_addr_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr *err
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 	ctxt->ret = err->error;
 
 	return NL_STOP;
@@ -645,8 +644,8 @@ static int prefix6_cmp(const void *va, const void *vb)
 }
 
 
-/* Detect an IPV6-address currently assigned to the given interface */
-ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr **addrs)
+/* Detect all IPv[46]-addresses currently assigned to the given interface */
+ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr **oaddrs)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
@@ -654,14 +653,15 @@ ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr *
 		.ifa_prefixlen = 0,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
-		.ifa_index = ifindex, };
+		.ifa_index = ifindex,
+	};
 	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
 	struct addr_info ctxt = {
 		.ifindex = ifindex,
 		.af = v6? AF_INET6: AF_INET,
-		.addrs = addrs,
+		.oaddrs = oaddrs,
 		.ret = 0,
-		.pending = 1,
+		.pending = true,
 	};
 
 	if (!cb) {
@@ -687,23 +687,23 @@ ssize_t netlink_get_interface_addrs(int ifindex, bool v6, struct odhcpd_ipaddr *
 		goto free;
 
 	ctxt.ret = 0;
-	while (ctxt.pending > 0)
+	while (ctxt.pending)
 		nl_recvmsgs(rtnl_socket, cb);
 
 	if (ctxt.ret <= 0)
 		goto free;
 
 	time_t now = odhcpd_time();
-	struct odhcpd_ipaddr *addr = *addrs;
+	struct odhcpd_ipaddr *oaddr = *oaddrs;
 
-	qsort(addr, ctxt.ret, sizeof(*addr), v6 ? prefix6_cmp : prefix_cmp);
+	qsort(oaddr, ctxt.ret, sizeof(*oaddr), v6 ? prefix6_cmp : prefix_cmp);
 
 	for (ssize_t i = 0; i < ctxt.ret; ++i) {
-		if (addr[i].preferred_lt < UINT32_MAX - now)
-			addr[i].preferred_lt += now;
+		if (oaddr[i].preferred_lt < UINT32_MAX - now)
+			oaddr[i].preferred_lt += now;
 
-		if (addr[i].valid_lt < UINT32_MAX - now)
-			addr[i].valid_lt += now;
+		if (oaddr[i].valid_lt < UINT32_MAX - now)
+			oaddr[i].valid_lt += now;
 	}
 
 free:
@@ -718,7 +718,7 @@ out:
 static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
-	struct odhcpd_ipaddr *addrs = *(ctxt->addrs);
+	struct odhcpd_ipaddr *oaddrs = *(ctxt->oaddrs);
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
 	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
@@ -752,18 +752,18 @@ static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 	if (!IN6_IS_ADDR_LINKLOCAL(&addr))
 		return NL_SKIP;
 
-	addrs = realloc(addrs, sizeof(*addrs)*(ctxt->ret + 1));
-	if (!addrs)
+	oaddrs = realloc(oaddrs, sizeof(*oaddrs) * (ctxt->ret + 1));
+	if (!oaddrs)
 		return NL_SKIP;
 
-	memset(&addrs[ctxt->ret], 0, sizeof(addrs[ctxt->ret]));
-	memcpy(&addrs[ctxt->ret].addr, &addr, sizeof(addrs[ctxt->ret].addr));
+	memset(&oaddrs[ctxt->ret], 0, sizeof(oaddrs[ctxt->ret]));
+	memcpy(&oaddrs[ctxt->ret].addr, &addr, sizeof(oaddrs[ctxt->ret].addr));
 
 	if (ifa->ifa_flags & IFA_F_TENTATIVE)
-		addrs[ctxt->ret].tentative = true;
+		oaddrs[ctxt->ret].tentative = true;
 
 	ctxt->ret++;
-	*(ctxt->addrs) = addrs;
+	*(ctxt->oaddrs) = oaddrs;
 
 	return NL_OK;
 }
@@ -773,7 +773,7 @@ static int cb_linklocal_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 
 	return NL_STOP;
 }
@@ -784,15 +784,15 @@ static int cb_linklocal_error(_o_unused struct sockaddr_nl *nla, struct nlmsgerr
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 	ctxt->ret = err->error;
 
 	return NL_STOP;
 }
 
 
-/* Detect a link local IPV6-address currently assigned to the given interface */
-ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **addrs)
+/* Detect link-local IPv6-addresses currently assigned to the given interface */
+ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **oaddrs)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
@@ -800,14 +800,15 @@ ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **addr
 		.ifa_prefixlen = 0,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
-		.ifa_index = ifindex, };
+		.ifa_index = ifindex,
+	};
 	struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
 	struct addr_info ctxt = {
 		.ifindex = ifindex,
 		.af = AF_INET6,
-		.addrs = addrs,
+		.oaddrs = oaddrs,
 		.ret = 0,
-		.pending = 1,
+		.pending = true,
 	};
 
 	if (!cb) {
@@ -833,7 +834,7 @@ ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **addr
 		goto free;
 
 	ctxt.ret = 0;
-	while (ctxt.pending > 0)
+	while (ctxt.pending)
 		nl_recvmsgs(rtnl_socket, cb);
 
 	if (ctxt.ret <= 0)
@@ -850,7 +851,7 @@ out:
 
 struct neigh_info {
 	int ifindex;
-	int pending;
+	bool pending;
 	const struct in6_addr *addr;
 	int ret;
 };
@@ -889,7 +890,7 @@ static int cb_proxy_neigh_finish(_o_unused struct nl_msg *msg, void *arg)
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 
 	return NL_STOP;
 }
@@ -900,7 +901,7 @@ static int cb_proxy_neigh_error(_o_unused struct sockaddr_nl *nla, struct nlmsge
 {
 	struct neigh_info *ctxt = (struct neigh_info *)arg;
 
-	ctxt->pending = 0;
+	ctxt->pending = false;
 	ctxt->ret = err->error;
 
 	return NL_STOP;
@@ -920,7 +921,7 @@ int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr)
 		.ifindex = ifindex,
 		.addr = addr,
 		.ret = 0,
-		.pending = 1,
+		.pending = true,
 	};
 
 	if (!cb) {
@@ -946,7 +947,7 @@ int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr)
 	if (ctxt.ret < 0)
 		goto free;
 
-	while (ctxt.pending > 0)
+	while (ctxt.pending)
 		nl_recvmsgs(rtnl_socket, cb);
 
 free:
@@ -1030,16 +1031,17 @@ int netlink_setup_proxy_neigh(const struct in6_addr *addr,
 }
 
 
-int netlink_setup_addr(struct odhcpd_ipaddr *addr,
-		const int ifindex, const bool v6, const bool add)
+int netlink_setup_addr(struct odhcpd_ipaddr *oaddr,
+		       const int ifindex, const bool v6, const bool add)
 {
 	struct nl_msg *msg;
 	struct ifaddrmsg ifa = {
 		.ifa_family = v6 ? AF_INET6 : AF_INET,
-		.ifa_prefixlen = addr->prefix_len,
+		.ifa_prefixlen = oaddr->prefix_len,
 		.ifa_flags = 0,
 		.ifa_scope = 0,
-		.ifa_index = ifindex, };
+		.ifa_index = ifindex,
+	};
 	int ret = 0, flags = NLM_F_REQUEST;
 
 	if (add)
@@ -1050,16 +1052,18 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 		return -1;
 
 	nlmsg_append(msg, &ifa, sizeof(ifa), flags);
-	nla_put(msg, IFA_LOCAL, v6 ? 16 : 4, &addr->addr);
+	nla_put(msg, IFA_LOCAL, v6 ? 16 : 4, &oaddr->addr);
 	if (v6) {
-		struct ifa_cacheinfo cinfo = {	.ifa_prefered = 0xffffffffU,
-						.ifa_valid = 0xffffffffU,
-						.cstamp = 0,
-						.tstamp = 0 };
+		struct ifa_cacheinfo cinfo = {
+			.ifa_prefered = 0xffffffffU,
+			.ifa_valid = 0xffffffffU,
+			.cstamp = 0,
+			.tstamp = 0,
+		};
 		time_t now = odhcpd_time();
 
-		if (addr->preferred_lt) {
-			int64_t preferred_lt = addr->preferred_lt - now;
+		if (oaddr->preferred_lt) {
+			int64_t preferred_lt = oaddr->preferred_lt - now;
 			if (preferred_lt < 0)
 				preferred_lt = 0;
 			else if (preferred_lt > UINT32_MAX)
@@ -1068,8 +1072,8 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 			cinfo.ifa_prefered = preferred_lt;
 		}
 
-		if (addr->valid_lt) {
-			int64_t valid_lt = addr->valid_lt - now;
+		if (oaddr->valid_lt) {
+			int64_t valid_lt = oaddr->valid_lt - now;
 			if (valid_lt <= 0) {
 				nlmsg_free(msg);
 				return -1;
@@ -1084,8 +1088,8 @@ int netlink_setup_addr(struct odhcpd_ipaddr *addr,
 
 		nla_put_u32(msg, IFA_FLAGS, IFA_F_NOPREFIXROUTE);
 	} else {
-		if (addr->broadcast.s_addr)
-			nla_put_u32(msg, IFA_BROADCAST, addr->broadcast.s_addr);
+		if (oaddr->broadcast.s_addr)
+			nla_put_u32(msg, IFA_BROADCAST, oaddr->broadcast.s_addr);
 	}
 
 	ret = nl_send_auto_complete(rtnl_socket, msg);

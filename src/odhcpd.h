@@ -446,7 +446,7 @@ struct interface {
 	uint32_t dhcpv4_pool_end;	// Offset to last dynamic address
 	struct in_addr dhcpv4_start_ip;
 	struct in_addr dhcpv4_end_ip;
-	struct in_addr dhcpv4_local;
+	struct odhcpd_ipaddr dhcpv4_own_ip;
 	struct in_addr dhcpv4_bcast;
 	struct in_addr dhcpv4_mask;
 	struct in_addr *dhcpv4_router;
@@ -566,7 +566,6 @@ typedef void (*odhcpd_enum_addr6_cb_t)(struct dhcpv6_lease *lease,
 void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 		       time_t now, odhcpd_enum_addr6_cb_t func, void *arg);
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
-int odhcpd_netmask2bitlen(bool v6, void *mask);
 bool odhcpd_valid_hostname(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);

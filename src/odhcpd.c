@@ -756,25 +756,6 @@ int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *p
 	return 0;
 }
 
-
-int odhcpd_netmask2bitlen(bool inet6, void *mask)
-{
-	int bits;
-	struct in_addr *v4;
-	struct in6_addr *v6;
-
-	if (inet6)
-		for (bits = 0, v6 = mask;
-		     bits < 128 && (v6->s6_addr[bits / 8] << (bits % 8)) & 128;
-		     bits++);
-	else
-		for (bits = 0, v4 = mask;
-		     bits < 32 && (ntohl(v4->s_addr) << bits) & 0x80000000;
-		     bits++);
-
-	return bits;
-}
-
 bool odhcpd_valid_hostname(const char *name)
 {
 #define MAX_LABEL	63

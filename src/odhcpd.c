@@ -775,38 +775,6 @@ int odhcpd_netmask2bitlen(bool inet6, void *mask)
 	return bits;
 }
 
-bool odhcpd_bitlen2netmask(bool inet6, unsigned int bits, void *mask)
-{
-	uint8_t b;
-	struct in_addr *v4;
-	struct in6_addr *v6;
-
-	if (inet6)
-	{
-		if (bits > 128)
-			return false;
-
-		v6 = mask;
-
-		for (unsigned int i = 0; i < sizeof(v6->s6_addr); i++)
-		{
-			b = (bits > 8) ? 8 : bits;
-			v6->s6_addr[i] = (uint8_t)(0xFF << (8 - b));
-			bits -= b;
-		}
-	}
-	else
-	{
-		if (bits > 32)
-			return false;
-
-		v4 = mask;
-		v4->s_addr = bits ? htonl(~((1 << (32 - bits)) - 1)) : 0;
-	}
-
-	return true;
-}
-
 bool odhcpd_valid_hostname(const char *name)
 {
 #define MAX_LABEL	63

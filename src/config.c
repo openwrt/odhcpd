@@ -63,9 +63,7 @@ struct sys_conf sys_conf = {
 	.tzdb_tz_len = 0,
 };
 
-#define DHCPV4_POOL_START_DEFAULT	100
 #define DHCPV4_POOL_LIMIT_DEFAULT	150
-#define DHCPV4_POOL_END_DEFAULT		(DHCPV4_POOL_START_DEFAULT + DHCPV4_POOL_LIMIT_DEFAULT - 1)
 
 #define HOSTID_LEN_MIN	12
 #define HOSTID_LEN_MAX	64
@@ -319,8 +317,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->max_preferred_lifetime = ND_PREFERRED_LIMIT;
 	iface->max_valid_lifetime = ND_VALID_LIMIT;
 	iface->captive_portal_uri = NULL;
-	iface->dhcpv4_pool_start = DHCPV4_POOL_START_DEFAULT;
-	iface->dhcpv4_pool_end = DHCPV4_POOL_END_DEFAULT;
+	iface->dhcpv4_pool_start = 0;
+	iface->dhcpv4_pool_end = 0;
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_pd_preferred = false;
@@ -1216,8 +1214,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_DHCPV4_POOL_LIMIT]))
 		iface->dhcpv4_pool_end = iface->dhcpv4_pool_start + blobmsg_get_u32(c) - 1;
 
-	if (iface->dhcpv4_pool_start == 0 ||
-	    iface->dhcpv4_pool_start > UINT16_MAX ||
+	if (iface->dhcpv4_pool_start > UINT16_MAX ||
 	    iface->dhcpv4_pool_end > UINT16_MAX ||
 	    iface->dhcpv4_pool_start > iface->dhcpv4_pool_end) {
 		warn("Invalid DHCPv4 pool range for %s, disabling dynamic leases", iface->name);

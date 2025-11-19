@@ -38,8 +38,6 @@
 #include "dhcpv6.h"
 #include "statefiles.h"
 
-#define MAX_PREFIX_LEN 28
-
 static uint32_t serial = 0;
 
 struct odhcpd_ref_ip {
@@ -1352,8 +1350,8 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 
 static bool dhcpv4_setup_addresses(struct interface *iface)
 {
-	uint32_t start = iface->dhcpv4_pool_start;
-	uint32_t end = iface->dhcpv4_pool_end;
+	uint32_t pool_start = iface->dhcpv4_pool_start;
+	uint32_t pool_end = iface->dhcpv4_pool_end;
 
 	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
@@ -1361,73 +1359,80 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
 	iface->dhcpv4_mask.s_addr = INADDR_ANY;
 
-	if (!iface->oaddrs4_cnt)
-		goto out;
-
 	if (iface->no_dynamic_dhcp) {
+		if (!iface->oaddrs4_cnt)
+			goto error;
+
 		iface->dhcpv4_local.s_addr = iface->oaddrs4[0].addr.in.s_addr;
-		iface->dhcpv4_bcast.s_addr = iface->oaddrs4[0].broadcast.s_addr;
-		odhcpd_bitlen2netmask(false, iface->oaddrs4[0].prefix_len, &iface->dhcpv4_mask);
+		iface->dhcpv4_bcast = iface->oaddrs4[0].broadcast;
+		iface->dhcpv4_mask.s_addr = iface->oaddrs4[0].netmask;
 
 		info("DHCPv4: providing static leases on interface '%s'", iface->name);
 		return true;
 	}
 
-	for (size_t i = 0; i < iface->oaddrs4_cnt && start && end; i++) {
-		struct in_addr *addr = &iface->oaddrs4[i].addr.in;
-		struct in_addr mask;
+	for (size_t i = 0; i < iface->oaddrs4_cnt; i++) {
+		struct odhcpd_ipaddr *oaddr = &iface->oaddrs4[i];
+		uint32_t hostmask = ntohl(~oaddr->netmask);
+		char pool_start_str[INET_ADDRSTRLEN];
+		char pool_end_str[INET_ADDRSTRLEN];
 
-		if (addr_is_fr_ip(iface, addr))
+		if (oaddr->prefix_len > DHCPV4_MAX_PREFIX_LEN)
 			continue;
 
-		odhcpd_bitlen2netmask(false, iface->oaddrs4[i].prefix_len, &mask);
-		if ((start & ntohl(~mask.s_addr)) == start &&
-				(end & ntohl(~mask.s_addr)) == end &&
-				end < ntohl(~mask.s_addr)) {	/* Exclude broadcast address */
-			iface->dhcpv4_start_ip.s_addr = htonl(start) |
-							(addr->s_addr & mask.s_addr);
-			iface->dhcpv4_end_ip.s_addr = htonl(end) |
-							(addr->s_addr & mask.s_addr);
-			iface->dhcpv4_local = *addr;
-			iface->dhcpv4_bcast = iface->oaddrs4[i].broadcast;
-			iface->dhcpv4_mask = mask;
-			return 0;
+		if (addr_is_fr_ip(iface, &oaddr->addr.in))
+			continue;
+
+		/* pool_start outside range? */
+		if (pool_start && ((pool_start & hostmask) != pool_start))
+			continue;
+
+		/* pool_end outside range? */
+		if (pool_end && ((pool_end & hostmask) != pool_end))
+			continue;
+
+		/* pool_end == broadcast? */
+		if (pool_end && (pool_end == hostmask))
+			continue;
+
+		if (!pool_start || !pool_end) {
+			switch (oaddr->prefix_len) {
+			case 28:
+				pool_start = 3;
+				pool_end = 12;
+				break;
+			case 27:
+				pool_start = 10;
+				pool_end = 29;
+				break;
+			case 26:
+				pool_start = 10;
+				pool_end = 59;
+				break;
+			case 25:
+				pool_start = 20;
+				pool_end = 119;
+				break;
+			default: /* <= 24 */
+				pool_start = 100;
+				pool_end = 249;
+				break;
+			}
 		}
+
+		iface->dhcpv4_start_ip.s_addr = (oaddr->addr.in.s_addr & oaddr->netmask) | htonl(pool_start);
+		iface->dhcpv4_end_ip.s_addr = (oaddr->addr.in.s_addr & oaddr->netmask) | htonl(pool_end);
+		iface->dhcpv4_local.s_addr = oaddr->addr.in.s_addr;
+		iface->dhcpv4_bcast = oaddr->broadcast;
+		iface->dhcpv4_mask.s_addr = oaddr->netmask;
+
+		info("DHCPv4: providing dynamic/static leases on interface '%s', pool: %s - %s", iface->name,
+		     inet_ntop(AF_INET, &iface->dhcpv4_start_ip, pool_start_str, sizeof(pool_start_str)),
+		     inet_ntop(AF_INET, &iface->dhcpv4_end_ip, pool_end_str, sizeof(pool_end_str)));
+		return true;
 	}
 
-	/* Don't allocate IP range for subnets smaller than /28 */
-	if (iface->oaddrs4[0].prefix_len > MAX_PREFIX_LEN) {
-		warn("Auto allocation of DHCP range fails on %s (prefix length must be < %d).",
-		     iface->name, MAX_PREFIX_LEN + 1);
-		return -1;
-	}
-
-	iface->dhcpv4_local = iface->oaddrs4[0].addr.in;
-	iface->dhcpv4_bcast = iface->oaddrs4[0].broadcast;
-	odhcpd_bitlen2netmask(false, iface->oaddrs4[0].prefix_len, &iface->dhcpv4_mask);
-	end = start = iface->dhcpv4_local.s_addr & iface->dhcpv4_mask.s_addr;
-
-	/* Auto allocate ranges */
-	if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff00) {		/* /24, 150 of 256, [100..249] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(100);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(100 + 150 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffff80) {	/* /25, 100 of 128, [20..119] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(20);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(20 + 100 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffc0) {	/* /26, 50 of 64, [10..59] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 50 - 1);
-	} else if (ntohl(iface->dhcpv4_mask.s_addr) <= 0xffffffe0) {	/* /27, 20 of 32, [10..29] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(10);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(10 + 20 - 1);
-	} else {							/* /28, 10 of 16, [3..12] */
-		iface->dhcpv4_start_ip.s_addr = start | htonl(3);
-		iface->dhcpv4_end_ip.s_addr = end | htonl(3 + 10 - 1);
-	}
-
-	return 0;
-
-out:
+error:
 	warn("DHCPv4: no suitable networks on interface '%s'", iface->name);
 	return false;
 }

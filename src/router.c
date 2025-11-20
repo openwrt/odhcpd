@@ -833,29 +833,29 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	/* DNS options */
 	if (iface->ra_dns) {
-		struct in6_addr dns_pref, *dns_addr = NULL;
-		size_t dns_cnt = 0, search_len = iface->search_len;
+		struct in6_addr *dns_addrs6 = NULL, dns_addr6;
+		size_t dns_addrs6_cnt = 0, search_len = iface->search_len;
 		uint8_t *search_domain = iface->search;
 		uint8_t search_buf[256];
 
 		/* DNS Recursive DNS aka RDNSS Type 25; RFC8106 */
-		if (iface->dns_cnt > 0) {
-			dns_addr = iface->dns;
-			dns_cnt = iface->dns_cnt;
-		} else if (!odhcpd_get_interface_dns_addr(iface, &dns_pref)) {
-			dns_addr = &dns_pref;
-			dns_cnt = 1;
+		if (iface->dns_addrs6_cnt > 0) {
+			dns_addrs6 = iface->dns_addrs6;
+			dns_addrs6_cnt = iface->dns_addrs6_cnt;
+		} else if (!odhcpd_get_interface_dns_addr6(iface, &dns_addr6)) {
+			dns_addrs6 = &dns_addr6;
+			dns_addrs6_cnt = 1;
 		}
 
-		if (dns_cnt) {
-			dns_sz = sizeof(*dns) + sizeof(struct in6_addr)*dns_cnt;
+		if (dns_addrs6_cnt) {
+			dns_sz = sizeof(*dns) + dns_addrs6_cnt * sizeof(*dns_addrs6);
 
 			dns = alloca(dns_sz);
 			memset(dns, 0, dns_sz);
 			dns->type = ND_OPT_RECURSIVE_DNS;
-			dns->len = 1 + (2 * dns_cnt);
+			dns->len = 1 + (2 * dns_addrs6_cnt);
 			dns->lifetime = htonl(highest_found_lifetime);
-			memcpy(dns->addr, dns_addr, sizeof(struct in6_addr)*dns_cnt);
+			memcpy(dns->addr, dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6));
 		}
 
 		/* DNS Search options aka DNSSL Type 31; RFC8106 */
@@ -1143,8 +1143,8 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	/* Rewrite options */
 	uint8_t *end = data + len;
 	uint8_t *mac_ptr = NULL;
-	struct in6_addr *dns_ptr = NULL;
-	size_t dns_count = 0;
+	struct in6_addr *dns_addrs6 = NULL;
+	size_t dns_addrs6_cnt = 0;
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
 	uint32_t ingress_mtu_val = 0;
@@ -1184,8 +1184,8 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 
 		case ND_OPT_RECURSIVE_DNS:
 			if (opt->len > 1) {
-				dns_ptr = (struct in6_addr *)&opt->data[6];
-				dns_count = (opt->len - 1) / 2;
+				dns_addrs6 = (struct in6_addr *)&opt->data[6];
+				dns_addrs6_cnt = (opt->len - 1) / 2;
 			}
 			break;
 
@@ -1245,13 +1245,13 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		}
 
 		/* If we have to rewrite DNS entries */
-		if (c->always_rewrite_dns && dns_ptr && dns_count > 0) {
-			const struct in6_addr *rewrite = c->dns;
+		if (c->always_rewrite_dns && dns_addrs6 && dns_addrs6_cnt > 0) {
+			const struct in6_addr *rewrite = c->dns_addrs6;
 			struct in6_addr addr;
-			size_t rewrite_cnt = c->dns_cnt;
+			size_t rewrite_cnt = c->dns_addrs6_cnt;
 
 			if (rewrite_cnt == 0) {
-				if (odhcpd_get_interface_dns_addr(c, &addr))
+				if (odhcpd_get_interface_dns_addr6(c, &addr))
 					continue; /* Unable to comply */
 
 				rewrite = &addr;
@@ -1259,9 +1259,9 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			}
 
 			/* Copy over any other addresses */
-			for (size_t i = 0; i < dns_count; ++i) {
+			for (size_t i = 0; i < dns_addrs6_cnt; ++i) {
 				size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
-				dns_ptr[i] = rewrite[j];
+				dns_addrs6[i] = rewrite[j];
 			}
 		}
 

@@ -424,19 +424,21 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} refresh = {htons(DHCPV6_OPT_INFO_REFRESH), htons(sizeof(uint32_t)),
 			htonl(600)};
 
-	struct in6_addr dns_addr, *dns_addr_ptr = iface->dns;
-	size_t dns_cnt = iface->dns_cnt;
+	struct in6_addr *dns_addrs6 = NULL, dns_addr6;
+	size_t dns_addrs6_cnt = 0;
 
-	if ((dns_cnt == 0) &&
-		!odhcpd_get_interface_dns_addr(iface, &dns_addr)) {
-		dns_addr_ptr = &dns_addr;
-		dns_cnt = 1;
+	if (iface->dns_addrs6_cnt > 0) {
+		dns_addrs6 = iface->dns_addrs6;
+		dns_addrs6_cnt = iface->dns_addrs6_cnt;
+	} else if (!odhcpd_get_interface_dns_addr6(iface, &dns_addr6)) {
+		dns_addrs6 = &dns_addr6;
+		dns_addrs6_cnt = 1;
 	}
 
 	struct {
 		uint16_t type;
 		uint16_t len;
-	} dns = {htons(DHCPV6_OPT_DNS_SERVERS), htons(dns_cnt * sizeof(*dns_addr_ptr))};
+	} dns_hdr = { htons(DHCPV6_OPT_DNS_SERVERS), htons(dns_addrs6_cnt * sizeof(*dns_addrs6)) };
 
 	/* SNTP */
 	struct in6_addr *sntp_addr_ptr = iface->dhcpv6_sntp;
@@ -645,8 +647,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_CLIENTID] = {&clientid, 0},
 		[IOV_MAXRT] = {&maxrt, sizeof(maxrt)},
 		[IOV_RAPID_COMMIT] = {&rapid_commit, 0},
-		[IOV_DNS] = {&dns, (dns_cnt) ? sizeof(dns) : 0},
-		[IOV_DNS_ADDR] = {dns_addr_ptr, dns_cnt * sizeof(*dns_addr_ptr)},
+		[IOV_DNS] = { &dns_hdr, (dns_addrs6_cnt) ? sizeof(dns_hdr) : 0},
+		[IOV_DNS_ADDR] = { dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6) },
 		[IOV_SEARCH] = {&search, (search_len) ? sizeof(search) : 0},
 		[IOV_SEARCH_DOMAIN] = {search_domain, search_len},
 		[IOV_PDBUF] = {pdbuf, 0},
@@ -835,7 +837,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	int32_t ifaceidx = 0;
 	struct sockaddr_in6 target = {AF_INET6, htons(DHCPV6_CLIENT_PORT),
 		0, IN6ADDR_ANY_INIT, 0};
-	int otype, olen;
+	uint16_t otype, olen;
 	uint8_t *odata, *end = data + len;
 	/* Relay DHCPv6 reply from server to client */
 	struct dhcpv6_relay_header *h = (void*)data;
@@ -864,8 +866,8 @@ static void relay_server_response(uint8_t *data, size_t len)
 		return;
 
 	bool is_authenticated = false;
-	struct in6_addr *dns_ptr = NULL;
-	size_t dns_count = 0;
+	struct in6_addr *dns_addrs6 = NULL;
+	size_t dns_addrs6_cnt = 0;
 
 	/* If the payload is relay-reply we have to send to the server port */
 	if (payload_data[0] == DHCPV6_MSG_RELAY_REPL) {
@@ -875,9 +877,9 @@ static void relay_server_response(uint8_t *data, size_t len)
 		end = payload_data + payload_len;
 
 		dhcpv6_for_each_option(&h[1], end, otype, olen, odata) {
-			if (otype == DHCPV6_OPT_DNS_SERVERS && olen >= 16) {
-				dns_ptr = (struct in6_addr*)odata;
-				dns_count = olen / 16;
+			if (otype == DHCPV6_OPT_DNS_SERVERS && olen >= sizeof(struct in6_addr)) {
+				dns_addrs6 = (struct in6_addr*)odata;
+				dns_addrs6_cnt = olen / sizeof(struct in6_addr);
 			} else if (otype == DHCPV6_OPT_AUTH) {
 				is_authenticated = true;
 			}
@@ -885,16 +887,16 @@ static void relay_server_response(uint8_t *data, size_t len)
 	}
 
 	/* Rewrite DNS servers if requested */
-	if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
+	if (iface->always_rewrite_dns && dns_addrs6 && dns_addrs6_cnt > 0) {
 		if (is_authenticated)
 			return; /* Impossible to rewrite */
 
-		const struct in6_addr *rewrite = iface->dns;
+		const struct in6_addr *rewrite = iface->dns_addrs6;
 		struct in6_addr addr;
-		size_t rewrite_cnt = iface->dns_cnt;
+		size_t rewrite_cnt = iface->dns_addrs6_cnt;
 
 		if (rewrite_cnt == 0) {
-			if (odhcpd_get_interface_dns_addr(iface, &addr))
+			if (odhcpd_get_interface_dns_addr6(iface, &addr))
 				return; /* Unable to get interface address */
 
 			rewrite = &addr;
@@ -902,9 +904,9 @@ static void relay_server_response(uint8_t *data, size_t len)
 		}
 
 		/* Copy over any other addresses */
-		for (size_t i = 0; i < dns_count; ++i) {
+		for (size_t i = 0; i < dns_addrs6_cnt; ++i) {
 			size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
-			memcpy(&dns_ptr[i], &rewrite[j], sizeof(*rewrite));
+			memcpy(&dns_addrs6[i], &rewrite[j], sizeof(*rewrite));
 		}
 	}
 

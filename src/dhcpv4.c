@@ -771,7 +771,7 @@ enum {
 	IOV_ROUTER,
 	IOV_ROUTER_ADDR,
 	IOV_DNSSERVER,
-	IOV_DNSSERVER_ADDR,
+	IOV_DNSSERVER_ADDRS,
 	IOV_HOSTNAME,
 	IOV_HOSTNAME_NAME,
 	IOV_MTU,
@@ -913,7 +913,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_ROUTER]		= { &reply_router, 0 },
 		[IOV_ROUTER_ADDR]	= { NULL, 0 },
 		[IOV_DNSSERVER]		= { &reply_dnsserver, 0 },
-		[IOV_DNSSERVER_ADDR]	= { NULL, 0 },
+		[IOV_DNSSERVER_ADDRS]	= { NULL, 0 },
 		[IOV_HOSTNAME]		= { &reply_hostname, 0 },
 		[IOV_HOSTNAME_NAME]	= { NULL, 0 },
 		[IOV_MTU]		= { &reply_mtu, 0 },
@@ -1106,14 +1106,14 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 		case DHCPV4_OPT_DNSSERVER:
 			iov[IOV_DNSSERVER].iov_len = sizeof(reply_dnsserver);
-			if (iface->dhcpv4_dns_cnt) {
-				reply_dnsserver.len = iface->dhcpv4_dns_cnt * sizeof(*iface->dhcpv4_dns);
-				iov[IOV_DNSSERVER_ADDR].iov_base = iface->dhcpv4_dns;
+			if (iface->dns_addrs4_cnt) {
+				reply_dnsserver.len = iface->dns_addrs4_cnt * sizeof(*iface->dns_addrs4);
+				iov[IOV_DNSSERVER_ADDRS].iov_base = iface->dns_addrs4;
 			} else {
 				reply_dnsserver.len = sizeof(iface->dhcpv4_own_ip);
-				iov[IOV_DNSSERVER_ADDR].iov_base = &iface->dhcpv4_own_ip;
+				iov[IOV_DNSSERVER_ADDRS].iov_base = &iface->dhcpv4_own_ip;
 			}
-			iov[IOV_DNSSERVER_ADDR].iov_len = reply_dnsserver.len;
+			iov[IOV_DNSSERVER_ADDRS].iov_len = reply_dnsserver.len;
 			break;
 
 		case DHCPV4_OPT_HOSTNAME:

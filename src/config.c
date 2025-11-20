@@ -342,11 +342,11 @@ static void set_interface_defaults(struct interface *iface)
 
 static void clean_interface(struct interface *iface)
 {
-	free(iface->dns);
+	free(iface->dns_addrs4);
+	free(iface->dns_addrs6);
 	free(iface->search);
 	free(iface->upstream);
 	free(iface->dhcpv4_router);
-	free(iface->dhcpv4_dns);
 	free(iface->dhcpv6_raw);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
@@ -1327,8 +1327,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->always_rewrite_dns = true;
 		blobmsg_for_each_attr(cur, c, rem) {
-			struct in_addr addr4;
-			struct in6_addr addr6;
+			struct in_addr addr4, *tmp4;
+			struct in6_addr addr6, *tmp6;
 
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
@@ -1340,12 +1340,14 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					continue;
 				}
 
-				iface->dhcpv4_dns = realloc(iface->dhcpv4_dns,
-						(++iface->dhcpv4_dns_cnt) * sizeof(*iface->dhcpv4_dns));
-				if (!iface->dhcpv4_dns)
+				tmp4 = realloc(iface->dns_addrs4, (iface->dns_addrs4_cnt + 1) *
+					       sizeof(*iface->dns_addrs4));
+				if (!tmp4)
 					goto err;
 
-				iface->dhcpv4_dns[iface->dhcpv4_dns_cnt - 1] = addr4;
+				iface->dns_addrs4 = tmp4;
+				iface->dns_addrs4[iface->dns_addrs4_cnt++] = addr4;
+
 			} else if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
 				if (IN6_IS_ADDR_UNSPECIFIED(&addr6)) {
 					error("Invalid %s value configured for interface '%s'",
@@ -1353,15 +1355,18 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 					continue;
 				}
 
-				iface->dns = realloc(iface->dns,
-						(++iface->dns_cnt) * sizeof(*iface->dns));
-				if (!iface->dns)
+				tmp6 = realloc(iface->dns_addrs6, (iface->dns_addrs6_cnt + 1) *
+					       sizeof(*iface->dns_addrs6));
+				if (!tmp6)
 					goto err;
 
-				iface->dns[iface->dns_cnt - 1] = addr6;
-			} else
+				iface->dns_addrs6 = tmp6;
+				iface->dns_addrs6[iface->dns_addrs6_cnt++] = addr6;
+
+			} else {
 				error("Invalid %s value configured for interface '%s'",
 				      iface_attrs[IFACE_ATTR_DNS].name, iface->name);
+			}
 		}
 	}
 

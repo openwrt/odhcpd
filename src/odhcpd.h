@@ -449,13 +449,13 @@ struct interface {
 	struct odhcpd_ipaddr dhcpv4_own_ip;
 	struct in_addr *dhcpv4_router;
 	size_t dhcpv4_router_cnt;
-	struct in_addr *dhcpv4_dns;
-	size_t dhcpv4_dns_cnt;
 	bool dhcpv4_forcereconf;
 
 	// DNS
-	struct in6_addr *dns;
-	size_t dns_cnt;
+	struct in_addr *dns_addrs4;	// IPv4 DNS server addresses to announce
+	size_t dns_addrs4_cnt;		// Count of IPv4 DNS addresses
+	struct in6_addr *dns_addrs6;	// IPv6 DNS server addresses to announce
+	size_t dns_addrs6_cnt;		// Count of IPv6 DNS addresses
 	uint8_t *search;
 	size_t search_len;
 
@@ -538,8 +538,8 @@ ssize_t odhcpd_send(int socket, struct sockaddr_in6 *dest,
 ssize_t odhcpd_try_send_with_src(int socket, struct sockaddr_in6 *dest,
 		struct iovec *iov, size_t iov_len,
 		struct interface *iface);
-int odhcpd_get_interface_dns_addr(struct interface *iface,
-		struct in6_addr *addr);
+int odhcpd_get_interface_dns_addr6(struct interface *iface,
+				   struct in6_addr *dns_addr6);
 int odhcpd_get_interface_linklocal_addr(struct interface *iface,
 		struct in6_addr *addr);
 int odhcpd_get_interface_config(const char *ifname, const char *what);

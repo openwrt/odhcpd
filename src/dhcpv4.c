@@ -603,8 +603,8 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			return NULL;
 
 		/* Old lease, but with an address that is out-of-scope? */
-		if (lease && ((lease->ipv4.s_addr & iface->dhcpv4_mask.s_addr) !=
-		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr)) &&
+		if (lease && ((lease->ipv4.s_addr & iface->dhcpv4_local.netmask) !=
+		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_local.netmask)) &&
 		    !(lease->flags & OAF_STATIC)) {
 			/* Try to reassign to an address that is in-scope */
 			avl_delete(&iface->dhcpv4_leases, &lease->iface_avl);
@@ -1073,8 +1073,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				reply_serverid.data = fr_serverid;
 
 			if (req->ciaddr.s_addr &&
-			    ((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_mask.s_addr) !=
-			     (req->ciaddr.s_addr & iface->dhcpv4_mask.s_addr)))
+			    ((iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_local.netmask) !=
+			     (req->ciaddr.s_addr & iface->dhcpv4_local.netmask)))
 				req->ciaddr.s_addr = INADDR_ANY;
 		}
 		break;
@@ -1088,7 +1088,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		case DHCPV4_OPT_NETMASK:
 			if (!lease)
 				break;
-			reply_netmask.data = iface->dhcpv4_mask.s_addr;
+			reply_netmask.data = iface->dhcpv4_local.netmask;
 			iov[IOV_NETMASK].iov_len = sizeof(reply_netmask);
 			break;
 
@@ -1361,7 +1361,6 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_own_ip = (struct odhcpd_ipaddr){ .addr.in.s_addr = INADDR_ANY };
 	iface->dhcpv4_bcast.s_addr = INADDR_ANY;
-	iface->dhcpv4_mask.s_addr = INADDR_ANY;
 
 	if (iface->no_dynamic_dhcp) {
 		if (!iface->oaddrs4_cnt)
@@ -1369,7 +1368,6 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 
 		iface->dhcpv4_own_ip = iface->oaddrs4[0];
 		iface->dhcpv4_bcast = iface->oaddrs4[0].broadcast;
-		iface->dhcpv4_mask.s_addr = iface->oaddrs4[0].netmask;
 
 		info("DHCPv4: providing static leases on interface '%s'", iface->name);
 		return true;
@@ -1428,7 +1426,6 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 		iface->dhcpv4_end_ip.s_addr = (oaddr->addr.in.s_addr & oaddr->netmask) | htonl(pool_end);
 		iface->dhcpv4_own_ip = *oaddr;
 		iface->dhcpv4_bcast = oaddr->broadcast;
-		iface->dhcpv4_mask.s_addr = oaddr->netmask;
 
 		info("DHCPv4: providing dynamic/static leases on interface '%s', pool: %s - %s", iface->name,
 		     inet_ntop(AF_INET, &iface->dhcpv4_start_ip, pool_start_str, sizeof(pool_start_str)),

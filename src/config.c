@@ -107,7 +107,7 @@ enum {
 	IFACE_ATTR_DNS,
 	IFACE_ATTR_DNR,
 	IFACE_ATTR_DNS_SERVICE,
-	IFACE_ATTR_DOMAIN,
+	IFACE_ATTR_DNS_DOMAIN_SEARCH,
 	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
@@ -160,7 +160,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DNS] = { .name = "dns", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNR] = { .name = "dnr", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
-	[IFACE_ATTR_DOMAIN] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_DNS_DOMAIN_SEARCH] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
@@ -344,7 +344,7 @@ static void clean_interface(struct interface *iface)
 {
 	free(iface->dns_addrs4);
 	free(iface->dns_addrs6);
-	free(iface->search);
+	free(iface->dns_search);
 	free(iface->upstream);
 	free(iface->dhcpv4_router);
 	free(iface->dhcpv6_raw);
@@ -1373,15 +1373,16 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if ((c = tb[IFACE_ATTR_DNS_SERVICE]))
 		iface->dns_service = blobmsg_get_bool(c);
 
-	if ((c = tb[IFACE_ATTR_DOMAIN])) {
+	if ((c = tb[IFACE_ATTR_DNS_DOMAIN_SEARCH])) {
 		struct blob_attr *cur;
 		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
-			uint8_t buf[256];
-			char *domain = blobmsg_get_string(cur);
-			size_t domainlen = strlen(domain);
+			uint8_t buf[DNS_MAX_NAME_LEN];
+			char *domain;
+			size_t domainlen;
 			int len;
+			uint8_t *tmp;
 
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
@@ -1395,16 +1396,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
 			if (len <= 0) {
 				error("Invalid %s value configured for interface '%s'",
-				      iface_attrs[IFACE_ATTR_DOMAIN].name, iface->name);
+				      iface_attrs[IFACE_ATTR_DNS_DOMAIN_SEARCH].name, iface->name);
 				continue;
 			}
 
-			iface->search = realloc(iface->search, iface->search_len + len);
-			if (!iface->search)
+			tmp = realloc(iface->dns_search, iface->dns_search_len + len);
+			if (!tmp)
 				goto err;
 
-			memcpy(&iface->search[iface->search_len], buf, len);
-			iface->search_len += len;
+			iface->dns_search = tmp;
+			memcpy(&iface->dns_search[iface->dns_search_len], buf, len);
+			iface->dns_search_len += len;
 		}
 	}
 

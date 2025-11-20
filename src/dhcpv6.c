@@ -615,22 +615,23 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	/* DNS Search options */
-	uint8_t search_buf[256], *search_domain = iface->search;
-	size_t search_len = iface->search_len;
+	uint8_t dns_search_buf[DNS_MAX_NAME_LEN];
+	uint8_t *dns_search = iface->dns_search;
+	size_t dns_search_len = iface->dns_search_len;
 
-	if (!search_domain && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-		int len = dn_comp(_res.dnsrch[0], search_buf,
-				sizeof(search_buf), NULL, NULL);
+	if (!dns_search && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
+		int len = dn_comp(_res.dnsrch[0], dns_search_buf,
+				sizeof(dns_search_buf), NULL, NULL);
 		if (len > 0) {
-			search_domain = search_buf;
-			search_len = len;
+			dns_search = dns_search_buf;
+			dns_search_len = len;
 		}
 	}
 
 	struct {
 		uint16_t type;
 		uint16_t len;
-	} search = {htons(DHCPV6_OPT_DNS_DOMAIN), htons(search_len)};
+	} dns_search_hdr = { htons(DHCPV6_OPT_DNS_DOMAIN), htons(dns_search_len) };
 
 
 	struct _o_packed dhcpv4o6_server {
@@ -649,8 +650,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_RAPID_COMMIT] = {&rapid_commit, 0},
 		[IOV_DNS] = { &dns_hdr, (dns_addrs6_cnt) ? sizeof(dns_hdr) : 0},
 		[IOV_DNS_ADDR] = { dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6) },
-		[IOV_SEARCH] = {&search, (search_len) ? sizeof(search) : 0},
-		[IOV_SEARCH_DOMAIN] = {search_domain, search_len},
+		[IOV_SEARCH] = { &dns_search_hdr, (dns_search_len) ? sizeof(dns_search_hdr) : 0 },
+		[IOV_SEARCH_DOMAIN] = { dns_search, dns_search_len },
 		[IOV_PDBUF] = {pdbuf, 0},
 		[IOV_DHCPV6_RAW] = {iface->dhcpv6_raw, iface->dhcpv6_raw_len},
 		[IOV_NTP] = {&ntp, (ntp_cnt) ? sizeof(ntp) : 0},

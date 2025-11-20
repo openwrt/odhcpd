@@ -456,8 +456,8 @@ struct interface {
 	size_t dns_addrs4_cnt;		// Count of IPv4 DNS addresses
 	struct in6_addr *dns_addrs6;	// IPv6 DNS server addresses to announce
 	size_t dns_addrs6_cnt;		// Count of IPv6 DNS addresses
-	uint8_t *search;
-	size_t search_len;
+	uint8_t *dns_search;		// DNS domain search list to announce (concatenated)
+	size_t dns_search_len;		// Length of the DNS domain search list (bytes)
 
 	// DHCPV6
 	void *dhcpv6_raw;

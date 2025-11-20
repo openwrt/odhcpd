@@ -891,7 +891,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		.len = sizeof(reply_auth_body),
 	};
 	struct dhcpv4_option reply_srch_domain = {
-		.code = DHCPV4_OPT_SEARCH_DOMAIN,
+		.code = DHCPV4_OPT_DNS_DOMAIN_SEARCH,
 	};
 	struct dhcpv4_option_u8 reply_fr_nonce_cap = {
 		.code = DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
@@ -948,7 +948,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		DHCPV4_OPT_REBIND,
 		DHCPV4_OPT_CLIENTID, // Must be in reply if present in req, RFC6842, §3
 		DHCPV4_OPT_AUTHENTICATION,
-		DHCPV4_OPT_SEARCH_DOMAIN,
+		DHCPV4_OPT_DNS_DOMAIN_SEARCH,
 		DHCPV4_OPT_CAPTIVE_PORTAL,
 		DHCPV4_OPT_FORCERENEW_NONCE_CAPABLE,
 	};
@@ -1193,15 +1193,15 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_AUTH_BODY].iov_len = sizeof(reply_auth_body);
 			break;
 
-		case DHCPV4_OPT_SEARCH_DOMAIN:
-			if (iov[IOV_SRCH_DOMAIN].iov_len || iface->search_len > UINT8_MAX)
+		case DHCPV4_OPT_DNS_DOMAIN_SEARCH:
+			if (iov[IOV_SRCH_DOMAIN].iov_len || iface->dns_search_len > UINT8_MAX)
 				break;
 
-			if (iface->search) {
-				reply_srch_domain.len = iface->search_len;
+			if (iface->dns_search) {
+				reply_srch_domain.len = iface->dns_search_len;
 				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
-				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->search;
-				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->search_len;
+				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->dns_search;
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->dns_search_len;
 			} else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
 				int len;
 

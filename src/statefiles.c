@@ -45,8 +45,8 @@ static void statefiles_write_host(const char *ipbuf, const char *hostname, struc
 {
 	char exp_dn[DNS_MAX_NAME_LEN];
 
-	if (dn_expand(ctxt->iface->search, ctxt->iface->search + ctxt->iface->search_len,
-		      ctxt->iface->search, exp_dn, sizeof(exp_dn)) > 0)
+	if (dn_expand(ctxt->iface->dns_search, ctxt->iface->dns_search + ctxt->iface->dns_search_len,
+		      ctxt->iface->dns_search, exp_dn, sizeof(exp_dn)) > 0)
 		fprintf(ctxt->fp, "%s\t%s.%s\t%s\n", ipbuf, hostname, exp_dn, hostname);
 	else
 		fprintf(ctxt->fp, "%s\t%s\n", ipbuf, hostname);

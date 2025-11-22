@@ -1094,9 +1094,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 		case DHCPV4_OPT_ROUTER:
 			iov[IOV_ROUTER].iov_len = sizeof(reply_router);
-			if (iface->dhcpv4_router_cnt) {
-				reply_router.len = iface->dhcpv4_router_cnt * sizeof(*iface->dhcpv4_router);
-				iov[IOV_ROUTER_ADDR].iov_base = iface->dhcpv4_router;
+			if (iface->dhcpv4_routers_cnt) {
+				reply_router.len = iface->dhcpv4_routers_cnt * sizeof(*iface->dhcpv4_routers);
+				iov[IOV_ROUTER_ADDR].iov_base = iface->dhcpv4_routers;
 			} else {
 				reply_router.len = sizeof(iface->dhcpv4_own_ip.addr.in);
 				iov[IOV_ROUTER_ADDR].iov_base = &iface->dhcpv4_own_ip.addr.in;

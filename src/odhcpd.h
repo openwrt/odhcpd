@@ -447,8 +447,8 @@ struct interface {
 	struct in_addr dhcpv4_start_ip;
 	struct in_addr dhcpv4_end_ip;
 	struct odhcpd_ipaddr dhcpv4_own_ip;
-	struct in_addr *dhcpv4_router;
-	size_t dhcpv4_router_cnt;
+	struct in_addr *dhcpv4_routers;	// IPv4 addresses for routers on this subnet
+	size_t dhcpv4_routers_cnt;	// Count of router addresses
 	bool dhcpv4_forcereconf;
 
 	// DNS

@@ -346,7 +346,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dns_addrs6);
 	free(iface->dns_search);
 	free(iface->upstream);
-	free(iface->dhcpv4_router);
+	free(iface->dhcpv4_routers);
 	free(iface->dhcpv6_raw);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
@@ -1291,21 +1291,23 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		unsigned rem;
 
 		blobmsg_for_each_attr(cur, c, rem) {
-			struct in_addr addr4;
+			struct in_addr addr4, *tmp;
 
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
 
 			if (inet_pton(AF_INET, blobmsg_get_string(cur), &addr4) == 1) {
-				iface->dhcpv4_router = realloc(iface->dhcpv4_router,
-						(++iface->dhcpv4_router_cnt) * sizeof(*iface->dhcpv4_router));
-				if (!iface->dhcpv4_router)
+				tmp = realloc(iface->dhcpv4_routers,
+					      (iface->dhcpv4_routers_cnt + 1) * sizeof(*iface->dhcpv4_routers));
+				if (!tmp)
 					goto err;
 
-				iface->dhcpv4_router[iface->dhcpv4_router_cnt - 1] = addr4;
-			} else
+				iface->dhcpv4_routers = tmp;
+				iface->dhcpv4_routers[iface->dhcpv4_routers_cnt++] = addr4;
+			} else {
 				error("Invalid %s value configured for interface '%s'",
 				      iface_attrs[IFACE_ATTR_ROUTER].name, iface->name);
+			}
 		}
 	}
 

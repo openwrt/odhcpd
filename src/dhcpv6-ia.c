@@ -1236,8 +1236,9 @@ proceed:
 				    hdr->msg_type == DHCPV6_MSG_REQUEST ||
 				    hdr->msg_type == DHCPV6_MSG_REBIND)) {
 				if ((!(a->flags & OAF_STATIC) || !a->hostname) && hostname_len > 0) {
-					a->hostname = realloc(a->hostname, hostname_len + 1);
-					if (a->hostname) {
+					char *hostname = realloc(a->hostname, hostname_len + 1);
+					if (hostname) {
+						a->hostname = hostname;
 						memcpy(a->hostname, hostname, hostname_len);
 						a->hostname[hostname_len] = 0;
 

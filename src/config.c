@@ -1227,16 +1227,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	if (overwrite && (c = tb[IFACE_ATTR_UPSTREAM])) {
 		struct blob_attr *cur;
 		unsigned rem;
+		char *tmp;
 
 		blobmsg_for_each_attr(cur, c, rem) {
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
 				continue;
 
-			iface->upstream = realloc(iface->upstream,
-					iface->upstream_len + blobmsg_data_len(cur));
-			if (!iface->upstream)
+			tmp = realloc(iface->upstream, iface->upstream_len + blobmsg_data_len(cur));
+			if (!tmp)
 				goto err;
 
+			iface->upstream = tmp;
 			memcpy(iface->upstream + iface->upstream_len, blobmsg_get_string(cur), blobmsg_data_len(cur));
 			iface->upstream_len += blobmsg_data_len(cur);
 		}

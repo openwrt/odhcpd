@@ -559,7 +559,7 @@ int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
 
 typedef void (*odhcpd_enum_addr6_cb_t)(struct dhcpv6_lease *lease,
-				       struct in6_addr *addr, int prefix,
+				       struct in6_addr *addr, uint8_t prefix_len,
 				       uint32_t pref, uint32_t valid,
 				       void *arg);
 void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,

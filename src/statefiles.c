@@ -21,6 +21,7 @@
 #include <arpa/nameser.h>
 #include <arpa/inet.h>
 #include <resolv.h>
+#include <spawn.h>
 
 #include <libubox/md5.h>
 
@@ -36,9 +37,6 @@ struct write_ctxt {
 	struct interface *iface;
 	time_t now; // CLOCK_MONOTONIC
 	time_t wall_time;
-	char *buf;
-	int buf_len;
-	int buf_idx;
 };
 
 static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)
@@ -68,7 +66,7 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 	return true;
 }
 
-static void statefiles_write_host6_cb(struct dhcpv6_lease *lease, struct in6_addr *addr, _o_unused int prefix,
+static void statefiles_write_host6_cb(struct dhcpv6_lease *lease, struct in6_addr *addr, _o_unused uint8_t prefix_len,
 				      _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
@@ -161,53 +159,50 @@ err:
 	close(fd);
 }
 
-static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
 					 _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
-
-	if (statefiles_write_host6(ctxt, lease, addr)) {
-		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
+	if (lease->hostname && !(lease->flags & OAF_BROKEN_HOSTNAME) && lease->flags & OAF_DHCPV6_NA) {
+		md5_hash(addr, sizeof(*addr), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
 	if (!ctxt->fp)
 		return;
 
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx,
-				  ctxt->buf_len - ctxt->buf_idx,
-				  " %s/%d", ipbuf, prefix);
+	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
+	fprintf(ctxt->fp, " %s/%" PRIu8, ipbuf, prefix_len);
 }
 
 static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)
 {
 	char duidbuf[DUID_HEXSTRLEN];
 
-	ctxt->buf_idx = 0;
+	if (ctxt->fp) {
+		odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
+
+		/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
+		fprintf(ctxt->fp,
+			"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8,
+			ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
+			(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
+			(lease->hostname ? lease->hostname : "-"),
+			(lease->valid_until > ctxt->now ?
+			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
+			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
+			(lease->flags & OAF_DHCPV6_NA ?
+			 lease->assigned_host_id :
+			 (uint64_t)lease->assigned_subnet_id),
+			lease->length);
+	}
+
 	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
 
-	if (!ctxt->fp)
-		return;
-
-	odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
-
-	/* # <iface> <hexduid> <hexiaid> <hostname> <valid_until> <assigned_[host|subnet]_id> <pfx_length> [<addrs> ...] */
-	fprintf(ctxt->fp,
-		"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8 "%s\n",
-		ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
-		(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-		(lease->hostname ? lease->hostname : "-"),
-		(lease->valid_until > ctxt->now ?
-		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
-		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
-		(lease->flags & OAF_DHCPV6_NA ?
-		 lease->assigned_host_id :
-		 (uint64_t)lease->assigned_subnet_id),
-		lease->length,
-		ctxt->buf);
+	if (ctxt->fp)
+		putc('\n', ctxt->fp);
 }
 
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
@@ -215,16 +210,15 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 	char hexhwaddr[sizeof(lease->hwaddr) * 2 + 1];
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf));
-
-	if (statefiles_write_host4(ctxt, lease)) {
-		md5_hash(ipbuf, strlen(ipbuf), &ctxt->md5);
+	if (lease->hostname && !(lease->flags & OAF_BROKEN_HOSTNAME)) {
+		md5_hash(&lease->ipv4, sizeof(lease->ipv4), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
 
 	if (!ctxt->fp)
 		return;
 
+	inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf));
 	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
 
 	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
@@ -242,11 +236,8 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 /* Returns true if there are changes to be written to the hosts file(s) */
 static bool statefiles_write_state(time_t now)
 {
-	char leasebuf[512];
 	struct write_ctxt ctxt = {
 		.fp = NULL,
-		.buf = leasebuf,
-		.buf_len = sizeof(leasebuf),
 		.now = now,
 		.wall_time = time(NULL),
 	};
@@ -338,10 +329,9 @@ bool statefiles_write()
 
 	if (config.dhcp_cb) {
 		char *argv[2] = { config.dhcp_cb, NULL };
-		if (!vfork()) {
-			execv(argv[0], argv);
-			_exit(128);
-		}
+		pid_t pid;
+
+		posix_spawn(&pid, argv[0], NULL, NULL, argv, environ);
 	}
 
 	return true;

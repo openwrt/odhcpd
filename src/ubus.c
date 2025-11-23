@@ -90,7 +90,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 }
 #endif /* DHCPV4_SUPPORT */
 
-static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
 				   uint32_t pref_lt, uint32_t valid_lt, _o_unused void *arg)
 {
 	void *a	= blobmsg_open_table(&b, NULL);
@@ -103,8 +103,8 @@ static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct 
 	blobmsg_add_u32(&b, "valid-lifetime",
 			valid_lt == UINT32_MAX ? (uint32_t)-1 : valid_lt);
 
-	if (prefix != 128)
-		blobmsg_add_u32(&b, "prefix-length", prefix);
+	if (prefix_len != 128)
+		blobmsg_add_u32(&b, "prefix-length", prefix_len);
 
 	blobmsg_close_table(&b, a);
 }

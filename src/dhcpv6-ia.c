@@ -820,7 +820,7 @@ struct log_ctxt {
 	int buf_idx;
 };
 
-static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, int prefix,
+static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
 			       _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
@@ -828,7 +828,7 @@ static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_
 
 	inet_ntop(AF_INET6, addr, addrbuf, sizeof(addrbuf));
 	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx, ctxt->buf_len - ctxt->buf_idx,
-					"%s/%d ", addrbuf, prefix);
+				  " %s/%" PRIu8, addrbuf, prefix_len);
 }
 
 static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
@@ -889,7 +889,7 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 		odhcpd_enum_addr6(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
 
-	info("DHCPV6 %s %s from %s on %s: %s %s", type, (is_pd) ? "IA_PD" : "IA_NA",
+	info("DHCPV6 %s %s from %s on %s: %s%s", type, (is_pd) ? "IA_PD" : "IA_NA",
 	     duidbuf, iface->name, status, leasebuf);
 }
 

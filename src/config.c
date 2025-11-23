@@ -1417,8 +1417,15 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->dhcpv4_forcereconf = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_RAW])) {
-		iface->dhcpv6_raw_len = blobmsg_data_len(c) / 2;
-		iface->dhcpv6_raw = realloc(iface->dhcpv6_raw, iface->dhcpv6_raw_len);
+		void *tmp;
+		size_t opt_len = blobmsg_data_len(c) / 2;
+
+		tmp = realloc(iface->dhcpv6_raw, opt_len);
+		if (!tmp)
+			goto err;
+
+		iface->dhcpv6_raw = tmp;
+		iface->dhcpv6_raw_len = opt_len;
 		odhcpd_unhexlify(iface->dhcpv6_raw, iface->dhcpv6_raw_len, blobmsg_get_string(c));
 	}
 

@@ -1226,12 +1226,9 @@ proceed:
 			ia_response_len = build_ia(buf, buflen, status, ia, a, iface,
 							hdr->msg_type == DHCPV6_MSG_REBIND ? false : true);
 
-			/* Was only a solicitation: mark binding for removal */
+			/* Was only a solicitation: mark binding for removal in 60 seconds */
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT && !rapid_commit) {
 				a->flags &= ~OAF_BOUND;
-				a->flags |= OAF_TENTATIVE;
-
-				/* Keep tentative assignment around for 60 seconds */
 				a->valid_until = now + 60;
 
 			} else if (assigned &&
@@ -1248,7 +1245,6 @@ proceed:
 					}
 				}
 				a->accept_fr_nonce = accept_reconf;
-				a->flags &= ~OAF_TENTATIVE;
 				a->flags |= OAF_BOUND;
 				apply_lease(a, true);
 			} else if (!assigned) {

@@ -103,7 +103,7 @@ static void statefiles_write_hosts(time_t now)
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
 		char *hostsfile;
 
-		hostsfile = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + strlen(ctxt.iface->name) + 1);
+		hostsfile = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + 1 + strlen(ctxt.iface->name) + 1);
 		sprintf(hostsfile, "%s.%s", ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
 
 		fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);

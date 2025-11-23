@@ -531,7 +531,7 @@ struct addr_info {
 static int cb_addr_valid(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
-	struct odhcpd_ipaddr *oaddrs = *(ctxt->oaddrs);
+	struct odhcpd_ipaddr *oaddrs;
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
 	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
@@ -564,7 +564,7 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 	if (!nla_addr)
 		return NL_SKIP;
 
-	oaddrs = realloc(oaddrs, sizeof(*oaddrs) * (ctxt->ret + 1));
+	oaddrs = realloc(*(ctxt->oaddrs), sizeof(*oaddrs) * (ctxt->ret + 1));
 	if (!oaddrs)
 		return NL_SKIP;
 
@@ -721,7 +721,7 @@ out:
 static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 {
 	struct addr_info *ctxt = (struct addr_info *)arg;
-	struct odhcpd_ipaddr *oaddrs = *(ctxt->oaddrs);
+	struct odhcpd_ipaddr *oaddrs;
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
 	struct ifaddrmsg *ifa;
 	struct nlattr *nla[__IFA_MAX], *nla_addr = NULL;
@@ -755,7 +755,7 @@ static int cb_linklocal_valid(struct nl_msg *msg, void *arg)
 	if (!IN6_IS_ADDR_LINKLOCAL(&addr))
 		return NL_SKIP;
 
-	oaddrs = realloc(oaddrs, sizeof(*oaddrs) * (ctxt->ret + 1));
+	oaddrs = realloc(*(ctxt->oaddrs), sizeof(*oaddrs) * (ctxt->ret + 1));
 	if (!oaddrs)
 		return NL_SKIP;
 

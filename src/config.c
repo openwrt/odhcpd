@@ -730,10 +730,10 @@ static int parse_ntp_options(uint16_t *dhcpv6_ntp_len, struct in6_addr addr6, ui
 {
 	uint16_t sub_opt = 0, sub_len = htons(IPV6_ADDR_LEN);
 	uint16_t ntp_len = IPV6_ADDR_LEN + 4;
-	uint8_t *ntp = *dhcpv6_ntp;
+	uint8_t *ntp;
 	size_t pos = *dhcpv6_ntp_len;
 
-	ntp = realloc(ntp, pos + ntp_len);
+	ntp = realloc(*dhcpv6_ntp, pos + ntp_len);
 	if (!ntp)
 		return -1;
 
@@ -760,7 +760,7 @@ static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6
 {
 	size_t fqdn_len = strlen(fqdn);
 	uint16_t sub_opt = 0, sub_len = 0, ntp_len = 0;
-	uint8_t *ntp = *dhcpv6_ntp;
+	uint8_t *ntp;
 	size_t pos = *dhcpv6_ntp_len;
 	uint8_t buf[256] = {0};
 
@@ -773,7 +773,7 @@ static int parse_ntp_fqdn(uint16_t *dhcpv6_ntp_len, char *fqdn, uint8_t **dhcpv6
 
 	ntp_len = len + 4;
 
-	ntp = realloc(ntp, pos + ntp_len);
+	ntp = realloc(*dhcpv6_ntp, pos + ntp_len);
 	if (!ntp)
 		return -1;
 
@@ -1681,32 +1681,34 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				continue;
 
 			char *str = blobmsg_get_string(cur);
-			struct in_addr addr4;
-			struct in6_addr addr6;
+			struct in_addr addr4, *tmp4;
+			struct in6_addr addr6, *tmp6;
 
 			if (inet_pton(AF_INET, str, &addr4) == 1) {
 				if (addr4.s_addr == INADDR_ANY)
 					goto err;
 
-				iface->dhcpv4_ntp = realloc(iface->dhcpv4_ntp,
-						(++iface->dhcpv4_ntp_cnt) * sizeof(*iface->dhcpv4_ntp));
-				if (!iface->dhcpv4_ntp)
+				tmp4 = realloc(iface->dhcpv4_ntp, (iface->dhcpv4_ntp_cnt + 1) * sizeof(*iface->dhcpv4_ntp));
+				if (!tmp4)
 					goto err;
 
-				iface->dhcpv4_ntp[iface->dhcpv4_ntp_cnt - 1] = addr4;
+				iface->dhcpv4_ntp = tmp4;
+				iface->dhcpv4_ntp[iface->dhcpv4_ntp_cnt++] = addr4;
+
 			} else if (inet_pton(AF_INET6, str, &addr6) == 1) {
 				if (IN6_IS_ADDR_UNSPECIFIED(&addr6))
 					goto err;
 
-				iface->dhcpv6_sntp = realloc(iface->dhcpv6_sntp,
-						(++iface->dhcpv6_sntp_cnt) * sizeof(*iface->dhcpv6_sntp));
-				if (!iface->dhcpv6_sntp)
+				tmp6 = realloc(iface->dhcpv6_sntp, (iface->dhcpv6_sntp_cnt + 1) * sizeof(*iface->dhcpv6_sntp));
+				if (!tmp6)
 					goto err;
 
-				iface->dhcpv6_sntp[iface->dhcpv6_sntp_cnt - 1] = addr6;
+				iface->dhcpv6_sntp = tmp6;
+				iface->dhcpv6_sntp[iface->dhcpv6_sntp_cnt++] = addr6;
 
 				if (!parse_ntp_options(&iface->dhcpv6_ntp_len, addr6, &iface->dhcpv6_ntp))
 					iface->dhcpv6_ntp_cnt++;
+
 			} else {
 				if (!parse_ntp_fqdn(&iface->dhcpv6_ntp_len, str, &iface->dhcpv6_ntp))
 					iface->dhcpv6_ntp_cnt++;

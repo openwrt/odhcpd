@@ -55,7 +55,7 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 {
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME || !(lease->flags & OAF_DHCPV6_NA))
+	if (!lease->hostname || !lease->hostname_valid || !(lease->flags & OAF_DHCPV6_NA))
 		return false;
 
 	if (ctxt->fp) {
@@ -78,7 +78,7 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 {
 	char ipbuf[INET_ADDRSTRLEN];
 
-	if (!lease->hostname || lease->flags & OAF_BROKEN_HOSTNAME)
+	if (!lease->hostname || !lease->hostname_valid)
 		return false;
 
 	if (ctxt->fp) {
@@ -165,7 +165,7 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (lease->hostname && !(lease->flags & OAF_BROKEN_HOSTNAME) && lease->flags & OAF_DHCPV6_NA) {
+	if (lease->hostname && lease->hostname_valid && lease->flags & OAF_DHCPV6_NA) {
 		md5_hash(addr, sizeof(*addr), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
@@ -188,8 +188,8 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 		fprintf(ctxt->fp,
 			"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8,
 			ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
-			(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-			(lease->hostname ? lease->hostname : "-"),
+			lease->hostname_valid ? "" : "broken\\x20",
+			lease->hostname ? lease->hostname : "-",
 			(lease->valid_until > ctxt->now ?
 			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
@@ -210,7 +210,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 	char hexhwaddr[sizeof(lease->hwaddr) * 2 + 1];
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (lease->hostname && !(lease->flags & OAF_BROKEN_HOSTNAME)) {
+	if (lease->hostname && lease->hostname_valid) {
 		md5_hash(&lease->ipv4, sizeof(lease->ipv4), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
@@ -225,8 +225,8 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 	fprintf(ctxt->fp,
 		"# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
 		ctxt->iface->ifname, hexhwaddr,
-		(lease->flags & OAF_BROKEN_HOSTNAME) ? "broken\\x20" : "",
-		(lease->hostname ? lease->hostname : "-"),
+		lease->hostname_valid ? "" : "broken\\x20",
+		lease->hostname ? lease->hostname : "-",
 		(lease->valid_until > ctxt->now ?
 		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),

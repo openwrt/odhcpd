@@ -673,8 +673,11 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 	}
 
 	if ((c = tb[LEASE_CFG_ATTR_NAME])) {
+		if (!odhcpd_hostname_valid(blobmsg_get_string(c)))
+			goto err;
+
 		lease_cfg->hostname = strdup(blobmsg_get_string(c));
-		if (!lease_cfg->hostname || !odhcpd_valid_hostname(lease_cfg->hostname))
+		if (!lease_cfg->hostname)
 			goto err;
 	}
 
@@ -1767,23 +1770,27 @@ static void lease_cfg_delete_dhcpv6_leases(struct lease_cfg *lease_cfg)
 
 static void lease_cfg_update_leases(struct lease_cfg *lease_cfg)
 {
-	struct dhcpv4_lease *a4 = lease_cfg->dhcpv4_lease;
+	struct dhcpv4_lease *lease4 = lease_cfg->dhcpv4_lease;
 	struct dhcpv6_lease *lease6;
 
-	if (a4) {
-		free(a4->hostname);
-		a4->hostname = NULL;
+	if (lease4) {
+		free(lease4->hostname);
+		lease4->hostname = NULL;
 
-		if (lease_cfg->hostname)
-			a4->hostname = strdup(lease_cfg->hostname);
+		if (lease_cfg->hostname) {
+			lease4->hostname = strdup(lease_cfg->hostname);
+			lease4->hostname_valid = true;
+		}
 	}
 
 	list_for_each_entry(lease6, &lease_cfg->dhcpv6_leases, lease_cfg_list) {
 		free(lease6->hostname);
 		lease6->hostname = NULL;
 
-		if (lease_cfg->hostname)
+		if (lease_cfg->hostname) {
 			lease6->hostname = strdup(lease_cfg->hostname);
+			lease6->hostname_valid = true;
+		}
 
 		lease6->leasetime = lease_cfg->leasetime;
 	}

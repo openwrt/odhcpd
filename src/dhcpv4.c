@@ -636,8 +636,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			if (lease_cfg) {
 				lease->flags |= OAF_STATIC;
 
-				if (lease_cfg->hostname)
+				if (lease_cfg->hostname) {
 					lease->hostname = strdup(lease_cfg->hostname);
+					lease->hostname_valid = true;
+				}
 
 				lease_cfg->dhcpv4_lease = lease;
 				lease->lease_cfg = lease_cfg;
@@ -667,11 +669,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 				lease->hostname = new_name;
 				memcpy(lease->hostname, req_hostname, req_hostname_len);
 				lease->hostname[req_hostname_len] = 0;
-
-				if (odhcpd_valid_hostname(lease->hostname))
-					lease->flags &= ~OAF_BROKEN_HOSTNAME;
-				else
-					lease->flags |= OAF_BROKEN_HOSTNAME;
+				lease->hostname_valid = odhcpd_hostname_valid(lease->hostname);
 			}
 		}
 

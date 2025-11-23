@@ -450,6 +450,7 @@ struct interface {
 	struct in_addr *dhcpv4_routers;	// IPv4 addresses for routers on this subnet
 	size_t dhcpv4_routers_cnt;	// Count of router addresses
 	bool dhcpv4_forcereconf;
+	uint32_t dhcpv4_v6only_wait;	// V6ONLY_WAIT for the IPv6-only preferred option (RFC8925)
 
 	// DNS
 	struct in_addr *dns_addrs4;	// IPv4 DNS server addresses to announce

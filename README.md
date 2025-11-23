@@ -122,6 +122,7 @@ and may also receive information from ubus
 | ntp			|list	|`<local address>`| NTP servers to announce accepts IPv4 and IPv6 |
 | upstream		|list	| -	| A list of interfaces which can be used as a source of configuration information (e.g. for NTP servers, if not set explicitly). |
 | captive_portal_uri |string | no  | The API URI to be sent in RFC8910 captive portal options, via DHCPv4, DHCPv6, and ICMPv6 RA. |
+| ipv6_only_preferred   |integer| 0 | Indicate that IPv6-only mode is preferred (RFC8925) [V6ONLY_WAIT time in seconds] |
 
 [//]: # "dhcpv6_raw - string - not documented, may change when generic DHCPv4/DHCPv6 options are added"
 

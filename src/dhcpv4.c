@@ -789,6 +789,7 @@ enum {
 	IOV_DNR,
 	IOV_DNR_BODY,
 	IOV_CAPTIVE_PORTAL,
+	IOV_IPV6_ONLY_PREF,
 	IOV_END,
 	IOV_PADDING,
 	IOV_TOTAL
@@ -810,6 +811,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint8_t *req_clientid = NULL;
 	size_t req_clientid_len = 0;
 	bool req_accept_fr = false;
+	bool ipv6_only = false;
 
 	/* Reply variables */
 	struct dhcpv4_message reply = {
@@ -901,6 +903,11 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	struct dhcpv4_option reply_dnr = {
 		.code = DHCPV4_OPT_DNR,
 	};
+	struct dhcpv4_option_u32 reply_ipv6_only = {
+		.code = DHCPV4_OPT_IPV6_ONLY_PREFERRED,
+		.len = sizeof(uint32_t),
+		.data = htonl(iface->dhcpv4_v6only_wait),
+	};
 	uint8_t reply_end = DHCPV4_OPT_END;
 
 	struct iovec iov[IOV_TOTAL] = {
@@ -931,6 +938,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		[IOV_DNR]		= { &reply_dnr, 0 },
 		[IOV_DNR_BODY]		= { NULL, 0 },
 		[IOV_CAPTIVE_PORTAL]	= { NULL, 0 },
+		[IOV_IPV6_ONLY_PREF]	= { &reply_ipv6_only, 0 },
 		[IOV_END]		= { &reply_end, sizeof(reply_end) },
 		[IOV_PADDING]		= { NULL, 0 },
 	};
@@ -986,10 +994,12 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				return;
 			break;
 		case DHCPV4_OPT_REQOPTS:
-			if (opt->len > 0) {
-				req_opts = opt->data;
-				req_opts_len = opt->len;
-			}
+			req_opts = opt->data;
+			req_opts_len = opt->len;
+			if (iface->dhcpv4_v6only_wait)
+				for (uint8_t i = 0; i < opt->len; i++)
+					if (opt->data[i] == DHCPV4_OPT_IPV6_ONLY_PREFERRED)
+						ipv6_only = true;
 			break;
 		case DHCPV4_OPT_CLIENTID:
 			if (opt->len >= 2) {
@@ -1028,6 +1038,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			     &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
+		if (ipv6_only)
+			break;
+		_o_fallthrough;
 	case DHCPV4_MSG_REQUEST:
 		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,
@@ -1041,7 +1054,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	/* We are at the point where we know the client expects a reply */
 	switch (req_msg) {
 	case DHCPV4_MSG_DISCOVER:
-		if (!lease)
+		if (!lease && !ipv6_only)
 			return;
 		reply_msg.data = DHCPV4_MSG_OFFER;
 		break;
@@ -1294,6 +1307,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			iov[IOV_DNR].iov_len = sizeof(reply_dnr);
 			iov[IOV_DNR_BODY].iov_base = dnrs;
 			iov[IOV_DNR_BODY].iov_len = dnrs_len;
+			break;
+
+		case DHCPV4_OPT_IPV6_ONLY_PREFERRED:
+			iov[IOV_IPV6_ONLY_PREF].iov_len = sizeof(reply_ipv6_only);
 			break;
 
 		case DHCPV4_OPT_CAPTIVE_PORTAL:

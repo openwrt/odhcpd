@@ -22,6 +22,7 @@
 #include "odhcpd.h"
 #include "router.h"
 #include "dhcpv6-pxe.h"
+#include "dhcpv4.h"
 
 static struct blob_buf b;
 
@@ -139,6 +140,7 @@ enum {
 	IFACE_ATTR_MAX_VALID_LIFETIME,
 	IFACE_ATTR_NTP,
 	IFACE_ATTR_CAPTIVE_PORTAL_URI,
+	IFACE_ATTR_IPV6_ONLY_PREFERRED,
 	IFACE_ATTR_MAX
 };
 
@@ -192,6 +194,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_MAX_VALID_LIFETIME] = { .name = "max_valid_lifetime", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_CAPTIVE_PORTAL_URI] = { .name = "captive_portal_uri", .type = BLOBMSG_TYPE_STRING },
+	[IFACE_ATTR_IPV6_ONLY_PREFERRED] = { .name = "ipv6_only_preferred", .type = BLOBMSG_TYPE_INT32 },
 };
 
 const struct uci_blob_param_list interface_attr_list = {
@@ -1650,6 +1653,19 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			     iface->pref64_length);
 			iface->pref64_length = 0;
 		}
+	}
+
+	if ((c = tb[IFACE_ATTR_IPV6_ONLY_PREFERRED])) {
+		uint32_t v6only_wait = blobmsg_get_u32(c);
+
+		if (v6only_wait > 0 && v6only_wait < DHCPV4_MIN_V6ONLY_WAIT) {
+			warn("Invalid %s value configured for interface '%s', clamped to %d",
+			     iface_attrs[IFACE_ATTR_IPV6_ONLY_PREFERRED].name,
+			     iface->name, DHCPV4_MIN_V6ONLY_WAIT);
+			v6only_wait = DHCPV4_MIN_V6ONLY_WAIT;
+		}
+
+		iface->dhcpv4_v6only_wait = v6only_wait;
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {

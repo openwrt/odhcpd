@@ -192,9 +192,8 @@ enum odhcpd_mode {
 enum odhcpd_assignment_flags {
 	OAF_TENTATIVE		= (1 << 0),
 	OAF_BOUND		= (1 << 1),
-	OAF_STATIC		= (1 << 2),
-	OAF_DHCPV6_NA		= (1 << 3),
-	OAF_DHCPV6_PD		= (1 << 4),
+	OAF_DHCPV6_NA		= (1 << 2),
+	OAF_DHCPV6_PD		= (1 << 3),
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */

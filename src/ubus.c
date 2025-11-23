@@ -62,7 +62,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 			if (c->flags & OAF_BOUND)
 				blobmsg_add_string(&b, NULL, "bound");
 
-			if (c->flags & OAF_STATIC)
+			if (c->lease_cfg)
 				blobmsg_add_string(&b, NULL, "static");
 
 			if (!c->hostname_valid)
@@ -154,7 +154,7 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 			if (a->flags & OAF_BOUND)
 				blobmsg_add_string(&b, NULL, "bound");
 
-			if (a->flags & OAF_STATIC)
+			if (a->lease_cfg)
 				blobmsg_add_string(&b, NULL, "static");
 			blobmsg_close_array(&b, m);
 

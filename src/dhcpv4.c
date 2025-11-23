@@ -589,7 +589,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		lease->flags &= ~OAF_BOUND;
 
-		if (!(lease->flags & OAF_STATIC) || lease->lease_cfg->ipv4.s_addr != lease->ipv4.s_addr) {
+		if (!lease->lease_cfg || lease->lease_cfg->ipv4.s_addr != lease->ipv4.s_addr) {
 			memset(lease->hwaddr, 0, sizeof(lease->hwaddr));
 			lease->valid_until = now + 3600; /* Block address for 1h */
 		} else {
@@ -603,9 +603,9 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			return NULL;
 
 		/* Old lease, but with an address that is out-of-scope? */
-		if (lease && ((lease->ipv4.s_addr & iface->dhcpv4_own_ip.netmask) !=
-		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_own_ip.netmask)) &&
-		    !(lease->flags & OAF_STATIC)) {
+		if (lease && !lease->lease_cfg &&
+		    ((lease->ipv4.s_addr & iface->dhcpv4_own_ip.netmask) !=
+		     (iface->dhcpv4_start_ip.s_addr & iface->dhcpv4_own_ip.netmask))) {
 			/* Try to reassign to an address that is in-scope */
 			avl_delete(&iface->dhcpv4_leases, &lease->iface_avl);
 			lease->ipv4.s_addr = INADDR_ANY;
@@ -634,8 +634,6 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			}
 
 			if (lease_cfg) {
-				lease->flags |= OAF_STATIC;
-
 				if (lease_cfg->hostname) {
 					lease->hostname = strdup(lease_cfg->hostname);
 					lease->hostname_valid = true;
@@ -663,7 +661,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			break;
 		}
 
-		if ((!(lease->flags & OAF_STATIC) || !lease->hostname) && req_hostname_len > 0) {
+		if (req_hostname_len > 0 && (!lease->lease_cfg || !lease->lease_cfg->hostname)) {
 			char *new_name = realloc(lease->hostname, req_hostname_len + 1);
 			if (new_name) {
 				lease->hostname = new_name;

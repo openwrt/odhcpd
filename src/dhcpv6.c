@@ -825,6 +825,31 @@ static void handle_dhcpv6(void *addr, void *data, size_t len,
 	}
 }
 
+static void rewrite_dns(struct interface *iface, struct in6_addr *dns_ptr, size_t dns_count)
+{
+	if (!dns_ptr || dns_count == 0)
+		return;
+
+	const struct in6_addr *rewrite = iface->dns;
+	struct in6_addr addr;
+	size_t rewrite_cnt = iface->dns_cnt;
+
+	if (rewrite_cnt == 0) {
+		if (odhcpd_get_interface_dns_addr(iface, &addr)) {
+			syslog(LOG_ERR, "Unable to get interface address");
+			return;
+		}
+
+		rewrite = &addr;
+		rewrite_cnt = 1;
+	}
+
+	/* Copy over any other addresses */
+	for (size_t i = 0; i < dns_count; ++i) {
+		size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
+		memcpy(&dns_ptr[i], &rewrite[j], sizeof(*rewrite));
+	}
+}
 
 /* Relay server response (regular relay server handling) */
 static void relay_server_response(uint8_t *data, size_t len)
@@ -885,28 +910,8 @@ static void relay_server_response(uint8_t *data, size_t len)
 	}
 
 	/* Rewrite DNS servers if requested */
-	if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
-		if (is_authenticated)
-			return; /* Impossible to rewrite */
-
-		const struct in6_addr *rewrite = iface->dns;
-		struct in6_addr addr;
-		size_t rewrite_cnt = iface->dns_cnt;
-
-		if (rewrite_cnt == 0) {
-			if (odhcpd_get_interface_dns_addr(iface, &addr))
-				return; /* Unable to get interface address */
-
-			rewrite = &addr;
-			rewrite_cnt = 1;
-		}
-
-		/* Copy over any other addresses */
-		for (size_t i = 0; i < dns_count; ++i) {
-			size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
-			memcpy(&dns_ptr[i], &rewrite[j], sizeof(*rewrite));
-		}
-	}
+	if (iface->always_rewrite_dns && !is_authenticated)
+		rewrite_dns(iface, dns_ptr, dns_count);
 
 	struct iovec iov = {payload_data, payload_len};
 

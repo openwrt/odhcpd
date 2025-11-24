@@ -1240,7 +1240,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		}
 
 		/* If we have to rewrite DNS entries */
-		if (c->always_rewrite_dns && dns_ptr && dns_count > 0) {
+		if ((c->always_rewrite_dns || c->dns_service) && dns_ptr && dns_count > 0) {
 			const struct in6_addr *rewrite = c->dns;
 			struct in6_addr addr;
 			size_t rewrite_cnt = c->dns_cnt;

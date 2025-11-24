@@ -885,7 +885,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	}
 
 	/* Rewrite DNS servers if requested */
-	if (iface->always_rewrite_dns && dns_ptr && dns_count > 0) {
+	if ((iface->always_rewrite_dns || iface->dns_service) && dns_ptr && dns_count > 0) {
 		if (is_authenticated)
 			return; /* Impossible to rewrite */
 

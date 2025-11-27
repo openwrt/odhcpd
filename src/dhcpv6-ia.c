@@ -1077,6 +1077,9 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				if (is_pd)
 					continue;
 
+				if (!lease_cfg)
+					continue;
+
 				/* Does the existing assignment stem from the same static lease cfg? */
 				if (c->lease_cfg != lease_cfg)
 					continue;

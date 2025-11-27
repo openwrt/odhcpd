@@ -568,7 +568,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		lease = NULL;
 	}
 
-	if (lease && (lease->flags & OAF_BOUND) && lease->fr_ip) {
+	if (lease && lease->bound && lease->fr_ip) {
 		*fr_serverid = lease->fr_ip->addr.addr.in.s_addr;
 		dhcpv4_fr_stop(lease);
 	}
@@ -587,7 +587,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		if (!lease)
 			return NULL;
 
-		lease->flags &= ~OAF_BOUND;
+		lease->bound = false;
 
 		if (!lease->lease_cfg || lease->lease_cfg->ipv4.s_addr != lease->ipv4.s_addr) {
 			memset(lease->hwaddr, 0, sizeof(lease->hwaddr));
@@ -655,7 +655,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 			*req_leasetime = max_leasetime;
 
 		if (req_msg == DHCPV4_MSG_DISCOVER) {
-			lease->flags &= ~OAF_BOUND;
+			lease->bound = false;
 			*reply_incl_fr = req_accept_fr;
 			lease->valid_until = now;
 			break;
@@ -672,14 +672,14 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		}
 
 		*reply_incl_fr = false;
-		if (!(lease->flags & OAF_BOUND)) {
+		if (!lease->bound) {
 			/* This is the client's first request for the address */
 			if (req_accept_fr) {
 				lease->accept_fr_nonce = true;
 				*reply_incl_fr = true;
 				odhcpd_urandom(lease->key, sizeof(lease->key));
 			}
-			lease->flags |= OAF_BOUND;
+			lease->bound = true;
 		}
 
 		if (*req_leasetime == UINT32_MAX)
@@ -1601,7 +1601,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 	}
 
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
-		if ((lease->flags & OAF_BOUND) && lease->fr_ip && !lease->fr_cnt) {
+		if (lease->bound && lease->fr_ip && !lease->fr_cnt) {
 			if (lease->accept_fr_nonce || iface->dhcpv4_forcereconf)
 				dhcpv4_fr_rand_delay(lease);
 			else

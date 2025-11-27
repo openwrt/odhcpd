@@ -190,9 +190,8 @@ enum odhcpd_mode {
 
 
 enum odhcpd_assignment_flags {
-	OAF_BOUND		= (1 << 0),
-	OAF_DHCPV6_NA		= (1 << 1),
-	OAF_DHCPV6_PD		= (1 << 2),
+	OAF_DHCPV6_NA		= (1 << 0),
+	OAF_DHCPV6_PD		= (1 << 1),
 };
 
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
@@ -254,7 +253,7 @@ struct dhcpv4_lease {
 	struct lease_cfg *lease_cfg;		// host lease cfg, nullable
 
 	struct in_addr ipv4;			// client IPv4 address
-	unsigned int flags;			// OAF_*
+	bool bound;				// the lease has been accepted by the client
 	time_t valid_until;			// CLOCK_MONOTONIC time, 0 = inf
 	char *hostname;				// client hostname
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?
@@ -298,6 +297,7 @@ struct dhcpv6_lease {
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
 	unsigned int flags;
+	bool bound;				// the lease has been accepted by the client
 	uint32_t leasetime;
 	char *hostname;
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?

@@ -59,7 +59,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 			blobmsg_add_u8(&b, "accept-reconf", c->accept_fr_nonce);
 
 			m = blobmsg_open_array(&b, "flags");
-			if (c->flags & OAF_BOUND)
+			if (c->bound)
 				blobmsg_add_string(&b, NULL, "bound");
 
 			if (c->lease_cfg)
@@ -151,7 +151,7 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 				blobmsg_add_u16(&b, "assigned", a->assigned_subnet_id);
 
 			m = blobmsg_open_array(&b, "flags");
-			if (a->flags & OAF_BOUND)
+			if (a->bound)
 				blobmsg_add_string(&b, NULL, "bound");
 
 			if (a->lease_cfg)

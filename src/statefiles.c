@@ -122,7 +122,7 @@ static void statefiles_write_hosts(time_t now)
 			struct dhcpv6_lease *lease;
 
 			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head) {
-				if (!(lease->flags & OAF_BOUND))
+				if (!lease->bound)
 					continue;
 
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
@@ -137,7 +137,7 @@ static void statefiles_write_hosts(time_t now)
 			struct dhcpv4_lease *lease;
 
 			avl_for_each_element(&ctxt.iface->dhcpv4_leases, lease, iface_avl) {
-				if (!(lease->flags & OAF_BOUND))
+				if (!lease->bound)
 					continue;
 
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
@@ -273,7 +273,7 @@ static bool statefiles_write_state(time_t now)
 			struct dhcpv6_lease *lease;
 
 			list_for_each_entry(lease, &ctxt.iface->ia_assignments, head) {
-				if (!(lease->flags & OAF_BOUND))
+				if (!lease->bound)
 					continue;
 
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
@@ -287,7 +287,7 @@ static bool statefiles_write_state(time_t now)
 			struct dhcpv4_lease *lease;
 
 			avl_for_each_element(&ctxt.iface->dhcpv4_leases, lease, iface_avl) {
-				if (!(lease->flags & OAF_BOUND))
+				if (!lease->bound)
 					continue;
 
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)

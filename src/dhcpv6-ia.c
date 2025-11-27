@@ -63,7 +63,7 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 
-	if ((a->flags & OAF_BOUND) && (a->flags & OAF_DHCPV6_PD))
+	if (a->bound && (a->flags & OAF_DHCPV6_PD))
 		apply_lease(a, false);
 
 	if (a->fr_cnt)
@@ -349,7 +349,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			if (assign->assigned_subnet_id >= current && assign->assigned_subnet_id + asize < c->assigned_subnet_id) {
 				list_add_tail(&assign->head, &c->head);
 
-				if (assign->flags & OAF_BOUND)
+				if (assign->bound)
 					apply_lease(assign, true);
 
 				return true;
@@ -371,7 +371,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			assign->assigned_subnet_id = current;
 			list_add_tail(&assign->head, &c->head);
 
-			if (assign->flags & OAF_BOUND)
+			if (assign->bound)
 				apply_lease(assign, true);
 
 			return true;
@@ -466,7 +466,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if ((c->flags & OAF_DHCPV6_PD) && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
-				&& (c->flags & OAF_BOUND))
+		    && (c->bound))
 			__apply_lease(c, info->addrs_old.addrs,
 					info->addrs_old.len, false);
 	}
@@ -481,7 +481,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 		if (c->assigned_subnet_id >= border->assigned_subnet_id)
 			list_move(&c->head, &reassign);
-		else if (c->flags & OAF_BOUND)
+		else if (c->bound)
 			apply_lease(c, true);
 
 		if (c->accept_fr_nonce && c->fr_cnt == 0) {
@@ -1117,7 +1117,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			a = c;
 
 			/* Reset state */
-			if (a->flags & OAF_BOUND)
+			if (a->bound)
 				apply_lease(a, false);
 
 			stop_reconf(a);
@@ -1228,7 +1228,7 @@ proceed:
 
 			/* Was only a solicitation: mark binding for removal in 60 seconds */
 			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT && !rapid_commit) {
-				a->flags &= ~OAF_BOUND;
+				a->bound = false;
 				a->valid_until = now + 60;
 
 			} else if (assigned &&
@@ -1245,7 +1245,7 @@ proceed:
 					}
 				}
 				a->accept_fr_nonce = accept_reconf;
-				a->flags |= OAF_BOUND;
+				a->bound = true;
 				apply_lease(a, true);
 			} else if (!assigned) {
 				/* Cleanup failed assignment */
@@ -1263,13 +1263,13 @@ proceed:
 					hdr->msg_type == DHCPV6_MSG_REBIND) {
 				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
 				if (a) {
-					a->flags |= OAF_BOUND;
+					a->bound = true;
 					apply_lease(a, true);
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
 				a->valid_until = now - 1;
 			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
-				a->flags &= ~OAF_BOUND;
+				a->bound = false;
 
 				if (!a->lease_cfg || a->lease_cfg->hostid != a->assigned_host_id) {
 					memset(a->duid, 0, a->duid_len);
@@ -1283,7 +1283,7 @@ proceed:
 				break;
 			}
 
-			if (!ia_addr_present || !a || !(a->flags & OAF_BOUND)) {
+			if (!ia_addr_present || !a || !a->bound) {
 				response_len = 0;
 				goto out;
 			}

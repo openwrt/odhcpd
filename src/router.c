@@ -455,6 +455,11 @@ static struct ra_pio *router_find_ra_pio(struct interface *iface,
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
+		/* Same exact address */
+		if (!memcmp(&addr->addr.in6, &cur_pio->prefix, sizeof(struct in6_addr)))
+			return cur_pio;
+
+		/* Same prefix address */
 		if (addr->prefix_len == cur_pio->length &&
 		    !odhcpd_bmemcmp(&addr->addr.in6, &cur_pio->prefix, cur_pio->length))
 			return cur_pio;
@@ -471,6 +476,28 @@ static void router_add_ra_pio(struct interface *iface,
 
 	pio = router_find_ra_pio(iface, addr);
 	if (pio) {
+		bool addr_changed, len_changed;
+
+		addr_changed = (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0);
+		len_changed = (pio->length != addr->prefix_len);
+
+		if (addr_changed || len_changed)
+		{
+			char new_ipv6_str[INET6_ADDRSTRLEN];
+
+			warn("rfc9096: %s: changed %s/%u -> %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     pio->length,
+			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
+			     addr->prefix_len);
+		}
+
+		if (addr_changed)
+			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
+		if (len_changed)
+			pio->length = addr->prefix_len;
+
 		if (pio->lifetime) {
 			pio->lifetime = 0;
 
@@ -492,7 +519,7 @@ static void router_add_ra_pio(struct interface *iface,
 	pio = &iface->pios[iface->pio_cnt];
 	iface->pio_cnt++;
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(pio->prefix));
+	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
 	pio->length = addr->prefix_len;
 	pio->lifetime = 0;
 
@@ -659,6 +686,13 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
 				struct odhcpd_ipaddr *cur_addr = &addrs[j];
 
+				/* Same exact address */
+				if (!memcmp(&cur_pio->prefix, &cur_addr->addr.in6, sizeof(struct in6_addr))) {
+					pio_found = true;
+					break;
+				}
+
+				/* Same prefix address */
 				if (cur_pio->length == cur_addr->prefix_len &&
 				    !odhcpd_bmemcmp(&cur_pio->prefix, &cur_addr->addr.in6, cur_pio->length)) {
 					pio_found = true;

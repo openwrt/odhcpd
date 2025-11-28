@@ -338,3 +338,23 @@ bool statefiles_write()
 
 	return true;
 }
+
+void statefiles_setup_dirfd(const char *path, int *dirfd)
+{
+	if (!dirfd)
+		return;
+
+	if (*dirfd >= 0) {
+		close(*dirfd);
+		*dirfd = -1;
+	}
+
+	if (!path)
+		return;
+
+	mkdir_p(strdupa(path), 0755);
+
+	*dirfd = open(path, O_PATH | O_DIRECTORY | O_CLOEXEC);
+	if (*dirfd < 0)
+		error("Unable to open directory '%s': %m", path);
+}

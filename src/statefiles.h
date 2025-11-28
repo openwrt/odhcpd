@@ -12,4 +12,6 @@
 
 bool statefiles_write(void);
 
+void statefiles_setup_dirfd(const char *path, int *dirfdp);
+
 #endif /* _STATEFILES_H_ */

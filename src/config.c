@@ -23,6 +23,7 @@
 #include "router.h"
 #include "dhcpv6-pxe.h"
 #include "dhcpv4.h"
+#include "statefiles.h"
 
 static struct blob_buf b;
 
@@ -2388,35 +2389,12 @@ void odhcpd_reload(void)
 		char *file = basename(config.dhcp_statefile);
 
 		memmove(config.dhcp_statefile, file, strlen(file) + 1);
-		mkdir_p(dir, 0755);
-
-		close(config.dhcp_statedir_fd);
-		config.dhcp_statedir_fd = open(dir, O_PATH | O_DIRECTORY | O_CLOEXEC);
-		if (config.dhcp_statedir_fd < 0)
-			error("Unable to open statedir: '%s': %m", dir);
+		statefiles_setup_dirfd(dir, &config.dhcp_statedir_fd);
+	} else {
+		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
 	}
-
-	if (config.dhcp_hostsdir) {
-		char *dir = strdupa(config.dhcp_hostsdir);
-
-		mkdir_p(dir, 0755);
-
-		close(config.dhcp_hostsdir_fd);
-		config.dhcp_hostsdir_fd = open(dir, O_PATH | O_DIRECTORY | O_CLOEXEC);
-		if (config.dhcp_hostsdir_fd < 0)
-			error("Unable to open hostsdir '%s': %m", dir);
-	}
-
-	if (config.ra_piofolder) {
-		char *path = strdupa(config.ra_piofolder);
-
-		mkdir_p(path, 0755);
-
-		close(config.ra_piofolder_fd);
-		config.ra_piofolder_fd = open(path, O_PATH | O_DIRECTORY | O_CLOEXEC);
-		if (config.ra_piofolder_fd < 0)
-			error("Unable to open piofolder '%s': %m", path);
-	}
+	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
+	statefiles_setup_dirfd(config.ra_piofolder, &config.ra_piofolder_fd);
 
 	vlist_flush(&lease_cfgs);
 

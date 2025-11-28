@@ -28,6 +28,7 @@
 
 #include "router.h"
 #include "odhcpd.h"
+#include "statefiles.h"
 
 
 static void forward_router_solicitation(const struct interface *iface);

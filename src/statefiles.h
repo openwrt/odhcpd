@@ -11,9 +11,9 @@
 #define ODHCPD_HOSTS_FILE_PREFIX "odhcpd.hosts"
 #define ODHCPD_TMP_FILE ".odhcpd.tmp"
 
-void config_load_ra_pio(struct interface *iface);
+void statefiles_read_prefix_information(struct interface *iface);
 
-void config_save_ra_pio(struct interface *iface);
+void statefiles_write_prefix_information(struct interface *iface);
 
 bool statefiles_write(void);
 

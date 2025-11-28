@@ -1059,7 +1059,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (odhcpd_try_send_with_src(iface->router_event.uloop.fd, &dest, iov, ARRAY_SIZE(iov), iface) > 0) {
 		iface->ra_sent++;
 
-		config_save_ra_pio(iface);
+		statefiles_write_prefix_information(iface);
 	}
 
 out:

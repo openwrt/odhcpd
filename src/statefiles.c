@@ -40,6 +40,65 @@ struct write_ctxt {
 	time_t wall_time;
 };
 
+static FILE *statefiles_open_tmp_file(int dirfd)
+{
+	int fd;
+	FILE *fp;
+
+	if (dirfd < 0)
+		return NULL;
+
+	fd = openat(dirfd, ODHCPD_TMP_FILE, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+	if (fd < 0)
+		goto err;
+
+	if (lockf(fd, F_LOCK, 0) < 0)
+		goto err;
+
+	if (ftruncate(fd, 0) < 0)
+		goto err_del;
+
+	fp = fdopen(fd, "w");
+	if (!fp)
+		goto err_del;
+
+	return fp;
+
+err_del:
+	unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
+err:
+	close(fd);
+	error("Failed to create temporary file: %m");
+	return NULL;
+}
+
+static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix, const char *suffix)
+{
+	char *filename;
+
+	if (dirfd < 0 || !fpp || !*fpp || !prefix)
+		return;
+
+	if (fflush(*fpp))
+		error("Error flushing tmpfile: %m");
+
+	if (fsync(fileno(*fpp)) < 0)
+		error("Error synching tmpfile: %m");
+
+	fclose(*fpp);
+	*fpp = NULL;
+
+	if (suffix) {
+		filename = alloca(strlen(prefix) + strlen(".") + strlen(suffix) + 1);
+		sprintf(filename, "%s.%s", prefix, suffix);
+	} else {
+		filename = alloca(strlen(prefix) + 1);
+		sprintf(filename, "%s", prefix);
+	}
+
+	renameat(dirfd, ODHCPD_TMP_FILE, dirfd, filename);
+}
+
 static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)
 {
 	char exp_dn[DNS_MAX_NAME_LEN];
@@ -93,31 +152,12 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt;
-	const char *tmp_hostsfile = ".odhcpd.hosts";
-	int fd;
 
 	if (config.dhcp_hostsdir_fd < 0)
 		return;
 
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
-		char *hostsfile;
-
-		hostsfile = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + 1 + strlen(ctxt.iface->name) + 1);
-		sprintf(hostsfile, "%s.%s", ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
-
-		fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-		if (fd < 0)
-			goto err;
-
-		if (lockf(fd, F_LOCK, 0) < 0)
-			goto err;
-
-		if (ftruncate(fd, 0) < 0)
-			goto err;
-
-		ctxt.fp = fdopen(fd, "w");
-		if (!ctxt.fp)
-			goto err;
+		ctxt.fp = statefiles_open_tmp_file(config.dhcp_hostsdir_fd);
 
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
@@ -148,16 +188,9 @@ static void statefiles_write_hosts(time_t now)
 			}
 		}
 
-		fclose(ctxt.fp);
-		renameat(config.dhcp_hostsdir_fd, tmp_hostsfile,
-			 config.dhcp_hostsdir_fd, hostsfile);
+		statefiles_finish_tmp_file(config.dhcp_hostsdir_fd, &ctxt.fp,
+					   ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
 	}
-
-	return;
-
-err:
-	error("Unable to write hostsfile: %m");
-	close(fd);
 }
 
 static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
@@ -241,30 +274,9 @@ static bool statefiles_write_state(time_t now)
 		.now = now,
 		.wall_time = time(NULL),
 	};
-	char *tmp_statefile = NULL;
 	uint8_t newmd5[16];
-	int fd;
 
-	if (config.dhcp_statedir_fd >= 0 && config.dhcp_statefile) {
-		size_t tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
-
-		tmp_statefile = alloca(tmp_statefile_strlen);
-		sprintf(tmp_statefile, ".%s", config.dhcp_statefile);
-
-		fd = openat(config.dhcp_statedir_fd, tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-		if (fd < 0)
-			goto err;
-
-		if (lockf(fd, F_LOCK, 0) < 0)
-			goto err;
-
-		if (ftruncate(fd, 0) < 0)
-			goto err;
-
-		ctxt.fp = fdopen(fd, "w");
-		if (!ctxt.fp)
-			goto err;
-	}
+	ctxt.fp = statefiles_open_tmp_file(config.dhcp_statedir_fd);
 
 	md5_begin(&ctxt.md5);
 
@@ -298,12 +310,7 @@ static bool statefiles_write_state(time_t now)
 		}
 	}
 
-	if (ctxt.fp) {
-		fclose(ctxt.fp);
-
-		renameat(config.dhcp_statedir_fd, tmp_statefile,
-			 config.dhcp_statedir_fd, config.dhcp_statefile);
-	}
+	statefiles_finish_tmp_file(config.dhcp_statedir_fd, &ctxt.fp, config.dhcp_statefile, NULL);
 
 	md5_end(newmd5, &ctxt.md5);
 	if (!memcmp(newmd5, statemd5, sizeof(newmd5)))
@@ -311,11 +318,6 @@ static bool statefiles_write_state(time_t now)
 
 	memcpy(statemd5, newmd5, sizeof(statemd5));
 	return true;
-
-err:
-	error("Unable to write statefile: %m");
-	close(fd);
-	return false;
 }
 
 bool statefiles_write()

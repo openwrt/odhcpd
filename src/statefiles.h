@@ -8,6 +8,7 @@
 #define _STATEFILES_H_
 
 #define ODHCPD_HOSTS_FILE_PREFIX "odhcpd.hosts"
+#define ODHCPD_TMP_FILE ".odhcpd.tmp"
 
 bool statefiles_write(void);
 

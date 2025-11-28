@@ -94,6 +94,8 @@ cd "${ODHCPDDIR}"
 cmake							\
 	-S .						\
 	-B "${BUILDDIR}"				\
+	-DDHCPV4_SUPPORT=ON				\
+	-DUBUS=ON					\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
 	${BUILD_ARGS}
 make -C "${BUILDDIR}"

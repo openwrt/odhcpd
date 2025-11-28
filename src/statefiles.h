@@ -9,6 +9,7 @@
 #define _STATEFILES_H_
 
 #define ODHCPD_HOSTS_FILE_PREFIX "odhcpd.hosts"
+#define ODHCPD_PIO_FILE_PREFIX "odhcpd.pio"
 #define ODHCPD_TMP_FILE ".odhcpd.tmp"
 
 void statefiles_read_prefix_information(struct interface *iface);

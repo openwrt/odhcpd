@@ -26,7 +26,6 @@
 #include <spawn.h>
 
 #include <libubox/md5.h>
-#include <json-c/json.h>
 
 #include "odhcpd.h"
 #include "dhcpv6-ia.h"
@@ -108,11 +107,6 @@ static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix
 	renameat(dirfd, ODHCPD_TMP_FILE, dirfd, filename);
 }
 
-#define JSON_LENGTH "length"
-#define JSON_PREFIX "prefix"
-#define JSON_SLAAC "slaac"
-#define JSON_TIME "time"
-
 static inline time_t config_time_from_json(time_t json_time)
 {
 	time_t ref, now;
@@ -141,159 +135,67 @@ static inline bool config_ra_pio_enabled(struct interface *iface)
 	return config.ra_piofolder_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
 }
 
-static bool config_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
-{
-	time_t pio_json_time, pio_time;
-	json_object *time_json;
-
-	time_json = json_object_object_get(slaac_json, JSON_TIME);
-	if (!time_json)
-		return true;
-
-	pio_json_time = (time_t) json_object_get_int64(time_json);
-	if (!pio_json_time)
-		return true;
-
-	pio_time = config_time_from_json(pio_json_time);
-	if (!pio_time)
-		return false;
-
-	*slaac_time = pio_time;
-
-	return true;
-}
-
-static json_object *config_load_ra_pio_json(struct interface *iface)
-{
-	json_object *json;
-	char filename[strlen(ODHCPD_PIO_FILE_PREFIX) + strlen(".") + strlen(iface->ifname) + 1];
-	int fd;
-
-	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
-	if (fd < 0)
-		return NULL;
-
-	json = json_object_from_fd(fd);
-
-	close(fd);
-
-	if (!json)
-		error("rfc9096: %s: json read error %s",
-		      iface->ifname,
-		      json_util_get_last_err());
-
-	return json;
-}
-
 void statefiles_read_prefix_information(struct interface *iface)
 {
-	json_object *json, *slaac_json;
-	struct ra_pio *new_pios;
-	size_t pio_cnt;
+	char filename[strlen(ODHCPD_PIO_FILE_PREFIX) + strlen(".") + strlen(iface->ifname) + 1];
+	int fd;
+	FILE *fp;
 	time_t now;
+	char line[128];
 
 	if (!config_ra_pio_enabled(iface))
 		return;
 
-	json = config_load_ra_pio_json(iface);
-	if (!json)
+	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
 		return;
 
-	slaac_json = json_object_object_get(json, JSON_SLAAC);
-	if (!slaac_json) {
-		json_object_put(json);
+	fp = fdopen(fd, "r");
+	if (!fp) {
+		close(fd);
 		return;
 	}
 
 	now = odhcpd_time();
 
-	pio_cnt = json_object_array_length(slaac_json);
-	new_pios = realloc(iface->pios, sizeof(struct ra_pio) * pio_cnt);
-	if (!new_pios) {
-		json_object_put(json);
-		return;
-	}
+	while (fgets(line, sizeof(line), fp)) {
+		char prefix[INET6_ADDRSTRLEN];
+		int64_t lifetime;
+		struct ra_pio pio, *pios;
 
-	iface->pios = new_pios;
-	iface->pio_cnt = 0;
-	for (size_t i = 0; i < pio_cnt; i++) {
-		json_object *cur_pio_json, *length_json, *prefix_json;
-		const char *pio_str;
-		time_t pio_lt = 0;
-		struct ra_pio *pio;
-		uint8_t pio_len;
-
-		cur_pio_json = json_object_array_get_idx(slaac_json, i);
-		if (!cur_pio_json)
+		/* INET6_ADDRSTRLEN == 46 */
+		if (sscanf(line, "%45s %" SCNu8 " %" SCNi64, prefix, &pio.length, &lifetime) != 3)
 			continue;
 
-		if (!config_ra_pio_time(cur_pio_json, &pio_lt))
+		if (pio.length < 1 || pio.length > 128)
 			continue;
 
-		length_json = json_object_object_get(cur_pio_json, JSON_LENGTH);
-		if (!length_json)
+		pio.lifetime = lifetime < 0 ? 0 : config_time_from_json(lifetime);
+
+		if (inet_pton(AF_INET6, prefix, &pio.prefix) != 1)
 			continue;
 
-		prefix_json = json_object_object_get(cur_pio_json, JSON_PREFIX);
-		if (!prefix_json)
+		pios = realloc(iface->pios, (iface->pio_cnt + 1) * sizeof(*iface->pios));
+		if (!pios)
 			continue;
 
-		pio_len = (uint8_t) json_object_get_uint64(length_json);
-		pio_str = json_object_get_string(prefix_json);
-		pio = &iface->pios[iface->pio_cnt];
+		iface->pios = pios;
+		iface->pios[iface->pio_cnt++] = pio;
 
-		inet_pton(AF_INET6, pio_str, &pio->prefix);
-		pio->length = pio_len;
-		pio->lifetime = pio_lt;
-		info("rfc9096: %s: load %s/%u (%u)",
+		info("rfc9096: %s: load %s/%" PRIu8 " (%u)",
 		     iface->ifname,
-		     pio_str,
-		     pio_len,
-		     ra_pio_lifetime(pio, now));
-
-		iface->pio_cnt++;
+		     prefix,
+		     pio.length,
+		     ra_pio_lifetime(&pio, now));
 	}
 
-	json_object_put(json);
-
-	if (!iface->pio_cnt) {
-		free(iface->pios);
-		iface->pios = NULL;
-	} else if (iface->pio_cnt != pio_cnt) {
-		struct ra_pio *tmp;
-
-		tmp = realloc(iface->pios, sizeof(struct ra_pio) * iface->pio_cnt);
-		if (tmp)
-			iface->pios = tmp;
-	}
-}
-
-static void config_save_ra_pio_json(struct interface *iface, struct json_object *json)
-{
-	FILE *fp;
-
-	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
-	if (!fp)
-		return;
-
-	if (json_object_to_fd(fileno(fp), json, JSON_C_TO_STRING_PLAIN)) {
-		error("rfc9096: %s: json write error %s",
-		      iface->ifname,
-		      json_util_get_last_err());
-		statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, NULL, NULL);
-		return;
-	}
-
-	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	iface->pio_update = false;
-	warn("rfc9096: %s: piofile updated", iface->ifname);
+	fclose(fp);
 }
 
 void statefiles_write_prefix_information(struct interface *iface)
 {
-	struct json_object *json, *slaac_json;
-	char ipv6_str[INET6_ADDRSTRLEN];
+	FILE *fp;
 	time_t now;
 
 	if (!config_ra_pio_enabled(iface))
@@ -302,66 +204,29 @@ void statefiles_write_prefix_information(struct interface *iface)
 	if (!iface->pio_update)
 		return;
 
+	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
+	if (!fp)
+		return;
+
 	now = odhcpd_time();
 
-	json = json_object_new_object();
-	if (!json)
-		return;
-
-	slaac_json = json_object_new_array_ext(iface->pio_cnt);
-	if (!slaac_json) {
-		json_object_put(slaac_json);
-		return;
-	}
-
-	json_object_object_add(json, JSON_SLAAC, slaac_json);
-
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
-		struct json_object *cur_pio_json, *len_json, *pfx_json;
-		const struct ra_pio *cur_pio = &iface->pios[i];
+		const struct ra_pio *pio = &iface->pios[i];
+		int64_t pio_lt;
+		char ipv6_str[INET6_ADDRSTRLEN];
 
-		if (ra_pio_expired(cur_pio, now))
+		if (ra_pio_expired(pio, now))
 			continue;
 
-		cur_pio_json = json_object_new_object();
-		if (!cur_pio_json)
-			continue;
+		inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str));
+		pio_lt = pio->lifetime ? config_time_to_json(pio->lifetime) : -1;
 
-		inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str));
-
-		pfx_json = json_object_new_string(ipv6_str);
-		if (!pfx_json) {
-			json_object_put(cur_pio_json);
-			continue;
-		}
-
-		len_json = json_object_new_uint64(cur_pio->length);
-		if (!len_json) {
-			json_object_put(cur_pio_json);
-			json_object_put(pfx_json);
-			continue;
-		}
-
-		json_object_object_add(cur_pio_json, JSON_PREFIX, pfx_json);
-		json_object_object_add(cur_pio_json, JSON_LENGTH, len_json);
-
-		if (cur_pio->lifetime) {
-			struct json_object *time_json;
-			time_t pio_lt;
-
-			pio_lt = config_time_to_json(cur_pio->lifetime);
-
-			time_json = json_object_new_int64(pio_lt);
-			if (time_json)
-				json_object_object_add(cur_pio_json, JSON_TIME, time_json);
-		}
-
-		json_object_array_add(slaac_json, cur_pio_json);
+		fprintf(fp, "%s %" PRIu8 " %" PRIi64 "\n", ipv6_str, pio->length, pio_lt);
 	}
 
-	config_save_ra_pio_json(iface, json);
-
-	json_object_put(json);
+	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	iface->pio_update = false;
+	warn("rfc9096: %s: piofile updated", iface->ifname);
 }
 
 static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)

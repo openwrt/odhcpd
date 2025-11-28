@@ -55,11 +55,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${libnl-tiny_include_dir})
 find_library(libnl nl-tiny)
 target_link_libraries(${PROJECT_NAME} PRIVATE ${libnl})
 
-find_path(json_include_dir json.h PATH_SUFFIXES json-c)
-target_include_directories(${PROJECT_NAME} PRIVATE ${json_include_dir})
-find_library(libjson json-c)
-target_link_libraries(${PROJECT_NAME} PRIVATE ${libjson})
-
 
 # Optional Features
 if(${UBUS})

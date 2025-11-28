@@ -177,7 +177,7 @@ static json_object *config_load_ra_pio_json(struct interface *iface)
 	return json;
 }
 
-void config_load_ra_pio(struct interface *iface)
+void statefiles_read_prefix_information(struct interface *iface)
 {
 	json_object *json, *slaac_json;
 	struct ra_pio *new_pios;
@@ -327,7 +327,7 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 	warn("rfc9096: %s: piofile updated", iface->ifname);
 }
 
-void config_save_ra_pio(struct interface *iface)
+void statefiles_write_prefix_information(struct interface *iface)
 {
 	struct json_object *json, *slaac_json;
 	char ipv6_str[INET6_ADDRSTRLEN];

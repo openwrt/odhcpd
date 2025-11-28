@@ -449,14 +449,20 @@ struct nd_opt_capt_portal {
 };
 
 /* IPv6 RA PIOs */
+inline static int router_compare_pio_addr(const struct ra_pio *pio, const struct odhcpd_ipaddr *addr)
+{
+	uint8_t cmp_len = max(64, max(pio->length, addr->prefix_len));
+
+	return odhcpd_bmemcmp(&pio->prefix, &addr->addr.in6, cmp_len);
+}
+
 static struct ra_pio *router_find_ra_pio(struct interface *iface,
 	struct odhcpd_ipaddr *addr)
 {
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
-		if (addr->prefix_len == cur_pio->length &&
-		    !odhcpd_bmemcmp(&addr->addr.in6, &cur_pio->prefix, cur_pio->length))
+		if (!router_compare_pio_addr(cur_pio, addr))
 			return cur_pio;
 	}
 
@@ -471,6 +477,23 @@ static void router_add_ra_pio(struct interface *iface,
 
 	pio = router_find_ra_pio(iface, addr);
 	if (pio) {
+		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
+		    pio->length != addr->prefix_len)
+		{
+			char new_ipv6_str[INET6_ADDRSTRLEN];
+
+			iface->pio_update = true;
+			warn("rfc9096: %s: changed %s/%u -> %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     pio->length,
+			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
+			     addr->prefix_len);
+
+			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
+			pio->length = addr->prefix_len;
+		}
+
 		if (pio->lifetime) {
 			pio->lifetime = 0;
 
@@ -492,7 +515,7 @@ static void router_add_ra_pio(struct interface *iface,
 	pio = &iface->pios[iface->pio_cnt];
 	iface->pio_cnt++;
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(pio->prefix));
+	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
 	pio->length = addr->prefix_len;
 	pio->lifetime = 0;
 
@@ -659,8 +682,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
 				struct odhcpd_ipaddr *cur_addr = &addrs[j];
 
-				if (cur_pio->length == cur_addr->prefix_len &&
-				    !odhcpd_bmemcmp(&cur_pio->prefix, &cur_addr->addr.in6, cur_pio->length)) {
+				if (!router_compare_pio_addr(cur_pio, cur_addr)) {
 					pio_found = true;
 					break;
 				}

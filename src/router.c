@@ -699,11 +699,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue; /* PIO filtered out of this RA */
 		}
 
-		for (size_t i = 0; i < pfxs_cnt; ++i) {
-			if (addr->prefix_len == pfxs[i].nd_opt_pi_prefix_len &&
-			    !odhcpd_bmemcmp(&pfxs[i].nd_opt_pi_prefix,
+		for (size_t j = 0; j < pfxs_cnt; ++j) {
+			if (addr->prefix_len == pfxs[j].nd_opt_pi_prefix_len &&
+			    !odhcpd_bmemcmp(&pfxs[j].nd_opt_pi_prefix,
 					    &addr->addr.in6, addr->prefix_len))
-				p = &pfxs[i];
+				p = &pfxs[j];
 		}
 
 		if (!p) {

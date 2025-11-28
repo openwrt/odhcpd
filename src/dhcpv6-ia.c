@@ -1002,7 +1002,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		if (is_pd) {
 			uint8_t *sdata;
 			uint16_t stype, slen;
-			dhcpv6_for_each_option(&ia[1], odata + olen, stype, slen, sdata) {
+			dhcpv6_for_each_sub_option(&ia[1], odata + olen, stype, slen, sdata) {
 				if (stype != DHCPV6_OPT_IA_PREFIX || slen < sizeof(struct dhcpv6_ia_prefix) - 4)
 					continue;
 
@@ -1045,7 +1045,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		} else if (is_na) {
 			uint8_t *sdata;
 			uint16_t stype, slen;
-			dhcpv6_for_each_option(&ia[1], odata + olen, stype, slen, sdata) {
+			dhcpv6_for_each_sub_option(&ia[1], odata + olen, stype, slen, sdata) {
 				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
 					continue;
 

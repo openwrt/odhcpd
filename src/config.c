@@ -1387,7 +1387,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			uint8_t buf[DNS_MAX_NAME_LEN];
 			char *domain;
 			size_t domainlen;
-			int len;
+			int ds_len;
 			uint8_t *tmp;
 
 			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
@@ -1399,20 +1399,20 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (domainlen > 0 && domain[domainlen - 1] == '.')
 				domain[domainlen - 1] = 0;
 
-			len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
-			if (len <= 0) {
+			ds_len = dn_comp(domain, buf, sizeof(buf), NULL, NULL);
+			if (ds_len <= 0) {
 				error("Invalid %s value configured for interface '%s'",
 				      iface_attrs[IFACE_ATTR_DNS_DOMAIN_SEARCH].name, iface->name);
 				continue;
 			}
 
-			tmp = realloc(iface->dns_search, iface->dns_search_len + len);
+			tmp = realloc(iface->dns_search, iface->dns_search_len + ds_len);
 			if (!tmp)
 				goto err;
 
 			iface->dns_search = tmp;
-			memcpy(&iface->dns_search[iface->dns_search_len], buf, len);
-			iface->dns_search_len += len;
+			memcpy(&iface->dns_search[iface->dns_search_len], buf, ds_len);
+			iface->dns_search_len += ds_len;
 		}
 	}
 

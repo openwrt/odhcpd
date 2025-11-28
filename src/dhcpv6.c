@@ -553,8 +553,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			break;
 
 		case DHCPV6_OPT_DNR:
-			for (size_t i = 0; i < iface->dnr_cnt; i++) {
-				struct dnr_options *dnr = &iface->dnr[i];
+			for (size_t j = 0; j < iface->dnr_cnt; j++) {
+				struct dnr_options *dnr = &iface->dnr[j];
 
 				if (dnr->addr6_cnt == 0 && dnr->addr4_cnt > 0)
 					continue;
@@ -572,8 +572,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			dnrs = alloca(dnrs_len);
 			uint8_t *pos = (uint8_t *)dnrs;
 
-			for (size_t i = 0; i < iface->dnr_cnt; i++) {
-				struct dnr_options *dnr = &iface->dnr[i];
+			for (size_t j = 0; j < iface->dnr_cnt; j++) {
+				struct dnr_options *dnr = &iface->dnr[j];
 				struct dhcpv6_dnr *d6dnr = (struct dhcpv6_dnr *)pos;
 				uint16_t d6dnr_type_be = htons(DHCPV6_OPT_DNR);
 				uint16_t d6dnr_len = 2 * sizeof(uint16_t) + dnr->adn_len;
@@ -620,11 +620,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	size_t dns_search_len = iface->dns_search_len;
 
 	if (!dns_search && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-		int len = dn_comp(_res.dnsrch[0], dns_search_buf,
+		int ds_len = dn_comp(_res.dnsrch[0], dns_search_buf,
 				sizeof(dns_search_buf), NULL, NULL);
-		if (len > 0) {
+		if (ds_len > 0) {
 			dns_search = dns_search_buf;
-			dns_search_len = len;
+			dns_search_len = ds_len;
 		}
 	}
 
@@ -874,10 +874,10 @@ static void relay_server_response(uint8_t *data, size_t len)
 	if (payload_data[0] == DHCPV6_MSG_RELAY_REPL) {
 		target.sin6_port = htons(DHCPV6_SERVER_PORT);
 	} else { /* Go through the payload data */
-		struct dhcpv6_client_header *h = (void*)payload_data;
+		struct dhcpv6_client_header *dch = (void*)payload_data;
 		end = payload_data + payload_len;
 
-		dhcpv6_for_each_option(&h[1], end, otype, olen, odata) {
+		dhcpv6_for_each_option(&dch[1], end, otype, olen, odata) {
 			if (otype == DHCPV6_OPT_DNS_SERVERS && olen >= sizeof(struct in6_addr)) {
 				dns_addrs6 = (struct in6_addr*)odata;
 				dns_addrs6_cnt = olen / sizeof(struct in6_addr);

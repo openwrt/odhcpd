@@ -1095,9 +1095,9 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 
 	/* Note: each option might get called more than once */
 	for (size_t i = 0; i < sizeof(std_opts) + req_opts_len; i++) {
-		uint8_t opt = i < sizeof(std_opts) ? std_opts[i] : req_opts[i - sizeof(std_opts)];
+		uint8_t r_opt = i < sizeof(std_opts) ? std_opts[i] : req_opts[i - sizeof(std_opts)];
 
-		switch (opt) {
+		switch (r_opt) {
 		case DHCPV4_OPT_NETMASK:
 			if (!lease)
 				break;
@@ -1216,20 +1216,20 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->dns_search;
 				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->dns_search_len;
 			} else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-				int len;
+				int dds_len;
 
 				if (!iov[IOV_SRCH_DOMAIN_NAME].iov_base)
 					iov[IOV_SRCH_DOMAIN_NAME].iov_base = alloca(DNS_MAX_NAME_LEN);
 
-				len = dn_comp(_res.dnsrch[0],
+				dds_len = dn_comp(_res.dnsrch[0],
 					      iov[IOV_SRCH_DOMAIN_NAME].iov_base,
 					      DNS_MAX_NAME_LEN, NULL, NULL);
-				if (len < 0)
+				if (dds_len < 0)
 					break;
 
-				reply_srch_domain.len = len;
+				reply_srch_domain.len = dds_len;
 				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
-				iov[IOV_SRCH_DOMAIN_NAME].iov_len = len;
+				iov[IOV_SRCH_DOMAIN_NAME].iov_len = dds_len;
 			}
 			break;
 
@@ -1247,8 +1247,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			if (!lease || reply_dnr.len > 0)
 				break;
 
-			for (size_t i = 0; i < iface->dnr_cnt; i++) {
-				struct dnr_options *dnr = &iface->dnr[i];
+			for (size_t j = 0; j < iface->dnr_cnt; j++) {
+				struct dnr_options *dnr = &iface->dnr[j];
 
 				if (dnr->addr4_cnt == 0 && dnr->addr6_cnt > 0)
 					continue;
@@ -1269,8 +1269,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			dnrs = alloca(dnrs_len);
 			uint8_t *pos = (uint8_t *)dnrs;
 
-			for (size_t i = 0; i < iface->dnr_cnt; i++) {
-				struct dnr_options *dnr = &iface->dnr[i];
+			for (size_t j = 0; j < iface->dnr_cnt; j++) {
+				struct dnr_options *dnr = &iface->dnr[j];
 				struct dhcpv4_dnr *d4dnr = (struct dhcpv4_dnr *)pos;
 				uint16_t d4dnr_len = sizeof(uint16_t) + sizeof(uint8_t) + dnr->adn_len;
 				uint16_t d4dnr_priority_be = htons(dnr->priority);
@@ -1319,13 +1319,13 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				break;
 
 			uint8_t *buf = alloca(2 + uri_len);
-			struct dhcpv4_option *opt = (struct dhcpv4_option *)buf;
+			struct dhcpv4_option *cp_opt = (struct dhcpv4_option *)buf;
 
-			opt->code = DHCPV4_OPT_CAPTIVE_PORTAL;
-			opt->len  = uri_len;
-			memcpy(opt->data, iface->captive_portal_uri, uri_len);
+			cp_opt->code = DHCPV4_OPT_CAPTIVE_PORTAL;
+			cp_opt->len  = uri_len;
+			memcpy(cp_opt->data, iface->captive_portal_uri, uri_len);
 
-			iov[IOV_CAPTIVE_PORTAL].iov_base = opt;
+			iov[IOV_CAPTIVE_PORTAL].iov_base = cp_opt;
 			iov[IOV_CAPTIVE_PORTAL].iov_len  = 2 + uri_len;
 			break;
 		}

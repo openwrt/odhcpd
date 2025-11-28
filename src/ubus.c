@@ -115,10 +115,10 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
-	void *a;
+	void *dev_tbl;
 
 	blob_buf_init(&b, 0);
-	a = blobmsg_open_table(&b, "device");
+	dev_tbl = blobmsg_open_table(&b, "device");
 
 	avl_for_each_element(&interfaces, iface, avl) {
 		if (iface->dhcpv6 != MODE_SERVER)
@@ -172,8 +172,9 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 		blobmsg_close_table(&b, i);
 	}
 
-	blobmsg_close_table(&b, a);
+	blobmsg_close_table(&b, dev_tbl);
 	ubus_send_reply(ctx, req, b.head);
+
 	return 0;
 }
 

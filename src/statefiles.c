@@ -78,8 +78,15 @@ static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix
 {
 	char *filename;
 
-	if (dirfd < 0 || !fpp || !*fpp || !prefix)
+	if (dirfd < 0 || !fpp || !*fpp)
 		return;
+
+	if (!prefix) {
+		unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
+		fclose(*fpp);
+		*fpp = NULL;
+		return;
+	}
 
 	if (fflush(*fpp))
 		error("Error flushing tmpfile: %m");
@@ -159,9 +166,11 @@ static bool statefiles_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 static json_object *statefiles_load_ra_pio_json(struct interface *iface)
 {
 	json_object *json;
+	char filename[strlen(ODHCPD_PIO_FILE_PREFIX) + strlen(".") + strlen(iface->ifname) + 1];
 	int fd;
 
-	fd = openat(config.ra_piofolder_fd, iface->ifname, O_RDONLY | O_CLOEXEC);
+	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return NULL;
 
@@ -262,67 +271,21 @@ void statefiles_read_prefix_information(struct interface *iface)
 
 static void statefiles_save_ra_pio_json(struct interface *iface, struct json_object *json)
 {
-	size_t tmp_piofile_strlen;
-	char *tmp_piofile;
-	int fd, ret;
+	FILE *fp;
 
-	tmp_piofile_strlen = strlen(iface->ifname) + 2;
-	tmp_piofile = alloca(tmp_piofile_strlen);
-	snprintf(tmp_piofile, tmp_piofile_strlen, ".%s", iface->ifname);
-
-	fd = openat(config.ra_piofolder_fd,
-		tmp_piofile,
-		O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC,
-		0644);
-	if (fd < 0) {
-		error("rfc9096: %s: error %m creating temporary json file",
-		      iface->ifname);
+	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
+	if (!fp)
 		return;
-	}
 
-	ret = json_object_to_fd(fd, json, JSON_C_TO_STRING_PLAIN);
-	if (ret) {
+	if (json_object_to_fd(fileno(fp), json, JSON_C_TO_STRING_PLAIN)) {
 		error("rfc9096: %s: json write error %s",
 		      iface->ifname,
 		      json_util_get_last_err());
-		close(fd);
-		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
+		statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, NULL, NULL);
 		return;
 	}
 
-	ret = fsync(fd);
-	if (ret) {
-		error("rfc9096: %s: error %m syncing %s",
-		      iface->ifname,
-		      tmp_piofile);
-		close(fd);
-		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
-		return;
-	}
-
-	ret = close(fd);
-	if (ret) {
-		error("rfc9096: %s: error %m closing %s",
-		      iface->ifname,
-		      tmp_piofile);
-		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
-		return;
-	}
-
-	ret = renameat(config.ra_piofolder_fd,
-		tmp_piofile,
-		config.ra_piofolder_fd,
-		iface->ifname);
-	if (ret) {
-		error("rfc9096: %s: error %m renaming piofile: %s -> %s",
-		      iface->ifname,
-		      tmp_piofile,
-		      iface->ifname);
-		close(fd);
-		unlinkat(config.ra_piofolder_fd, tmp_piofile, 0);
-		return;
-	}
-
+	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
 	iface->pio_update = false;
 	warn("rfc9096: %s: piofile updated", iface->ifname);
 }

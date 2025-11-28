@@ -106,7 +106,7 @@ static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix
 #define JSON_SLAAC "slaac"
 #define JSON_TIME "time"
 
-static inline time_t config_time_from_json(time_t json_time)
+static inline time_t statefiles_time_from_json(time_t json_time)
 {
 	time_t ref, now;
 
@@ -119,7 +119,7 @@ static inline time_t config_time_from_json(time_t json_time)
 	return json_time + (now - ref);
 }
 
-static inline time_t config_time_to_json(time_t config_time)
+static inline time_t statefiles_time_to_json(time_t config_time)
 {
 	time_t ref, now;
 
@@ -129,12 +129,12 @@ static inline time_t config_time_to_json(time_t config_time)
 	return config_time + (ref - now);
 }
 
-static inline bool config_ra_pio_enabled(struct interface *iface)
+static inline bool statefiles_ra_pio_enabled(struct interface *iface)
 {
 	return config.ra_piofolder_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
 }
 
-static bool config_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
+static bool statefiles_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 {
 	time_t pio_json_time, pio_time;
 	json_object *time_json;
@@ -147,7 +147,7 @@ static bool config_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 	if (!pio_json_time)
 		return true;
 
-	pio_time = config_time_from_json(pio_json_time);
+	pio_time = statefiles_time_from_json(pio_json_time);
 	if (!pio_time)
 		return false;
 
@@ -156,7 +156,7 @@ static bool config_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 	return true;
 }
 
-static json_object *config_load_ra_pio_json(struct interface *iface)
+static json_object *statefiles_load_ra_pio_json(struct interface *iface)
 {
 	json_object *json;
 	int fd;
@@ -177,17 +177,17 @@ static json_object *config_load_ra_pio_json(struct interface *iface)
 	return json;
 }
 
-void config_load_ra_pio(struct interface *iface)
+void statefiles_read_prefix_information(struct interface *iface)
 {
 	json_object *json, *slaac_json;
 	struct ra_pio *new_pios;
 	size_t pio_cnt;
 	time_t now;
 
-	if (!config_ra_pio_enabled(iface))
+	if (!statefiles_ra_pio_enabled(iface))
 		return;
 
-	json = config_load_ra_pio_json(iface);
+	json = statefiles_load_ra_pio_json(iface);
 	if (!json)
 		return;
 
@@ -219,7 +219,7 @@ void config_load_ra_pio(struct interface *iface)
 		if (!cur_pio_json)
 			continue;
 
-		if (!config_ra_pio_time(cur_pio_json, &pio_lt))
+		if (!statefiles_ra_pio_time(cur_pio_json, &pio_lt))
 			continue;
 
 		length_json = json_object_object_get(cur_pio_json, JSON_LENGTH);
@@ -260,7 +260,7 @@ void config_load_ra_pio(struct interface *iface)
 	}
 }
 
-static void config_save_ra_pio_json(struct interface *iface, struct json_object *json)
+static void statefiles_save_ra_pio_json(struct interface *iface, struct json_object *json)
 {
 	size_t tmp_piofile_strlen;
 	char *tmp_piofile;
@@ -327,13 +327,13 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 	warn("rfc9096: %s: piofile updated", iface->ifname);
 }
 
-void config_save_ra_pio(struct interface *iface)
+void statefiles_write_prefix_information(struct interface *iface)
 {
 	struct json_object *json, *slaac_json;
 	char ipv6_str[INET6_ADDRSTRLEN];
 	time_t now;
 
-	if (!config_ra_pio_enabled(iface))
+	if (!statefiles_ra_pio_enabled(iface))
 		return;
 
 	if (!iface->pio_update)
@@ -386,7 +386,7 @@ void config_save_ra_pio(struct interface *iface)
 			struct json_object *time_json;
 			time_t pio_lt;
 
-			pio_lt = config_time_to_json(cur_pio->lifetime);
+			pio_lt = statefiles_time_to_json(cur_pio->lifetime);
 
 			time_json = json_object_new_int64(pio_lt);
 			if (time_json)
@@ -396,7 +396,7 @@ void config_save_ra_pio(struct interface *iface)
 		json_object_array_add(slaac_json, cur_pio_json);
 	}
 
-	config_save_ra_pio_json(iface, json);
+	statefiles_save_ra_pio_json(iface, json);
 
 	json_object_put(json);
 }

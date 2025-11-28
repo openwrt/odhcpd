@@ -1742,7 +1742,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 	}
 
-	config_load_ra_pio(iface);
+	statefiles_read_prefix_information(iface);
 
 	return 0;
 

@@ -839,10 +839,14 @@ static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_
 }
 
 static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
-		const char *duidbuf, bool is_pd, struct dhcpv6_lease *a, int code)
+		       const uint8_t *duid, uint16_t duid_len, bool is_pd,
+		       struct dhcpv6_lease *a, int code)
 {
-	const char *type = "UNKNOWN";
-	const char *status = "UNKNOWN";
+	char duidbuf[DUID_HEXSTRLEN];
+	const char *type, *status;
+	char leasebuf[256] = "";
+
+	odhcpd_hexlify(duidbuf, duid, duid_len);
 
 	switch (msgtype) {
 	case DHCPV6_MSG_SOLICIT:
@@ -866,6 +870,9 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	case DHCPV6_MSG_DECLINE:
 		type = "DECLINE";
 		break;
+	default:
+		type = "UNKNOWN";
+		break;
 	}
 
 	switch (code) {
@@ -884,14 +891,17 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	case DHCPV6_STATUS_NOPREFIXAVAIL:
 		status = "no prefix available";
 		break;
+	default:
+		status = "UNKNOWN";
+		break;
 	}
 
-	char leasebuf[256] = "";
-
 	if (a) {
-		struct log_ctxt ctxt = {.buf = leasebuf,
-					.buf_len = sizeof(leasebuf),
-					.buf_idx = 0 };
+		struct log_ctxt ctxt = {
+			.buf = leasebuf,
+			.buf_len = sizeof(leasebuf),
+			.buf_idx = 0,
+		};
 
 		odhcpd_enum_addr6(iface, a, now, dhcpv6_log_ia_addr, &ctxt);
 	}
@@ -953,34 +963,36 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint16_t otype, olen, duid_len = 0;
 	uint8_t *start = (uint8_t *)&hdr[1], *odata;
 	uint8_t *duid = NULL;
-	struct ether_addr mac = { .ether_addr_octet = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff} };
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
-	char duidbuf[DUID_HEXSTRLEN], hostname[256];
+	char hostname[DNS_MAX_NAME_LEN];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_CLIENTID) {
+		switch (otype) {
+		case DHCPV6_OPT_CLIENTID:
 			duid = odata;
 			duid_len = olen;
+			break;
+		case DHCPV6_OPT_FQDN:
+			if (olen > 1 && olen < DNS_MAX_NAME_LEN) {
+				uint8_t fqdn_buf[DNS_MAX_NAME_LEN];
 
-			if (olen == 14 && odata[0] == 0 && odata[1] == 1)
-				memcpy(&mac, &odata[8], sizeof(mac));
-			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
-				memcpy(&mac, &odata[4], sizeof(mac));
+				memcpy(fqdn_buf, odata, olen);
+				fqdn_buf[olen++] = 0;
 
-			if (olen <= DUID_MAX_LEN)
-				odhcpd_hexlify(duidbuf, odata, olen);
-		} else if (otype == DHCPV6_OPT_FQDN && olen >= 2 && olen <= 255) {
-			uint8_t fqdn_buf[256];
-			memcpy(fqdn_buf, odata, olen);
-			fqdn_buf[olen++] = 0;
-
-			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
-				hostname_len = strcspn(hostname, ".");
-		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT)
+				if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1],
+					      hostname, sizeof(hostname)) > 0)
+					hostname_len = strcspn(hostname, ".");
+			}
+			break;
+		case DHCPV6_OPT_RECONF_ACCEPT:
 			accept_reconf = true;
-		else if (otype == DHCPV6_OPT_RAPID_COMMIT && hdr->msg_type == DHCPV6_MSG_SOLICIT)
-			rapid_commit = true;
+			break;
+		case DHCPV6_OPT_RAPID_COMMIT:
+			if (hdr->msg_type == DHCPV6_MSG_SOLICIT)
+				rapid_commit = true;
+			break;
+		}
 	}
 
 	if (!duid || duid_len < DUID_MIN_LEN || duid_len > DUID_MAX_LEN)
@@ -1000,9 +1012,6 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		struct lease_cfg *lease_cfg;
 
 		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, ntohl(ia->iaid));
-		if (!lease_cfg)
-			lease_cfg = config_find_lease_cfg_by_macaddr(&mac);
-
 		if (lease_cfg && lease_cfg->ignore6)
 			return -1;
 
@@ -1300,7 +1309,7 @@ proceed:
 		buf += ia_response_len;
 		buflen -= ia_response_len;
 		response_len += ia_response_len;
-		dhcpv6_log(hdr->msg_type, iface, now, duidbuf, is_pd, a, status);
+		dhcpv6_log(hdr->msg_type, iface, now, duid, duid_len, is_pd, a, status);
 	}
 
 	switch (hdr->msg_type) {

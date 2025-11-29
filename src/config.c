@@ -1907,35 +1907,61 @@ static void lease_cfg_update(_o_unused struct vlist_tree *tree, struct vlist_nod
 		lease_cfg_delete(lease_cfg_old);
 }
 
-/*
- * Either find:
- *  a) a lease cfg with an exact DUID/IAID match; or
- *  b) a lease cfg with a matching DUID and no IAID set
- */
 struct lease_cfg *
-config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
+config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len)
 {
-	struct lease_cfg *lease_cfg, *candidate = NULL;
+	struct lease_cfg *lease_cfg;
 
+	/* Find a lease cfg with a matching DUID and no IAID set */
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
 		for (size_t i = 0; i < lease_cfg->duid_cnt; i++) {
+			if (lease_cfg->duids[i].iaid_set)
+				continue;
+
 			if (lease_cfg->duids[i].len != len)
 				continue;
 
-			if (memcmp(lease_cfg->duids[i].id, duid, len))
-				continue;
-
-			if (!lease_cfg->duids[i].iaid_set) {
-				candidate = lease_cfg;
-				continue;
-			}
-
-			if (lease_cfg->duids[i].iaid == iaid)
+			if (!memcmp(lease_cfg->duids[i].id, duid, len))
 				return lease_cfg;
 		}
 	}
 
-	return candidate;
+	/*
+	 * Find a lease cfg with a hwaddr matching what we dig out of the DUID
+	 * (against RFC8415bis, §11, but historic odhcpd behavior)
+	 */
+	if (len == 14 && !memcmp(duid, "\x00\x01\x00\x01", 4))
+		return config_find_lease_cfg_by_macaddr((const struct ether_addr *)&duid[8]);
+	else if (len == 10 && !memcmp(duid, "\x00\x03\x00\x01", 4))
+		return config_find_lease_cfg_by_macaddr((const struct ether_addr *)&duid[4]);
+	else
+		return NULL;
+}
+
+struct lease_cfg *
+config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
+{
+	struct lease_cfg *lease_cfg;
+
+	/* Find a lease_cfg with an exact DUID/IAID match */
+	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		for (size_t i = 0; i < lease_cfg->duid_cnt; i++) {
+			if (!lease_cfg->duids[i].iaid_set)
+				continue;
+
+			if (lease_cfg->duids[i].len != len)
+				continue;
+
+			if (lease_cfg->duids[i].iaid != iaid)
+				continue;
+
+			if (!memcmp(lease_cfg->duids[i].id, duid, len))
+				return lease_cfg;
+		}
+	}
+
+	/* Fallback */
+	return config_find_lease_cfg_by_duid(duid, len);
 }
 
 struct lease_cfg *config_find_lease_cfg_by_macaddr(const struct ether_addr *macaddr)

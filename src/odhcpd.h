@@ -576,6 +576,7 @@ int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *p
 bool odhcpd_hostname_valid(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
+struct lease_cfg *config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len);
 struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);

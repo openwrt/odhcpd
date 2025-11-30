@@ -138,7 +138,7 @@ static inline time_t statefiles_time_to_json(time_t config_time)
 
 static inline bool statefiles_ra_pio_enabled(struct interface *iface)
 {
-	return config.ra_piofolder_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
+	return config.ra_piodir_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
 }
 
 static bool statefiles_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
@@ -170,7 +170,7 @@ static json_object *statefiles_load_ra_pio_json(struct interface *iface)
 	int fd;
 
 	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
+	fd = openat(config.ra_piodir_fd, filename, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return NULL;
 
@@ -269,32 +269,12 @@ void statefiles_read_prefix_information(struct interface *iface)
 	}
 }
 
-static void statefiles_save_ra_pio_json(struct interface *iface, struct json_object *json)
-{
-	FILE *fp;
-
-	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
-	if (!fp)
-		return;
-
-	if (json_object_to_fd(fileno(fp), json, JSON_C_TO_STRING_PLAIN)) {
-		error("rfc9096: %s: json write error %s",
-		      iface->ifname,
-		      json_util_get_last_err());
-		statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, NULL, NULL);
-		return;
-	}
-
-	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	iface->pio_update = false;
-	warn("rfc9096: %s: piofile updated", iface->ifname);
-}
-
 void statefiles_write_prefix_information(struct interface *iface)
 {
 	struct json_object *json, *slaac_json;
 	char ipv6_str[INET6_ADDRSTRLEN];
 	time_t now;
+	FILE *fp;
 
 	if (!statefiles_ra_pio_enabled(iface))
 		return;
@@ -302,17 +282,19 @@ void statefiles_write_prefix_information(struct interface *iface)
 	if (!iface->pio_update)
 		return;
 
+	fp = statefiles_open_tmp_file(config.ra_piodir_fd);
+	if (!fp)
+		return;
+
 	now = odhcpd_time();
 
 	json = json_object_new_object();
 	if (!json)
-		return;
+		goto out;
 
 	slaac_json = json_object_new_array_ext(iface->pio_cnt);
-	if (!slaac_json) {
-		json_object_put(slaac_json);
-		return;
-	}
+	if (!slaac_json)
+		goto out;
 
 	json_object_object_add(json, JSON_SLAAC, slaac_json);
 
@@ -359,9 +341,20 @@ void statefiles_write_prefix_information(struct interface *iface)
 		json_object_array_add(slaac_json, cur_pio_json);
 	}
 
-	statefiles_save_ra_pio_json(iface, json);
+	if (json_object_to_fd(fileno(fp), json, JSON_C_TO_STRING_PLAIN)) {
+		error("rfc9096: %s: json write error %s",
+		      iface->ifname,
+		      json_util_get_last_err());
+		goto out;
+	}
 
+	statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	iface->pio_update = false;
+	warn("rfc9096: %s: piofile updated", iface->ifname);
+
+out:
 	json_object_put(json);
+	statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, NULL, NULL);
 }
 
 static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)

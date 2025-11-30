@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <netinet/in.h>
+#include <netinet/ether.h>
 #include <arpa/nameser.h>
 #include <arpa/inet.h>
 #include <resolv.h>
@@ -207,7 +208,6 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
-	char hexhwaddr[sizeof(lease->hwaddr) * 2 + 1];
 	char ipbuf[INET6_ADDRSTRLEN];
 
 	if (lease->hostname && lease->hostname_valid) {
@@ -219,12 +219,12 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		return;
 
 	inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf));
-	odhcpd_hexlify(hexhwaddr, lease->hwaddr, sizeof(lease->hwaddr));
 
 	/* # <iface> <hexhwaddr> "ipv4" <hostname> <valid_until> <hexaddr> "32" <addrstr>"/32" */
 	fprintf(ctxt->fp,
 		"# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
-		ctxt->iface->ifname, hexhwaddr,
+		ctxt->iface->ifname,
+		ether_ntoa((struct ether_addr *)lease->hwaddr),
 		lease->hostname_valid ? "" : "broken\\x20",
 		lease->hostname ? lease->hostname : "-",
 		(lease->valid_until > ctxt->now ?

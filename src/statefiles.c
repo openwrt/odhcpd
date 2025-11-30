@@ -138,7 +138,7 @@ static inline time_t config_time_to_json(time_t config_time)
 
 static inline bool config_ra_pio_enabled(struct interface *iface)
 {
-	return config.ra_piofolder_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
+	return config.ra_piodir_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
 }
 
 static bool config_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
@@ -170,7 +170,7 @@ static json_object *config_load_ra_pio_json(struct interface *iface)
 	int fd;
 
 	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
+	fd = openat(config.ra_piodir_fd, filename, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return NULL;
 
@@ -273,7 +273,7 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 {
 	FILE *fp;
 
-	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
+	fp = statefiles_open_tmp_file(config.ra_piodir_fd);
 	if (!fp)
 		return;
 
@@ -281,11 +281,11 @@ static void config_save_ra_pio_json(struct interface *iface, struct json_object 
 		error("rfc9096: %s: json write error %s",
 		      iface->ifname,
 		      json_util_get_last_err());
-		statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, NULL, NULL);
+		statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, NULL, NULL);
 		return;
 	}
 
-	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
 	iface->pio_update = false;
 	warn("rfc9096: %s: piofile updated", iface->ifname);
 }

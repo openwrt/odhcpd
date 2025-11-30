@@ -66,7 +66,7 @@ and may also receive information from ubus
 | leasetrigger	| string|	| Lease trigger script |
 | hostsdir	| string|	| DHCPv4/v6 hostfile directory (one file per interface will be created) |
 | loglevel	|integer| 6	| Syslog level priority (0-7) |
-| piofolder	|string |	| Folder to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
+| piodir	|string |	| Directory to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
 | enable_tz |bool | 1 | Toggle whether RFC4833 timezone information is sent to clients, if set in system  |
 
 

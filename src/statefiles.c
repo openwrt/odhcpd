@@ -132,7 +132,7 @@ static inline time_t config_time_to_json(time_t config_time)
 
 static inline bool config_ra_pio_enabled(struct interface *iface)
 {
-	return config.ra_piofolder_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
+	return config.ra_piodir_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
 }
 
 void statefiles_read_prefix_information(struct interface *iface)
@@ -147,7 +147,7 @@ void statefiles_read_prefix_information(struct interface *iface)
 		return;
 
 	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
-	fd = openat(config.ra_piofolder_fd, filename, O_RDONLY | O_CLOEXEC);
+	fd = openat(config.ra_piodir_fd, filename, O_RDONLY | O_CLOEXEC);
 	if (fd < 0)
 		return;
 
@@ -204,7 +204,7 @@ void statefiles_write_prefix_information(struct interface *iface)
 	if (!iface->pio_update)
 		return;
 
-	fp = statefiles_open_tmp_file(config.ra_piofolder_fd);
+	fp = statefiles_open_tmp_file(config.ra_piodir_fd);
 	if (!fp)
 		return;
 
@@ -224,7 +224,7 @@ void statefiles_write_prefix_information(struct interface *iface)
 		fprintf(fp, "%s %" PRIu8 " %" PRIi64 "\n", ipv6_str, pio->length, pio_lt);
 	}
 
-	statefiles_finish_tmp_file(config.ra_piofolder_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
 	iface->pio_update = false;
 	warn("rfc9096: %s: piofile updated", iface->ifname);
 }

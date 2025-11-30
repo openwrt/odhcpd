@@ -218,8 +218,8 @@ struct config {
 	char *dhcp_hostsdir;
 	int dhcp_hostsdir_fd;
 
-	char *ra_piofolder;
-	int ra_piofolder_fd;
+	char *ra_piodir;
+	int ra_piodir_fd;
 
 	char *uci_cfgdir;
 	int log_level;

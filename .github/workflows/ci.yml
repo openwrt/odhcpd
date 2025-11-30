@@ -122,7 +122,8 @@ jobs:
           cmake \
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_STATIC_LIBS=OFF \
             -DDISABLE_EXTRA_LIBS=ON \
             -DBUILD_TESTING=OFF \
             --install-prefix ${GITHUB_WORKSPACE}/build \
@@ -161,6 +162,7 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
+            -DBUILD_STATIC=OFF \
             -DBUILD_EXAMPLES=OFF \
             --install-prefix ${GITHUB_WORKSPACE}/build \
             -B . -S .
@@ -174,6 +176,7 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
+            -DBUILD_STATIC=OFF \
             --install-prefix ${GITHUB_WORKSPACE}/build \
             -B . -S .
           make

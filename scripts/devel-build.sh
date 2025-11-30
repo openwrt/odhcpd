@@ -37,7 +37,8 @@ cmake							\
 	-S .						\
 	-B .						\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
-	-DBUILD_SHARED_LIBS=OFF				\
+	-DBUILD_SHARED_LIBS=ON				\
+	-DBUILD_STATIC_LIBS=OFF				\
 	-DDISABLE_EXTRA_LIBS=ON				\
 	-DBUILD_TESTING=OFF				\
 	--install-prefix "${BUILDDIR}"
@@ -73,6 +74,7 @@ cmake							\
 	-B .						\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
 	-DBUILD_LUA=OFF					\
+	-DBUILD_STATIC=OFF				\
 	-DBUILD_EXAMPLES=OFF				\
 	--install-prefix "${BUILDDIR}"
 make
@@ -85,6 +87,7 @@ cmake							\
 	-B .						\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
 	-DBUILD_LUA=OFF					\
+	-DBUILD_STATIC=OFF				\
 	--install-prefix "${BUILDDIR}"
 make
 make install

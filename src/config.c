@@ -492,6 +492,17 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_ENABLE_TZ]))
 		config.enable_tz = blobmsg_get_bool(c);
 
+	if (config.dhcp_statefile) {
+		char *dir = dirname(strdupa(config.dhcp_statefile));
+		char *file = basename(config.dhcp_statefile);
+
+		memmove(config.dhcp_statefile, file, strlen(file) + 1);
+		statefiles_setup_dirfd(dir, &config.dhcp_statedir_fd);
+	} else {
+		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
+	}
+	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
+	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);
 }
 
 static void sanitize_tz_string(const char *src, uint8_t **dst, size_t *dst_len)
@@ -2081,18 +2092,6 @@ void odhcpd_reload(void)
 		}
 	}
 	uci_unload(uci, system);
-
-	if (config.dhcp_statefile) {
-		char *dir = dirname(strdupa(config.dhcp_statefile));
-		char *file = basename(config.dhcp_statefile);
-
-		memmove(config.dhcp_statefile, file, strlen(file) + 1);
-		statefiles_setup_dirfd(dir, &config.dhcp_statedir_fd);
-	} else {
-		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
-	}
-	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
-	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);
 
 	vlist_flush(&lease_cfgs);
 

@@ -60,6 +60,9 @@ dhcpv6_alloc_lease(size_t extra_len)
 
 void dhcpv6_free_lease(struct dhcpv6_lease *a)
 {
+	if (!a)
+		return;
+
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 

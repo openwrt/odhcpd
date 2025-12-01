@@ -11,7 +11,7 @@ if [ ! -e "CMakeLists.txt" ] || [ ! -e "src/odhcpd.c" ]; then
 fi
 
 if [ $# -eq 0 ]; then
-	BUILD_ARGS="-DDHCPV4_SUPPORT=ON -WITH_UBUS=ON"
+	BUILD_ARGS="-DDHCPV4_SUPPORT=ON -DUBUS=ON"
 else
 	BUILD_ARGS="$@"
 fi
@@ -94,8 +94,6 @@ cd "${ODHCPDDIR}"
 cmake							\
 	-S .						\
 	-B "${BUILDDIR}"				\
-	-DDHCPV4_SUPPORT=ON				\
-	-DUBUS=ON					\
 	-DCMAKE_PREFIX_PATH="${BUILDDIR}"		\
 	${BUILD_ARGS}
 make -C "${BUILDDIR}"

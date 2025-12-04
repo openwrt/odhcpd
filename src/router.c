@@ -544,9 +544,7 @@ static void router_clear_duplicated_ra_pio(struct interface *iface)
 				     inet_ntop(AF_INET6, &pio_a->prefix, ipv6_str, sizeof(ipv6_str)),
 				     pio_a->length);
 
-				if (j + 1 < iface->pio_cnt)
-					iface->pios[j] = iface->pios[iface->pio_cnt - 1];
-
+				iface->pios[j] = iface->pios[iface->pio_cnt - 1];
 				iface->pio_cnt--;
 			} else {
 				j++;
@@ -577,9 +575,7 @@ static void router_clear_expired_ra_pio(time_t now,
 			     inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str)),
 			     cur_pio->length);
 
-			if (i + 1 < iface->pio_cnt)
-				iface->pios[i] = iface->pios[iface->pio_cnt - 1];
-
+			iface->pios[i] = iface->pios[iface->pio_cnt - 1];
 			iface->pio_cnt--;
 		} else {
 			i++;

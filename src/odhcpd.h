@@ -346,10 +346,13 @@ struct dnr_options {
 
 // RA PIO - RFC9096
 struct ra_pio {
-	struct in6_addr prefix;
-	uint8_t length;
+	struct {
+		struct in6_addr prefix;
+		uint8_t length;
+	};
 	time_t lifetime;
 };
+#define ra_pio_cmp_len offsetof(struct ra_pio, lifetime)
 
 
 struct interface {

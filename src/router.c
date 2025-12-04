@@ -538,8 +538,7 @@ static void router_clear_duplicated_ra_pio(struct interface *iface)
 		while (j < iface->pio_cnt) {
 			struct ra_pio *pio_b = &iface->pios[j];
 
-			if (pio_a->length == pio_b->length &&
-			    !memcmp(&pio_a->prefix, &pio_b->prefix, sizeof(struct in6_addr))) {
+			if (!memcmp(pio_a, pio_b, ra_pio_cmp_len)) {
 				warn("rfc9096: %s: clear duplicated %s/%u",
 				     iface->ifname,
 				     inet_ntop(AF_INET6, &pio_a->prefix, ipv6_str, sizeof(ipv6_str)),

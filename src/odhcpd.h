@@ -218,8 +218,8 @@ struct config {
 	char *dhcp_hostsdir;
 	int dhcp_hostsdir_fd;
 
-	char *ra_piofolder;
-	int ra_piofolder_fd;
+	char *ra_piodir;
+	int ra_piodir_fd;
 
 	char *uci_cfgdir;
 	int log_level;
@@ -577,8 +577,6 @@ struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
 struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);
 int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba);
-void config_load_ra_pio(struct interface *iface);
-void config_save_ra_pio(struct interface *iface);
 
 #ifdef WITH_UBUS
 int ubus_init(void);

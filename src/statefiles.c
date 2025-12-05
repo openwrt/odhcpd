@@ -4,6 +4,7 @@
  * SPDX-FileCopyrightText: 2022 Kevin Darbyshire-Bryant <ldir@darbyshire-bryant.me.uk>
  * SPDX-FileCopyrightText: 2024 Paul Donald <newtwen@gmail.com>
  * SPDX-FileCopyrightText: 2024 David Härdeman <david@hardeman.nu>
+ * SPDX-FileCopyrightText: 2025 Álvaro Fernández Rojas <noltari@gmail.com>
  *
  * SPDX-License-Identifier: GPL2.0-only
  */
@@ -39,6 +40,194 @@ struct write_ctxt {
 	time_t now; // CLOCK_MONOTONIC
 	time_t wall_time;
 };
+
+static FILE *statefiles_open_tmp_file(int dirfd)
+{
+	int fd;
+	FILE *fp;
+
+	if (dirfd < 0)
+		return NULL;
+
+	fd = openat(dirfd, ODHCPD_TMP_FILE, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
+	if (fd < 0)
+		goto err;
+
+	if (lockf(fd, F_LOCK, 0) < 0)
+		goto err;
+
+	if (ftruncate(fd, 0) < 0)
+		goto err_del;
+
+	fp = fdopen(fd, "w");
+	if (!fp)
+		goto err_del;
+
+	return fp;
+
+err_del:
+	unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
+err:
+	close(fd);
+	error("Failed to create temporary file: %m");
+	return NULL;
+}
+
+static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix, const char *suffix)
+{
+	char *filename;
+
+	if (dirfd < 0 || !fpp || !*fpp)
+		return;
+
+	if (!prefix) {
+		unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
+		fclose(*fpp);
+		*fpp = NULL;
+		return;
+	}
+
+	if (fflush(*fpp))
+		error("Error flushing tmpfile: %m");
+
+	if (fsync(fileno(*fpp)) < 0)
+		error("Error synching tmpfile: %m");
+
+	fclose(*fpp);
+	*fpp = NULL;
+
+	if (suffix) {
+		filename = alloca(strlen(prefix) + strlen(".") + strlen(suffix) + 1);
+		sprintf(filename, "%s.%s", prefix, suffix);
+	} else {
+		filename = alloca(strlen(prefix) + 1);
+		sprintf(filename, "%s", prefix);
+	}
+
+	renameat(dirfd, ODHCPD_TMP_FILE, dirfd, filename);
+}
+
+static inline time_t config_time_from_json(time_t json_time)
+{
+	time_t ref, now;
+
+	ref = time(NULL);
+	now = odhcpd_time();
+
+	if (now > json_time || ref > json_time)
+		return 0;
+
+	return json_time + (now - ref);
+}
+
+static inline time_t config_time_to_json(time_t config_time)
+{
+	time_t ref, now;
+
+	ref = time(NULL);
+	now = odhcpd_time();
+
+	return config_time + (ref - now);
+}
+
+static inline bool config_ra_pio_enabled(struct interface *iface)
+{
+	return config.ra_piodir_fd >= 0 && iface->ra == MODE_SERVER && !iface->master;
+}
+
+void statefiles_read_prefix_information(struct interface *iface)
+{
+	char filename[strlen(ODHCPD_PIO_FILE_PREFIX) + strlen(".") + strlen(iface->ifname) + 1];
+	int fd;
+	FILE *fp;
+	time_t now;
+	char line[128];
+
+	if (!config_ra_pio_enabled(iface))
+		return;
+
+	sprintf(filename, "%s.%s", ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	fd = openat(config.ra_piodir_fd, filename, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+
+	fp = fdopen(fd, "r");
+	if (!fp) {
+		close(fd);
+		return;
+	}
+
+	now = odhcpd_time();
+
+	while (fgets(line, sizeof(line), fp)) {
+		char prefix[INET6_ADDRSTRLEN];
+		int64_t lifetime;
+		struct ra_pio pio, *pios;
+
+		/* INET6_ADDRSTRLEN == 46 */
+		if (sscanf(line, "%45s %" SCNu8 " %" SCNi64, prefix, &pio.length, &lifetime) != 3)
+			continue;
+
+		if (pio.length < 1 || pio.length > 128)
+			continue;
+
+		pio.lifetime = lifetime < 0 ? 0 : config_time_from_json(lifetime);
+
+		if (inet_pton(AF_INET6, prefix, &pio.prefix) != 1)
+			continue;
+
+		pios = realloc(iface->pios, (iface->pio_cnt + 1) * sizeof(*iface->pios));
+		if (!pios)
+			continue;
+
+		iface->pios = pios;
+		iface->pios[iface->pio_cnt++] = pio;
+
+		info("rfc9096: %s: load %s/%" PRIu8 " (%u)",
+		     iface->ifname,
+		     prefix,
+		     pio.length,
+		     ra_pio_lifetime(&pio, now));
+	}
+
+	fclose(fp);
+}
+
+void statefiles_write_prefix_information(struct interface *iface)
+{
+	FILE *fp;
+	time_t now;
+
+	if (!config_ra_pio_enabled(iface))
+		return;
+
+	if (!iface->pio_update)
+		return;
+
+	fp = statefiles_open_tmp_file(config.ra_piodir_fd);
+	if (!fp)
+		return;
+
+	now = odhcpd_time();
+
+	for (size_t i = 0; i < iface->pio_cnt; i++) {
+		const struct ra_pio *pio = &iface->pios[i];
+		int64_t pio_lt;
+		char ipv6_str[INET6_ADDRSTRLEN];
+
+		if (ra_pio_expired(pio, now))
+			continue;
+
+		inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str));
+		pio_lt = pio->lifetime ? config_time_to_json(pio->lifetime) : -1;
+
+		fprintf(fp, "%s %" PRIu8 " %" PRIi64 "\n", ipv6_str, pio->length, pio_lt);
+	}
+
+	statefiles_finish_tmp_file(config.ra_piodir_fd, &fp, ODHCPD_PIO_FILE_PREFIX, iface->ifname);
+	iface->pio_update = false;
+	warn("rfc9096: %s: piofile updated", iface->ifname);
+}
 
 static void statefiles_write_host(const char *ipbuf, const char *hostname, struct write_ctxt *ctxt)
 {
@@ -93,31 +282,12 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt;
-	const char *tmp_hostsfile = ".odhcpd.hosts";
-	int fd;
 
 	if (config.dhcp_hostsdir_fd < 0)
 		return;
 
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
-		char *hostsfile;
-
-		hostsfile = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + 1 + strlen(ctxt.iface->name) + 1);
-		sprintf(hostsfile, "%s.%s", ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
-
-		fd = openat(config.dhcp_hostsdir_fd, tmp_hostsfile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-		if (fd < 0)
-			goto err;
-
-		if (lockf(fd, F_LOCK, 0) < 0)
-			goto err;
-
-		if (ftruncate(fd, 0) < 0)
-			goto err;
-
-		ctxt.fp = fdopen(fd, "w");
-		if (!ctxt.fp)
-			goto err;
+		ctxt.fp = statefiles_open_tmp_file(config.dhcp_hostsdir_fd);
 
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
@@ -148,16 +318,9 @@ static void statefiles_write_hosts(time_t now)
 			}
 		}
 
-		fclose(ctxt.fp);
-		renameat(config.dhcp_hostsdir_fd, tmp_hostsfile,
-			 config.dhcp_hostsdir_fd, hostsfile);
+		statefiles_finish_tmp_file(config.dhcp_hostsdir_fd, &ctxt.fp,
+					   ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
 	}
-
-	return;
-
-err:
-	error("Unable to write hostsfile: %m");
-	close(fd);
 }
 
 static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
@@ -241,30 +404,9 @@ static bool statefiles_write_state(time_t now)
 		.now = now,
 		.wall_time = time(NULL),
 	};
-	char *tmp_statefile = NULL;
 	uint8_t newmd5[16];
-	int fd;
 
-	if (config.dhcp_statedir_fd >= 0 && config.dhcp_statefile) {
-		size_t tmp_statefile_strlen = strlen(config.dhcp_statefile) + 2;
-
-		tmp_statefile = alloca(tmp_statefile_strlen);
-		sprintf(tmp_statefile, ".%s", config.dhcp_statefile);
-
-		fd = openat(config.dhcp_statedir_fd, tmp_statefile, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-		if (fd < 0)
-			goto err;
-
-		if (lockf(fd, F_LOCK, 0) < 0)
-			goto err;
-
-		if (ftruncate(fd, 0) < 0)
-			goto err;
-
-		ctxt.fp = fdopen(fd, "w");
-		if (!ctxt.fp)
-			goto err;
-	}
+	ctxt.fp = statefiles_open_tmp_file(config.dhcp_statedir_fd);
 
 	md5_begin(&ctxt.md5);
 
@@ -298,12 +440,7 @@ static bool statefiles_write_state(time_t now)
 		}
 	}
 
-	if (ctxt.fp) {
-		fclose(ctxt.fp);
-
-		renameat(config.dhcp_statedir_fd, tmp_statefile,
-			 config.dhcp_statedir_fd, config.dhcp_statefile);
-	}
+	statefiles_finish_tmp_file(config.dhcp_statedir_fd, &ctxt.fp, config.dhcp_statefile, NULL);
 
 	md5_end(newmd5, &ctxt.md5);
 	if (!memcmp(newmd5, statemd5, sizeof(newmd5)))
@@ -311,11 +448,6 @@ static bool statefiles_write_state(time_t now)
 
 	memcpy(statemd5, newmd5, sizeof(statemd5));
 	return true;
-
-err:
-	error("Unable to write statefile: %m");
-	close(fd);
-	return false;
 }
 
 bool statefiles_write()
@@ -335,4 +467,24 @@ bool statefiles_write()
 	}
 
 	return true;
+}
+
+void statefiles_setup_dirfd(const char *path, int *dirfd)
+{
+	if (!dirfd)
+		return;
+
+	if (*dirfd >= 0) {
+		close(*dirfd);
+		*dirfd = -1;
+	}
+
+	if (!path)
+		return;
+
+	mkdir_p(strdupa(path), 0755);
+
+	*dirfd = open(path, O_PATH | O_DIRECTORY | O_CLOEXEC);
+	if (*dirfd < 0)
+		error("Unable to open directory '%s': %m", path);
 }

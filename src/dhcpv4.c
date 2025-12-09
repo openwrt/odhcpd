@@ -1306,7 +1306,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 
 		case DHCPV4_OPT_IPV6_ONLY_PREFERRED:
-			iov[IOV_IPV6_ONLY_PREF].iov_len = sizeof(reply_ipv6_only);
+			if (iface->dhcpv4_v6only_wait)
+				iov[IOV_IPV6_ONLY_PREF].iov_len = sizeof(reply_ipv6_only);
 			break;
 
 		case DHCPV4_OPT_CAPTIVE_PORTAL:

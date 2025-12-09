@@ -480,7 +480,7 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 		fprintf(ctxt->fp,
 			"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8,
 			ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
-			lease->hostname_valid ? "" : "broken\x20",
+			lease->hostname_valid ? "" : "broken\\x20",
 			lease->hostname ? lease->hostname : "-",
 			(lease->valid_until > ctxt->now ?
 			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
@@ -516,7 +516,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		"# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
 		ctxt->iface->ifname,
 		ether_ntoa((struct ether_addr *)lease->hwaddr),
-		lease->hostname_valid ? "" : "broken\x20",
+		lease->hostname_valid ? "" : "broken\\x20",
 		lease->hostname ? lease->hostname : "-",
 		(lease->valid_until > ctxt->now ?
 		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :

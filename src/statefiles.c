@@ -415,7 +415,15 @@ static void statefiles_write_hosts(time_t now)
 		return;
 
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
+		if (ctxt.iface->ignore)
+			continue;
+
+		if (ctxt.iface->dhcpv4 != MODE_SERVER && ctxt.iface->dhcpv6 != MODE_SERVER)
+			continue;
+
 		ctxt.fp = statefiles_open_tmp_file(config.dhcp_hostsdir_fd);
+		if (!ctxt.fp)
+			continue;
 
 		if (ctxt.iface->dhcpv6 == MODE_SERVER) {
 			struct dhcpv6_lease *lease;
@@ -534,6 +542,7 @@ static bool statefiles_write_state(time_t now)
 	};
 	uint8_t newmd5[16];
 
+	/* Return value unchecked, continue in order to get the md5 */
 	ctxt.fp = statefiles_open_tmp_file(config.dhcp_statedir_fd);
 
 	md5_begin(&ctxt.md5);

@@ -178,8 +178,8 @@ odhcpd currently broadcasts the following events via ubus:
 
 | Name		| Parameters			| Description	|
 | :------------ | :----------------------------	| :------------ |
-| `dhcp.ack`	| `mac,ip,name,interface`	| A new DHCPv4 lease has been created |
-| `dhcp.release`| `mac,ip,name,interface`	| A DHCPv4 lease has been released by a client |
-| `dhcp.expire`	| `mac,ip,name,interface`	| A DHCPv4 lease has expired |
+| `dhcp.lease4`	| `mac,ip,name,interface`	| A new DHCPv4 lease has been created |
+| `dhcp.release4`| `mac,ip,name,interface`	| A DHCPv4 lease has been released by a client |
+| `dhcp.expire4`| `mac,ip,name,interface`	| A DHCPv4 lease has expired |
 
 These can be observed by running e.g. `ubus listen dhcp` on your OpenWrt device.

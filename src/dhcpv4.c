@@ -1119,8 +1119,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				reply_dnsserver.len = iface->dns_addrs4_cnt * sizeof(*iface->dns_addrs4);
 				iov[IOV_DNSSERVER_ADDRS].iov_base = iface->dns_addrs4;
 			} else {
-				reply_dnsserver.len = sizeof(iface->dhcpv4_own_ip);
-				iov[IOV_DNSSERVER_ADDRS].iov_base = &iface->dhcpv4_own_ip;
+				reply_dnsserver.len = sizeof(iface->dhcpv4_own_ip.addr.in);
+				iov[IOV_DNSSERVER_ADDRS].iov_base = &iface->dhcpv4_own_ip.addr.in;
 			}
 			iov[IOV_DNSSERVER_ADDRS].iov_len = reply_dnsserver.len;
 			break;

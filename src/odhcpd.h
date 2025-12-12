@@ -391,9 +391,7 @@ struct interface {
 	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
 
-	// RFC8910
-	char *captive_portal_uri;
-	size_t captive_portal_uri_len;
+	/* NOTE: everything from this point is zeroed on odhcpd_reload() */
 
 	// Services
 	enum odhcpd_mode ra;
@@ -494,6 +492,10 @@ struct interface {
 	struct ra_pio *pios;
 	size_t pio_cnt;
 	bool pio_update;
+
+	// RFC8910
+	char *captive_portal_uri;
+	size_t captive_portal_uri_len;
 };
 
 extern struct avl_tree interfaces;

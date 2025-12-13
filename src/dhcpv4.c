@@ -19,7 +19,6 @@
 #include <unistd.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <resolv.h>
 #include <limits.h>
 #include <alloca.h>
 #include <net/if.h>
@@ -1211,21 +1210,6 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
 				iov[IOV_SRCH_DOMAIN_NAME].iov_base = iface->dns_search;
 				iov[IOV_SRCH_DOMAIN_NAME].iov_len = iface->dns_search_len;
-			} else if (!res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-				int dds_len;
-
-				if (!iov[IOV_SRCH_DOMAIN_NAME].iov_base)
-					iov[IOV_SRCH_DOMAIN_NAME].iov_base = alloca(DNS_MAX_NAME_LEN);
-
-				dds_len = dn_comp(_res.dnsrch[0],
-					      iov[IOV_SRCH_DOMAIN_NAME].iov_base,
-					      DNS_MAX_NAME_LEN, NULL, NULL);
-				if (dds_len < 0)
-					break;
-
-				reply_srch_domain.len = dds_len;
-				iov[IOV_SRCH_DOMAIN].iov_len = sizeof(reply_srch_domain);
-				iov[IOV_SRCH_DOMAIN_NAME].iov_len = dds_len;
 			}
 			break;
 

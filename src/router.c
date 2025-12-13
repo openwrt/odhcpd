@@ -16,7 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <resolv.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -881,14 +880,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	debug("Using a RA lifetime of %d seconds on %s", ntohs(adv.h.nd_ra_router_lifetime), iface->name);
 
-	/* DNS options */
+	/* Recursive DNS Server aka RDNSS; RFC8106, §5.1 */
 	if (iface->ra_dns) {
 		struct in6_addr *dns_addrs6 = NULL, dns_addr6;
-		size_t dns_addrs6_cnt = 0, dns_search_len = iface->dns_search_len;
-		uint8_t *dns_search = iface->dns_search;
-		uint8_t dns_search_buf[DNS_MAX_NAME_LEN];
+		size_t dns_addrs6_cnt = 0;
 
-		/* DNS Recursive DNS aka RDNSS Type 25; RFC8106 */
 		if (iface->dns_addrs6_cnt > 0) {
 			dns_addrs6 = iface->dns_addrs6;
 			dns_addrs6_cnt = iface->dns_addrs6_cnt;
@@ -907,32 +903,22 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			dns->lifetime = htonl(highest_found_lifetime);
 			memcpy(dns->addr, dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6));
 		}
-
-		/* DNS Search List option aka DNSSL Type 31; RFC8106, §5.2 */
-		if (!dns_search && !res_init() && _res.dnsrch[0] && _res.dnsrch[0][0]) {
-			int len = dn_comp(_res.dnsrch[0], dns_search_buf,
-					sizeof(dns_search_buf), NULL, NULL);
-			if (len > 0) {
-				dns_search = dns_search_buf;
-				dns_search_len = len;
-			}
-		}
-
-		if (dns_search_len > 0) {
-			search_sz = sizeof(*search) + ((dns_search_len + 7) & (~7));
-			search = alloca(search_sz);
-			*search = (struct nd_opt_search_list) {
-				.type = ND_OPT_DNS_SEARCH,
-				.len = search_sz / 8,
-				.reserved = 0,
-				.lifetime = htonl(highest_found_lifetime),
-			};
-			memcpy(search->name, dns_search, dns_search_len);
-		}
 	}
-
 	iov[IOV_RA_DNS].iov_base = dns;
 	iov[IOV_RA_DNS].iov_len = dns_sz;
+
+	/* DNS Search List aka DNSSL; RFC8106, §5.2 */
+	if (iface->ra_dns && iface->dns_search_len > 0) {
+		search_sz = sizeof(*search) + ((iface->dns_search_len + 7) & ~7);
+		search = alloca(search_sz);
+		*search = (struct nd_opt_search_list) {
+			.type = ND_OPT_DNS_SEARCH,
+			.len = search_sz / 8,
+			.reserved = 0,
+			.lifetime = htonl(highest_found_lifetime),
+		};
+		memcpy(search->name, iface->dns_search, iface->dns_search_len);
+	}
 	iov[IOV_RA_SEARCH].iov_base = search;
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
 

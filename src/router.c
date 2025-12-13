@@ -1017,16 +1017,16 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint32_t valid_lt;
 
 		if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 || addr->valid_lt <= (uint32_t)now) {
-			info("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
-			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			     addr->dprefix_len, addr->valid_lt, iface->name);
+			debug("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
+			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			      addr->dprefix_len, addr->valid_lt, iface->name);
 			continue;
 		}
 
 		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
-			info("Address %s filtered out as RA route on %s",
-			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			     iface->name);
+			debug("Address %s filtered out as RA route on %s",
+			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			      iface->name);
 			continue;
 		}
 

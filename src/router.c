@@ -450,20 +450,21 @@ struct nd_opt_capt_portal {
 };
 
 /* IPv6 RA PIOs */
-inline static int router_compare_pio_addr(const struct ra_pio *pio, const struct odhcpd_ipaddr *addr)
+inline static int
+router_compare_pio_addr(const struct ra_pio *pio, const struct in6_addr *addr, uint8_t prefix_len)
 {
-	uint8_t cmp_len = max(64, max(pio->length, addr->prefix_len));
+	uint8_t cmp_len = max(64, max(pio->length, prefix_len));
 
-	return odhcpd_bmemcmp(&pio->prefix, &addr->addr.in6, cmp_len);
+	return odhcpd_bmemcmp(&pio->prefix, addr, cmp_len);
 }
 
-static struct ra_pio *router_find_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+static struct ra_pio *
+router_find_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
-		if (!router_compare_pio_addr(cur_pio, addr))
+		if (!router_compare_pio_addr(cur_pio, addr, prefix_len))
 			return cur_pio;
 	}
 
@@ -476,7 +477,7 @@ static void router_add_ra_pio(struct interface *iface,
 	char ipv6_str[INET6_ADDRSTRLEN];
 	struct ra_pio *new_pios, *pio;
 
-	pio = router_find_ra_pio(iface, addr);
+	pio = router_find_ra_pio(iface, &addr->addr.in6, addr->prefix_len);
 	if (pio) {
 		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
 		    pio->length != addr->prefix_len)
@@ -599,7 +600,7 @@ static void router_stale_ra_pio(struct interface *iface,
 	struct odhcpd_ipaddr *addr,
 	time_t now)
 {
-	struct ra_pio *pio = router_find_ra_pio(iface, addr);
+	struct ra_pio *pio = router_find_ra_pio(iface, &addr->addr.in6, addr->prefix_len);
 	char ipv6_str[INET6_ADDRSTRLEN];
 
 	if (!pio || pio->lifetime)
@@ -716,7 +717,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
 				struct odhcpd_ipaddr *cur_addr = &addrs[j];
 
-				if (!router_compare_pio_addr(cur_pio, cur_addr)) {
+				if (!router_compare_pio_addr(cur_pio, &cur_addr->addr.in6, cur_addr->prefix_len)) {
 					pio_found = true;
 					break;
 				}

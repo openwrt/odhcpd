@@ -684,7 +684,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	adv.mtu.nd_opt_mtu_mtu = htonl(iface->ra_mtu);
 
-	iov[IOV_RA_ADV].iov_base = (char *)&adv;
+	iov[IOV_RA_ADV].iov_base = &adv;
 	iov[IOV_RA_ADV].iov_len = sizeof(adv);
 
 	valid_addr_cnt = (iface->timer_rs.cb /* if not shutdown */ ? iface->addr6_len : 0);
@@ -735,6 +735,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 	/* Construct Prefix Information options */
+	if (total_addr_cnt > 0) {
+		pfxs = alloca(total_addr_cnt * sizeof(*pfxs));
+		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
+	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
@@ -762,19 +766,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				p = &pfxs[j];
 		}
 
-		if (!p) {
-			struct nd_opt_prefix_info *tmp;
-
-			tmp = realloc(pfxs, sizeof(*pfxs) * (pfxs_cnt + 1));
-			if (!tmp) {
-				error("Realloc failed for RA prefix option on %s", iface->name);
-				continue;
-			}
-
-			pfxs = tmp;
+		if (!p)
 			p = &pfxs[pfxs_cnt++];
-			memset(p, 0, sizeof(*p));
-		}
 
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
@@ -860,7 +853,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	router_clear_duplicated_ra_pio(iface);
 
-	iov[IOV_RA_PFXS].iov_base = (char *)pfxs;
+	iov[IOV_RA_PFXS].iov_base = pfxs;
 	iov[IOV_RA_PFXS].iov_len = pfxs_cnt * sizeof(*pfxs);
 
 	/* Calculate periodic transmit */
@@ -938,9 +931,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		}
 	}
 
-	iov[IOV_RA_DNS].iov_base = (char *)dns;
+	iov[IOV_RA_DNS].iov_base = dns;
 	iov[IOV_RA_DNS].iov_len = dns_sz;
-	iov[IOV_RA_SEARCH].iov_base = (char *)search;
+	iov[IOV_RA_SEARCH].iov_base = search;
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
 
 	if (iface->pref64_length) {
@@ -955,7 +948,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 					     (0x7 & iface->pref64_plc));
 		memcpy(pref64->prefix, iface->pref64_prefix, sizeof(pref64->prefix));
 	}
-	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
+	iov[IOV_RA_PREF64].iov_base = pref64;
 	iov[IOV_RA_PREF64].iov_len = pref64_sz;
 
 	if (iface->dnr_cnt) {
@@ -1003,7 +996,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(tmp, iface->dnr[i].svc, iface->dnr[i].svc_len);
 		}
 	}
-	iov[IOV_RA_DNR].iov_base = (char *)dnrs;
+	iov[IOV_RA_DNR].iov_base = dnrs;
 	iov[IOV_RA_DNR].iov_len = dnrs_sz;
 
 	/*
@@ -1015,25 +1008,26 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           independent of having or not having IPv6 connectivity on the
 	 *           WAN interface.
 	 */
-
+	if (valid_addr_cnt > 0) {
+		routes = alloca(valid_addr_cnt * sizeof(*routes));
+		memset(routes, 0, valid_addr_cnt * sizeof(*routes));
+	}
 	for (size_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;
 
 		if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 || addr->valid_lt <= (uint32_t)now) {
 			info("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
 			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			     addr->dprefix_len, addr->valid_lt, iface->name);
-
-			continue; /* Address not suitable */
+			continue;
 		}
 
 		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
 			info("Address %s filtered out as RA route on %s",
 			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			     iface->name);
-			continue; /* PIO filtered out of this RA */
+			continue;
 		}
 
 		if (addr->dprefix_len > 32) {
@@ -1043,15 +1037,6 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			addr->addr.in6.s6_addr32[1] = 0;
 		}
 
-		tmp = realloc(routes, sizeof(*routes) * (routes_cnt + 1));
-		if (!tmp) {
-			error("Realloc failed for RA route option on %s", iface->name);
-			continue;
-		}
-
-		routes = tmp;
-
-		memset(&routes[routes_cnt], 0, sizeof(*routes));
 		routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
 		routes[routes_cnt].len = sizeof(*routes) / 8;
 		routes[routes_cnt].prefix_len = addr->dprefix_len;
@@ -1070,10 +1055,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		routes[routes_cnt].addr[2] = 0;
 		routes[routes_cnt].addr[3] = 0;
 
-		++routes_cnt;
+		routes_cnt++;
 	}
-
-	iov[IOV_RA_ROUTES].iov_base = (char *)routes;
+	iov[IOV_RA_ROUTES].iov_base = routes;
 	iov[IOV_RA_ROUTES].iov_len = routes_cnt * sizeof(*routes);
 
 	memset(&adv_interval, 0, sizeof(adv_interval));
@@ -1081,11 +1065,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	adv_interval.nd_opt_adv_interval_len = 1;
 	adv_interval.nd_opt_adv_interval_ival = htonl(maxival*1000);
 
-	iov[IOV_RA_ADV_INTERVAL].iov_base = (char *)&adv_interval;
+	iov[IOV_RA_ADV_INTERVAL].iov_base = &adv_interval;
 	iov[IOV_RA_ADV_INTERVAL].iov_len = adv_interval.nd_opt_adv_interval_len * 8;
 
 	/* RFC 8910 Captive Portal */
-	uint8_t *captive_portal_uri = (uint8_t *)iface->captive_portal_uri;
 	if (iface->captive_portal_uri_len > 0) {
 		/* compute pad so that (header + data + pad) is a multiple of 8 */
 		capt_portal_sz = (sizeof(struct nd_opt_capt_portal) + iface->captive_portal_uri_len + 7) & ~7;
@@ -1096,7 +1079,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		capt_portal->type = ND_OPT_CAPTIVE_PORTAL;
 		capt_portal->len = capt_portal_sz / 8;
 
-		memcpy(capt_portal->data, captive_portal_uri, iface->captive_portal_uri_len);
+		memcpy(capt_portal->data, iface->captive_portal_uri, iface->captive_portal_uri_len);
 		/* remaining padding bytes already set to 0x00 */
 	}
 
@@ -1120,9 +1103,6 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 out:
-	free(pfxs);
-	free(routes);
-
 	return msecs;
 }
 

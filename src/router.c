@@ -471,17 +471,16 @@ router_find_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t
 	return NULL;
 }
 
-static void router_add_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+static void
+router_add_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	char ipv6_str[INET6_ADDRSTRLEN];
 	struct ra_pio *new_pios, *pio;
 
-	pio = router_find_ra_pio(iface, &addr->addr.in6, addr->prefix_len);
+	pio = router_find_ra_pio(iface, addr, prefix_len);
 	if (pio) {
-		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
-		    pio->length != addr->prefix_len)
-		{
+		if (pio->length != prefix_len ||
+		    odhcpd_bmemcmp(&pio->prefix, addr, prefix_len)) {
 			char new_ipv6_str[INET6_ADDRSTRLEN];
 
 			iface->pio_update = true;
@@ -489,11 +488,12 @@ static void router_add_ra_pio(struct interface *iface,
 			     iface->ifname,
 			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
 			     pio->length,
-			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
-			     addr->prefix_len);
+			     inet_ntop(AF_INET6, addr, new_ipv6_str, sizeof(new_ipv6_str)),
+			     prefix_len);
 
-			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-			pio->length = addr->prefix_len;
+			memset(&pio->prefix, 0, sizeof(pio->prefix));
+			odhcpd_bmemcpy(&pio->prefix, &addr, prefix_len);
+			pio->length = prefix_len;
 		}
 
 		if (pio->lifetime) {
@@ -514,12 +514,11 @@ static void router_add_ra_pio(struct interface *iface,
 		return;
 
 	iface->pios = new_pios;
-	pio = &iface->pios[iface->pio_cnt];
-	iface->pio_cnt++;
+	pio = &iface->pios[iface->pio_cnt++];
+	memset(pio, 0, sizeof(*pio));
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-	pio->length = addr->prefix_len;
-	pio->lifetime = 0;
+	odhcpd_bmemcpy(&pio->prefix, addr, prefix_len);
+	pio->length = prefix_len;
 
 	iface->pio_update = true;
 	info("rfc9096: %s: add %s/%u",
@@ -596,11 +595,11 @@ static void router_clear_expired_ra_pio(time_t now,
 	}
 }
 
-static void router_stale_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr,
-	time_t now)
+static void
+router_stale_ra_pio(struct interface *iface, const struct in6_addr *addr,
+		    uint8_t prefix_len, time_t now)
 {
-	struct ra_pio *pio = router_find_ra_pio(iface, &addr->addr.in6, addr->prefix_len);
+	struct ra_pio *pio = router_find_ra_pio(iface, addr, prefix_len);
 	char ipv6_str[INET6_ADDRSTRLEN];
 
 	if (!pio || pio->lifetime)
@@ -850,12 +849,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			p->nd_opt_pi_preferred_time = 0;
 			p->nd_opt_pi_valid_time = 0;
 
-			router_stale_ra_pio(iface, addr, now);
+			router_stale_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len, now);
 		} else {
 			p->nd_opt_pi_preferred_time = htonl(preferred_lt);
 			p->nd_opt_pi_valid_time = htonl(valid_lt);
 
-			router_add_ra_pio(iface, addr);
+			router_add_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len);
 		}
 	}
 

@@ -450,37 +450,37 @@ struct nd_opt_capt_portal {
 };
 
 /* IPv6 RA PIOs */
-inline static int router_compare_pio_addr(const struct ra_pio *pio, const struct odhcpd_ipaddr *addr)
+inline static int
+router_compare_pio_addr(const struct ra_pio *pio, const struct in6_addr *addr, uint8_t prefix_len)
 {
-	uint8_t cmp_len = max(64, max(pio->length, addr->prefix_len));
+	uint8_t cmp_len = max(64, max(pio->length, prefix_len));
 
-	return odhcpd_bmemcmp(&pio->prefix, &addr->addr.in6, cmp_len);
+	return odhcpd_bmemcmp(&pio->prefix, addr, cmp_len);
 }
 
-static struct ra_pio *router_find_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+static struct ra_pio *
+router_find_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
-		if (!router_compare_pio_addr(cur_pio, addr))
+		if (!router_compare_pio_addr(cur_pio, addr, prefix_len))
 			return cur_pio;
 	}
 
 	return NULL;
 }
 
-static void router_add_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+static void
+router_add_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	char ipv6_str[INET6_ADDRSTRLEN];
 	struct ra_pio *new_pios, *pio;
 
-	pio = router_find_ra_pio(iface, addr);
+	pio = router_find_ra_pio(iface, addr, prefix_len);
 	if (pio) {
-		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
-		    pio->length != addr->prefix_len)
-		{
+		if (pio->length != prefix_len ||
+		    odhcpd_bmemcmp(&pio->prefix, addr, prefix_len)) {
 			char new_ipv6_str[INET6_ADDRSTRLEN];
 
 			iface->pio_update = true;
@@ -488,11 +488,12 @@ static void router_add_ra_pio(struct interface *iface,
 			     iface->ifname,
 			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
 			     pio->length,
-			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
-			     addr->prefix_len);
+			     inet_ntop(AF_INET6, addr, new_ipv6_str, sizeof(new_ipv6_str)),
+			     prefix_len);
 
-			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-			pio->length = addr->prefix_len;
+			memset(&pio->prefix, 0, sizeof(pio->prefix));
+			odhcpd_bmemcpy(&pio->prefix, &addr, prefix_len);
+			pio->length = prefix_len;
 		}
 
 		if (pio->lifetime) {
@@ -513,12 +514,11 @@ static void router_add_ra_pio(struct interface *iface,
 		return;
 
 	iface->pios = new_pios;
-	pio = &iface->pios[iface->pio_cnt];
-	iface->pio_cnt++;
+	pio = &iface->pios[iface->pio_cnt++];
+	memset(pio, 0, sizeof(*pio));
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-	pio->length = addr->prefix_len;
-	pio->lifetime = 0;
+	odhcpd_bmemcpy(&pio->prefix, addr, prefix_len);
+	pio->length = prefix_len;
 
 	iface->pio_update = true;
 	info("rfc9096: %s: add %s/%u",
@@ -539,17 +539,19 @@ static void router_clear_duplicated_ra_pio(struct interface *iface)
 		while (j < iface->pio_cnt) {
 			struct ra_pio *pio_b = &iface->pios[j];
 
-			if (!memcmp(pio_a, pio_b, ra_pio_cmp_len)) {
-				warn("rfc9096: %s: clear duplicated %s/%u",
-				     iface->ifname,
-				     inet_ntop(AF_INET6, &pio_a->prefix, ipv6_str, sizeof(ipv6_str)),
-				     pio_a->length);
-
-				iface->pios[j] = iface->pios[iface->pio_cnt - 1];
-				iface->pio_cnt--;
-			} else {
+			if (pio_a->length != pio_b->length ||
+			    memcmp(&pio_a->prefix, &pio_b->prefix, sizeof(pio_a->prefix))) {
 				j++;
+				continue;
 			}
+
+			warn("rfc9096: %s: clear duplicated prefix %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &pio_a->prefix, ipv6_str, sizeof(ipv6_str)),
+			     pio_a->length);
+
+			iface->pios[j] = iface->pios[iface->pio_cnt - 1];
+			iface->pio_cnt--;
 		}
 	}
 
@@ -594,11 +596,11 @@ static void router_clear_expired_ra_pio(time_t now,
 	}
 }
 
-static void router_stale_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr,
-	time_t now)
+static void
+router_stale_ra_pio(struct interface *iface, const struct in6_addr *addr,
+		    uint8_t prefix_len, time_t now)
 {
-	struct ra_pio *pio = router_find_ra_pio(iface, addr);
+	struct ra_pio *pio = router_find_ra_pio(iface, addr, prefix_len);
 	char ipv6_str[INET6_ADDRSTRLEN];
 
 	if (!pio || pio->lifetime)
@@ -683,7 +685,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	adv.mtu.nd_opt_mtu_mtu = htonl(iface->ra_mtu);
 
-	iov[IOV_RA_ADV].iov_base = (char *)&adv;
+	iov[IOV_RA_ADV].iov_base = &adv;
 	iov[IOV_RA_ADV].iov_len = sizeof(adv);
 
 	valid_addr_cnt = (iface->timer_rs.cb /* if not shutdown */ ? iface->addr6_len : 0);
@@ -715,7 +717,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
 				struct odhcpd_ipaddr *cur_addr = &addrs[j];
 
-				if (!router_compare_pio_addr(cur_pio, cur_addr)) {
+				if (!router_compare_pio_addr(cur_pio, &cur_addr->addr.in6, cur_addr->prefix_len)) {
 					pio_found = true;
 					break;
 				}
@@ -734,6 +736,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 	/* Construct Prefix Information options */
+	if (total_addr_cnt > 0) {
+		pfxs = alloca(total_addr_cnt * sizeof(*pfxs));
+		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
+	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
@@ -761,19 +767,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				p = &pfxs[j];
 		}
 
-		if (!p) {
-			struct nd_opt_prefix_info *tmp;
-
-			tmp = realloc(pfxs, sizeof(*pfxs) * (pfxs_cnt + 1));
-			if (!tmp) {
-				error("Realloc failed for RA prefix option on %s", iface->name);
-				continue;
-			}
-
-			pfxs = tmp;
+		if (!p)
 			p = &pfxs[pfxs_cnt++];
-			memset(p, 0, sizeof(*p));
-		}
 
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
@@ -848,18 +843,18 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			p->nd_opt_pi_preferred_time = 0;
 			p->nd_opt_pi_valid_time = 0;
 
-			router_stale_ra_pio(iface, addr, now);
+			router_stale_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len, now);
 		} else {
 			p->nd_opt_pi_preferred_time = htonl(preferred_lt);
 			p->nd_opt_pi_valid_time = htonl(valid_lt);
 
-			router_add_ra_pio(iface, addr);
+			router_add_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len);
 		}
 	}
 
 	router_clear_duplicated_ra_pio(iface);
 
-	iov[IOV_RA_PFXS].iov_base = (char *)pfxs;
+	iov[IOV_RA_PFXS].iov_base = pfxs;
 	iov[IOV_RA_PFXS].iov_len = pfxs_cnt * sizeof(*pfxs);
 
 	/* Calculate periodic transmit */
@@ -937,9 +932,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		}
 	}
 
-	iov[IOV_RA_DNS].iov_base = (char *)dns;
+	iov[IOV_RA_DNS].iov_base = dns;
 	iov[IOV_RA_DNS].iov_len = dns_sz;
-	iov[IOV_RA_SEARCH].iov_base = (char *)search;
+	iov[IOV_RA_SEARCH].iov_base = search;
 	iov[IOV_RA_SEARCH].iov_len = search_sz;
 
 	if (iface->pref64_length) {
@@ -954,7 +949,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 					     (0x7 & iface->pref64_plc));
 		memcpy(pref64->prefix, iface->pref64_prefix, sizeof(pref64->prefix));
 	}
-	iov[IOV_RA_PREF64].iov_base = (char *)pref64;
+	iov[IOV_RA_PREF64].iov_base = pref64;
 	iov[IOV_RA_PREF64].iov_len = pref64_sz;
 
 	if (iface->dnr_cnt) {
@@ -1002,7 +997,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(tmp, iface->dnr[i].svc, iface->dnr[i].svc_len);
 		}
 	}
-	iov[IOV_RA_DNR].iov_base = (char *)dnrs;
+	iov[IOV_RA_DNR].iov_base = dnrs;
 	iov[IOV_RA_DNR].iov_len = dnrs_sz;
 
 	/*
@@ -1014,25 +1009,26 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           independent of having or not having IPv6 connectivity on the
 	 *           WAN interface.
 	 */
-
+	if (valid_addr_cnt > 0) {
+		routes = alloca(valid_addr_cnt * sizeof(*routes));
+		memset(routes, 0, valid_addr_cnt * sizeof(*routes));
+	}
 	for (size_t i = 0; i < valid_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
-		struct nd_opt_route_info *tmp;
 		uint32_t valid_lt;
 
 		if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 || addr->valid_lt <= (uint32_t)now) {
-			info("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
-			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			     addr->dprefix_len, addr->valid_lt, iface->name);
-
-			continue; /* Address not suitable */
+			debug("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
+			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			      addr->dprefix_len, addr->valid_lt, iface->name);
+			continue;
 		}
 
 		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
-			info("Address %s filtered out as RA route on %s",
-			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			     iface->name);
-			continue; /* PIO filtered out of this RA */
+			debug("Address %s filtered out as RA route on %s",
+			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+			      iface->name);
+			continue;
 		}
 
 		if (addr->dprefix_len > 32) {
@@ -1042,15 +1038,6 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			addr->addr.in6.s6_addr32[1] = 0;
 		}
 
-		tmp = realloc(routes, sizeof(*routes) * (routes_cnt + 1));
-		if (!tmp) {
-			error("Realloc failed for RA route option on %s", iface->name);
-			continue;
-		}
-
-		routes = tmp;
-
-		memset(&routes[routes_cnt], 0, sizeof(*routes));
 		routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
 		routes[routes_cnt].len = sizeof(*routes) / 8;
 		routes[routes_cnt].prefix_len = addr->dprefix_len;
@@ -1069,10 +1056,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		routes[routes_cnt].addr[2] = 0;
 		routes[routes_cnt].addr[3] = 0;
 
-		++routes_cnt;
+		routes_cnt++;
 	}
-
-	iov[IOV_RA_ROUTES].iov_base = (char *)routes;
+	iov[IOV_RA_ROUTES].iov_base = routes;
 	iov[IOV_RA_ROUTES].iov_len = routes_cnt * sizeof(*routes);
 
 	memset(&adv_interval, 0, sizeof(adv_interval));
@@ -1080,11 +1066,10 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	adv_interval.nd_opt_adv_interval_len = 1;
 	adv_interval.nd_opt_adv_interval_ival = htonl(maxival*1000);
 
-	iov[IOV_RA_ADV_INTERVAL].iov_base = (char *)&adv_interval;
+	iov[IOV_RA_ADV_INTERVAL].iov_base = &adv_interval;
 	iov[IOV_RA_ADV_INTERVAL].iov_len = adv_interval.nd_opt_adv_interval_len * 8;
 
 	/* RFC 8910 Captive Portal */
-	uint8_t *captive_portal_uri = (uint8_t *)iface->captive_portal_uri;
 	if (iface->captive_portal_uri_len > 0) {
 		/* compute pad so that (header + data + pad) is a multiple of 8 */
 		capt_portal_sz = (sizeof(struct nd_opt_capt_portal) + iface->captive_portal_uri_len + 7) & ~7;
@@ -1095,7 +1080,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		capt_portal->type = ND_OPT_CAPTIVE_PORTAL;
 		capt_portal->len = capt_portal_sz / 8;
 
-		memcpy(capt_portal->data, captive_portal_uri, iface->captive_portal_uri_len);
+		memcpy(capt_portal->data, iface->captive_portal_uri, iface->captive_portal_uri_len);
 		/* remaining padding bytes already set to 0x00 */
 	}
 
@@ -1119,9 +1104,6 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	}
 
 out:
-	free(pfxs);
-	free(routes);
-
 	return msecs;
 }
 

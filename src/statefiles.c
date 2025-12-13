@@ -143,23 +143,23 @@ static inline bool statefiles_ra_pio_enabled(struct interface *iface)
 
 static bool statefiles_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 {
-	time_t pio_json_time, pio_time;
+	time_t pio_json_time, pio_time = 0;
 	json_object *time_json;
 
 	time_json = json_object_object_get(slaac_json, JSON_TIME);
 	if (!time_json)
-		return true;
+		goto out;
 
-	pio_json_time = (time_t) json_object_get_int64(time_json);
+	pio_json_time = (time_t)json_object_get_int64(time_json);
 	if (!pio_json_time)
-		return true;
+		goto out;
 
 	pio_time = statefiles_time_from_json(pio_json_time);
 	if (!pio_time)
 		return false;
 
+out:
 	*slaac_time = pio_time;
-
 	return true;
 }
 
@@ -220,7 +220,7 @@ void statefiles_read_prefix_information(struct interface *iface)
 	for (size_t i = 0; i < pio_cnt; i++) {
 		json_object *cur_pio_json, *length_json, *prefix_json;
 		const char *pio_str;
-		time_t pio_lt = 0;
+		time_t pio_lt;
 		struct ra_pio *pio;
 		uint8_t pio_len;
 

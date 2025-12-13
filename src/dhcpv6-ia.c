@@ -1091,8 +1091,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				 * If there's a DUID configured for this static lease, but without
 				 * an IAID, we will proceed under the assumption that a request
 				 * with the right DUID but with *any* IAID should be able to take
-				 * over the assignment. E.g. when switching from WiFi to ethernet
-				 * on the same client. This is similar to how multiple MAC adresses
+				 * over the assignment. E.g. when switching from WiFi to Ethernet
+				 * on the same client. This is similar to how multiple MAC addresses
 				 * are handled for DHCPv4.
 				 */
 				for (size_t i = 0; i < lease_cfg->duid_count; i++) {
@@ -1251,7 +1251,7 @@ proceed:
 				a->bound = true;
 				apply_lease(a, true);
 			} else if (!assigned) {
-				/* Cleanup failed assignment */
+				/* Clean up failed assignment */
 				dhcpv6_free_lease(a);
 				a = NULL;
 			}

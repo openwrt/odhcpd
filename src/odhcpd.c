@@ -16,7 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
-#include <resolv.h>
 #include <getopt.h>
 #include <stddef.h>
 #include <stdlib.h>

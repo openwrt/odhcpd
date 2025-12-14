@@ -69,7 +69,8 @@ struct sys_conf sys_conf = {
 #define HOSTID_LEN_MAX	64
 #define HOSTID_LEN_DEFAULT HOSTID_LEN_MIN
 
-#define PD_MIN_LEN_MAX	64
+#define PD_MIN_LEN_MAX		64
+#define PD_MIN_LEN_DEFAULT	62
 
 #define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
 
@@ -324,7 +325,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_pd_preferred = false;
-	iface->dhcpv6_pd_min_len = 0;
+	iface->dhcpv6_pd_min_len = PD_MIN_LEN_DEFAULT;
 	iface->dhcpv6_na = true;
 	iface->dhcpv6_hostid_len = HOSTID_LEN_DEFAULT;
 	iface->dns_service = true;

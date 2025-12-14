@@ -108,6 +108,7 @@ static void statefiles_finish_tmp_file(int dirfd, FILE **fpp, const char *prefix
 	renameat(dirfd, ODHCPD_TMP_FILE, dirfd, filename);
 }
 
+#define JSON_ADDRESS "address"
 #define JSON_LENGTH "length"
 #define JSON_PREFIX "prefix"
 #define JSON_SLAAC "slaac"
@@ -218,8 +219,8 @@ void statefiles_read_prefix_information(struct interface *iface)
 	iface->pios = new_pios;
 	iface->pio_cnt = 0;
 	for (size_t i = 0; i < pio_cnt; i++) {
-		json_object *cur_pio_json, *length_json, *prefix_json;
-		const char *pio_str;
+		json_object *cur_pio_json, *length_json, *addr_json;
+		const char *pio_addr;
 		time_t pio_lt = 0;
 		struct ra_pio *pio;
 		uint8_t pio_len;
@@ -235,20 +236,22 @@ void statefiles_read_prefix_information(struct interface *iface)
 		if (!length_json)
 			continue;
 
-		prefix_json = json_object_object_get(cur_pio_json, JSON_PREFIX);
-		if (!prefix_json)
+		addr_json = json_object_object_get(cur_pio_json, JSON_ADDRESS);
+		if (!addr_json)
+			addr_json = json_object_object_get(cur_pio_json, JSON_PREFIX);
+		if (!addr_json)
 			continue;
 
 		pio_len = (uint8_t) json_object_get_uint64(length_json);
-		pio_str = json_object_get_string(prefix_json);
+		pio_addr = json_object_get_string(addr_json);
 		pio = &iface->pios[iface->pio_cnt];
 
-		inet_pton(AF_INET6, pio_str, &pio->prefix);
+		inet_pton(AF_INET6, pio_addr, &pio->addr);
 		pio->length = pio_len;
 		pio->lifetime = pio_lt;
 		info("rfc9096: %s: load %s/%u (%u)",
 		     iface->ifname,
-		     pio_str,
+		     pio_addr,
 		     pio_len,
 		     ra_pio_lifetime(pio, now));
 
@@ -299,7 +302,7 @@ void statefiles_write_prefix_information(struct interface *iface)
 	json_object_object_add(json, JSON_SLAAC, slaac_json);
 
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
-		struct json_object *cur_pio_json, *len_json, *pfx_json;
+		struct json_object *cur_pio_json, *len_json, *addr_json;
 		const struct ra_pio *cur_pio = &iface->pios[i];
 
 		if (ra_pio_expired(cur_pio, now))
@@ -309,10 +312,10 @@ void statefiles_write_prefix_information(struct interface *iface)
 		if (!cur_pio_json)
 			continue;
 
-		inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str));
+		inet_ntop(AF_INET6, &cur_pio->addr, ipv6_str, sizeof(ipv6_str));
 
-		pfx_json = json_object_new_string(ipv6_str);
-		if (!pfx_json) {
+		addr_json = json_object_new_string(ipv6_str);
+		if (!addr_json) {
 			json_object_put(cur_pio_json);
 			continue;
 		}
@@ -320,11 +323,11 @@ void statefiles_write_prefix_information(struct interface *iface)
 		len_json = json_object_new_uint64(cur_pio->length);
 		if (!len_json) {
 			json_object_put(cur_pio_json);
-			json_object_put(pfx_json);
+			json_object_put(addr_json);
 			continue;
 		}
 
-		json_object_object_add(cur_pio_json, JSON_PREFIX, pfx_json);
+		json_object_object_add(cur_pio_json, JSON_ADDRESS, addr_json);
 		json_object_object_add(cur_pio_json, JSON_LENGTH, len_json);
 
 		if (cur_pio->lifetime) {

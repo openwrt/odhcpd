@@ -213,11 +213,11 @@ static int handle_ra_pio(_o_unused struct ubus_context *ctx, _o_unused struct ub
 			pio_lt = ra_pio_lifetime(cur_pio, now);
 			pio_stale = ra_pio_stale(cur_pio);
 
-			inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str));
+			inet_ntop(AF_INET6, &cur_pio->addr, ipv6_str, sizeof(ipv6_str));
 
 			if (pio_lt)
 				blobmsg_add_u32(&b, "lifetime", pio_lt);
-			blobmsg_add_string(&b, "prefix", ipv6_str);
+			blobmsg_add_string(&b, "address", ipv6_str);
 			blobmsg_add_u16(&b, "length", cur_pio->length);
 			blobmsg_add_u8(&b, "stale", pio_stale);
 

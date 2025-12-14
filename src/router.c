@@ -454,7 +454,7 @@ inline static int router_compare_pio_addr(const struct ra_pio *pio, const struct
 {
 	uint8_t cmp_len = max(64, max(pio->length, addr->prefix_len));
 
-	return odhcpd_bmemcmp(&pio->prefix, &addr->addr.in6, cmp_len);
+	return odhcpd_bmemcmp(&pio->addr, &addr->addr.in6, cmp_len);
 }
 
 static struct ra_pio *router_find_ra_pio(struct interface *iface,
@@ -478,7 +478,7 @@ static void router_add_ra_pio(struct interface *iface,
 
 	pio = router_find_ra_pio(iface, addr);
 	if (pio) {
-		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
+		if (memcmp(&pio->addr, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
 		    pio->length != addr->prefix_len)
 		{
 			char new_ipv6_str[INET6_ADDRSTRLEN];
@@ -486,12 +486,12 @@ static void router_add_ra_pio(struct interface *iface,
 			iface->pio_update = true;
 			warn("rfc9096: %s: changed %s/%u -> %s/%u",
 			     iface->ifname,
-			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     inet_ntop(AF_INET6, &pio->addr, ipv6_str, sizeof(ipv6_str)),
 			     pio->length,
 			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
 			     addr->prefix_len);
 
-			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
+			memcpy(&pio->addr, &addr->addr.in6, sizeof(struct in6_addr));
 			pio->length = addr->prefix_len;
 		}
 
@@ -501,7 +501,7 @@ static void router_add_ra_pio(struct interface *iface,
 			iface->pio_update = true;
 			warn("rfc9096: %s: renew %s/%u",
 			     iface->ifname,
-			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     inet_ntop(AF_INET6, &pio->addr, ipv6_str, sizeof(ipv6_str)),
 			     pio->length);
 		}
 
@@ -516,14 +516,14 @@ static void router_add_ra_pio(struct interface *iface,
 	pio = &iface->pios[iface->pio_cnt];
 	iface->pio_cnt++;
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
+	memcpy(&pio->addr, &addr->addr.in6, sizeof(struct in6_addr));
 	pio->length = addr->prefix_len;
 	pio->lifetime = 0;
 
 	iface->pio_update = true;
 	info("rfc9096: %s: add %s/%u",
 	     iface->ifname,
-	     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+	     inet_ntop(AF_INET6, &pio->addr, ipv6_str, sizeof(ipv6_str)),
 	     pio->length);
 }
 
@@ -540,10 +540,10 @@ static void router_clear_duplicated_ra_pio(struct interface *iface)
 			struct ra_pio *pio_b = &iface->pios[j];
 
 			if (pio_a->length == pio_b->length &&
-			    !memcmp(&pio_a->prefix, &pio_b->prefix, sizeof(struct in6_addr))) {
+			    !memcmp(&pio_a->addr, &pio_b->addr, sizeof(struct in6_addr))) {
 				warn("rfc9096: %s: clear duplicated %s/%u",
 				     iface->ifname,
-				     inet_ntop(AF_INET6, &pio_a->prefix, ipv6_str, sizeof(ipv6_str)),
+				     inet_ntop(AF_INET6, &pio_a->addr, ipv6_str, sizeof(ipv6_str)),
 				     pio_a->length);
 
 				iface->pios[j] = iface->pios[iface->pio_cnt - 1];
@@ -574,7 +574,7 @@ static void router_clear_expired_ra_pio(time_t now,
 		if (ra_pio_expired(cur_pio, now)) {
 			info("rfc9096: %s: clear expired %s/%u",
 			     iface->ifname,
-			     inet_ntop(AF_INET6, &cur_pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     inet_ntop(AF_INET6, &cur_pio->addr, ipv6_str, sizeof(ipv6_str)),
 			     cur_pio->length);
 
 			iface->pios[i] = iface->pios[iface->pio_cnt - 1];
@@ -610,7 +610,7 @@ static void router_stale_ra_pio(struct interface *iface,
 	iface->pio_update = true;
 	warn("rfc9096: %s: stale %s/%u",
 	     iface->ifname,
-	     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+	     inet_ntop(AF_INET6, &pio->addr, ipv6_str, sizeof(ipv6_str)),
 	     pio->length);
 }
 
@@ -725,7 +725,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			if (!pio_found) {
 				struct odhcpd_ipaddr *addr = &addrs[total_addr_cnt];
 
-				memcpy(&addr->addr.in6, &cur_pio->prefix, sizeof(addr->addr.in6));
+				memcpy(&addr->addr.in6, &cur_pio->addr, sizeof(addr->addr.in6));
 				addr->prefix_len = cur_pio->length;
 				addr->preferred_lt = 0;
 				addr->valid_lt = (uint32_t) (now + ND_VALID_LIMIT);

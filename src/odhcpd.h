@@ -346,7 +346,7 @@ struct dnr_options {
 
 // RA PIO - RFC9096
 struct ra_pio {
-	struct in6_addr prefix;
+	struct in6_addr addr;
 	uint8_t length;
 	time_t lifetime;
 };

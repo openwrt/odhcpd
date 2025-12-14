@@ -862,6 +862,9 @@ static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,
 	case DHCPV6_MSG_DECLINE:
 		type = "DECLINE";
 		break;
+	case DHCPV6_MSG_ADDR_REG_INFORM:
+		type = "ADDR-REG-INFORM";
+		break;
 	}
 
 	switch (code) {
@@ -985,6 +988,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
 		bool is_na = (otype == DHCPV6_OPT_IA_NA);
 		bool ia_addr_present = false;
+		uint32_t reg_addr_valid_lt = 0;
+		uint32_t reg_addr_preferred_lt = 0;
 		if (!is_pd && !is_na)
 			continue;
 
@@ -1052,6 +1057,19 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
 					continue;
 
+				if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM) {
+					struct dhcpv6_ia_addr *ia_addr = (struct dhcpv6_ia_addr *)&sdata[-4];
+					/* RFC9686 §4.2 "fate sharing" or §4.2.1
+					 * Servers MUST discard any ADDR-REG-INFORM messages where
+					 * the IP address in the IA Address option does not match the
+					 * source address of the original ADDR-REG-INFORM message sent
+					 * by the client */
+					if(memcmp(&ia_addr->addr, &addr->sin6_addr, sizeof(struct in6_addr)) != 0)
+						return -1;
+					reg_addr_valid_lt = ntohl(ia_addr->valid_lt);
+					reg_addr_preferred_lt = ntohl(ia_addr->preferred_lt);
+				}
+
 				ia_addr_present = true;
 			}
 		}
@@ -1091,8 +1109,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				 * If there's a DUID configured for this static lease, but without
 				 * an IAID, we will proceed under the assumption that a request
 				 * with the right DUID but with *any* IAID should be able to take
-				 * over the assignment. E.g. when switching from WiFi to ethernet
-				 * on the same client. This is similar to how multiple MAC adresses
+				 * over the assignment. E.g. when switching from WiFi to Ethernet
+				 * on the same client. This is similar to how multiple MAC addresses
 				 * are handled for DHCPv4.
 				 */
 				for (size_t i = 0; i < lease_cfg->duid_count; i++) {
@@ -1138,8 +1156,30 @@ proceed:
 
 		if (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
 				hdr->msg_type == DHCPV6_MSG_REQUEST ||
-				(hdr->msg_type == DHCPV6_MSG_REBIND && !a)) {
+				(hdr->msg_type == DHCPV6_MSG_REBIND && !a) ||
+				(hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM && !a)) {
 			bool assigned = !!a;
+
+			if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM) {
+				/* RFC9686 - Address Registration
+				 * Handle client-initiated address registration (e.g. for SLAAC addresses).
+				 * The client registers addresses it has configured.
+				 */
+				char addrbuf[INET6_ADDRSTRLEN];
+				inet_ntop(AF_INET6, &addr->sin6_addr, addrbuf, sizeof(addrbuf));
+
+				if (ia_addr_present && !dhcpv6_ia_on_link(ia, a, iface)) {
+					/* RFC9686 §4.2.1 - the server MUST drop the message and SHOULD log this fact */
+					notice("Client %s attempted to register an address not on this link", addrbuf);
+					return -1;
+				} else if (!ia_addr_present) {
+					/* RFC9686 §4.2.1
+					 * Servers MUST discard any ADDR-REG-INFORM messages where
+					 * the message does not include the IA Address option */
+					notice("Client %s included no IA Address option in ADDR-REG-INFORM", addrbuf);
+					return -1;
+				}
+			}
 
 			if (!a) {
 				if ((!iface->no_dynamic_dhcp || (lease_cfg && is_na)) &&
@@ -1161,6 +1201,13 @@ proceed:
 						a->preferred_until = now;
 						a->iface = iface;
 						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);
+
+						if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM) {
+
+							a->valid_until = now + reg_addr_valid_lt;
+							a->preferred_until = now + reg_addr_preferred_lt;
+
+						}
 
 						if (first)
 							memcpy(a->key, first->key, sizeof(a->key));
@@ -1237,7 +1284,8 @@ proceed:
 			} else if (assigned &&
 				   ((hdr->msg_type == DHCPV6_MSG_SOLICIT && rapid_commit) ||
 				    hdr->msg_type == DHCPV6_MSG_REQUEST ||
-				    hdr->msg_type == DHCPV6_MSG_REBIND)) {
+				    hdr->msg_type == DHCPV6_MSG_REBIND ||
+				    hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM)) {
 				if (hostname_len > 0 && (!a->lease_cfg || !a->lease_cfg->hostname)) {
 					char *tmp = realloc(a->hostname, hostname_len + 1);
 					if (tmp) {
@@ -1248,10 +1296,18 @@ proceed:
 					}
 				}
 				a->accept_fr_nonce = accept_reconf;
-				a->bound = true;
-				apply_lease(a, true);
+				/* RFC9686 §4.6.3 If the server receives a message with a
+				 * valid-lifetime of zero, it MUST act as if the address has expired.
+				 * A preferred lifetime of 0 means deprecated but still valid. */
+				if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM && reg_addr_valid_lt == 0) {
+					a->bound = false;
+					apply_lease(a, false);
+				} else {
+					a->bound = true;
+					apply_lease(a, true);
+				}
 			} else if (!assigned) {
-				/* Cleanup failed assignment */
+				/* Clean up failed assignment */
 				dhcpv6_free_lease(a);
 				a = NULL;
 			}
@@ -1295,6 +1351,9 @@ proceed:
 		buf += ia_response_len;
 		buflen -= ia_response_len;
 		response_len += ia_response_len;
+		/* RFC9686 §4.2.1 If the message passes the verification, the server: 
+		 * MUST log the address registration information.
+		 * odhcpd logs this here anyway as part of normal operation. */
 		dhcpv6_log(hdr->msg_type, iface, now, duidbuf, is_pd, a, status);
 	}
 

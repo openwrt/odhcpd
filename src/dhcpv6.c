@@ -190,6 +190,7 @@ enum {
 	IOV_TZDB_TZ_STR,
 	IOV_CAPT_PORTAL,
 	IOV_CAPT_PORTAL_URI,
+	IOV_REG_ENABLE,
 	IOV_TOTAL
 };
 
@@ -347,6 +348,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	/* if we include DHCPV4 support, handle this message type */
 	case DHCPV6_MSG_DHCPV4_QUERY:
 #endif
+	case DHCPV6_MSG_ADDR_REG_INFORM:
 		break;
 	/* Invalid message types for clients i.e. server messages */
 	case DHCPV6_MSG_ADVERTISE:
@@ -358,6 +360,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	case DHCPV6_MSG_DHCPV4_QUERY:
 #endif
 	case DHCPV6_MSG_DHCPV4_RESPONSE:
+	case DHCPV6_MSG_ADDR_REG_REPLY:
 	default:
 		return;
 	}
@@ -423,6 +426,15 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint32_t value;
 	} refresh = {htons(DHCPV6_OPT_INFO_REFRESH), htons(sizeof(uint32_t)),
 			htonl(600)};
+
+	struct _o_packed {
+		uint16_t type;
+		uint16_t len;
+	} reg_enable = {
+		htons(DHCPV6_OPT_ADDR_REG_ENABLE),
+		htons(0),
+	};
+	bool client_addr_reg_enable = false;
 
 	struct in6_addr *dns_addrs6 = NULL, dns_addr6;
 	size_t dns_addrs6_cnt = 0;
@@ -611,6 +623,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				memcpy(&d6dnr->len, &d6dnr_len_be, sizeof(d6dnr_len_be));
 			}
 			break;
+
+		case DHCPV6_OPT_ADDR_REG_ENABLE:
+			client_addr_reg_enable = true;
+			break;
 		}
 	}
 
@@ -667,7 +683,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 		[IOV_CAPT_PORTAL] = {&capt_portal, capt_portal_len ? sizeof(capt_portal) : 0},
 		[IOV_CAPT_PORTAL_URI] = {capt_portal_ptr, capt_portal_len ? capt_portal_len : 0},
-		[IOV_BOOTFILE_URL] = {NULL, 0}
+		[IOV_BOOTFILE_URL] = {NULL, 0},
+		[IOV_REG_ENABLE] = {&reg_enable, client_addr_reg_enable ? sizeof(reg_enable) : 0},
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
@@ -687,6 +704,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			memcpy(clientid.buf, odata, olen);
 			iov[IOV_CLIENTID].iov_len = offsetof(typeof(clientid), buf) + olen;
 		} else if (otype == DHCPV6_OPT_SERVERID) {
+			/* RFC9686 §4.2.1 Servers MUST discard any ADDR-REG-INFORM that
+			 * includes a Server Identifier option */
+			if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM)
+				return;
 			if (olen != ntohs(dest.serverid_length) ||
 			    memcmp(odata, &dest.serverid_buf, olen))
 				return; /* Not for us */
@@ -694,6 +715,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			iov[IOV_RAPID_COMMIT].iov_len = sizeof(rapid_commit);
 			o_rapid_commit = true;
 		} else if (otype == DHCPV6_OPT_ORO) {
+			/* RFC9686 §4.2.1 Servers MUST discard any ADDR-REG-INFORM that
+			 * includes an Option Request option */
+			if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM)
+				return;
+
 			for (int i=0; i < olen/2; i++) {
 				uint16_t option = ntohs(((uint16_t *)odata)[i]);
 
@@ -751,6 +777,13 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	if (hdr->msg_type == DHCPV6_MSG_SOLICIT && !o_rapid_commit) {
 		dest.msg_type = DHCPV6_MSG_ADVERTISE;
+	} else if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM) {
+		/* RFC9686 §4.2 The client MUST include the Client Identifier option or
+		 * §4.2.1 Servers MUST discard any ADDR-REG-INFORM messages that do not
+		 * include a Client Identifier option */
+		if (clientid.len == 0)
+			return;
+		dest.msg_type = DHCPV6_MSG_ADDR_REG_REPLY;
 	} else if (hdr->msg_type == DHCPV6_MSG_INFORMATION_REQUEST) {
 		iov[IOV_REFRESH].iov_base = &refresh;
 		iov[IOV_REFRESH].iov_len = sizeof(refresh);
@@ -805,7 +838,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len +
 				      iov[IOV_TZDB_TZ].iov_len + iov[IOV_TZDB_TZ_STR].iov_len +
 				      iov[IOV_CAPT_PORTAL].iov_len + iov[IOV_CAPT_PORTAL_URI].iov_len +
-				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
+				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len +
+				      iov[IOV_REG_ENABLE].iov_len -
 				      (4 + opts_end - opts));
 
 	debug("Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);
@@ -957,6 +991,10 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	struct interface *c;
 	struct odhcpd_ipaddr *ip;
 	struct sockaddr_in6 s;
+	uint16_t otype, olen;
+	uint8_t *start = (uint8_t *)&data, *odata;
+	const uint8_t *end = (uint8_t *)data + len;
+
 
 	switch (h->msg_type) {
 	/* Valid message types from clients */
@@ -970,6 +1008,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	case DHCPV6_MSG_INFORMATION_REQUEST:
 	case DHCPV6_MSG_RELAY_FORW:
 	case DHCPV6_MSG_DHCPV4_QUERY:
+	case DHCPV6_MSG_ADDR_REG_INFORM:
 		break;
 	/* Invalid message types from clients i.e. server messages */
 	case DHCPV6_MSG_ADVERTISE:
@@ -977,6 +1016,7 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	case DHCPV6_MSG_RECONFIGURE:
 	case DHCPV6_MSG_RELAY_REPL:
 	case DHCPV6_MSG_DHCPV4_RESPONSE:
+	case DHCPV6_MSG_ADDR_REG_REPLY:
 		return;
 	default:
 		break;
@@ -989,6 +1029,31 @@ static void relay_client_request(struct sockaddr_in6 *source,
 			return; /* Invalid hop count */
 
 		hdr.hop_count = h->hop_count + 1;
+	}
+
+	/* RFC9686 §4.2 "fate sharing" or 
+	 * RFC9686 §4.2.1 Servers MUST discard any ADDR-REG-INFORM messages where
+	 * the IP address in the IA Address option does not match the source address
+	 * of the original ADDR-REG-INFORM message sent by the client.
+	 * The source address of the original message is the source IP address of
+	 * the packet if it is not (yet) relayed. */
+	if (h->msg_type == DHCPV6_MSG_ADDR_REG_INFORM) {
+		dhcpv6_for_each_option(start, end, otype, olen, odata) {
+			bool is_na = (otype == DHCPV6_OPT_IA_NA);
+			struct dhcpv6_ia_hdr *ia = (struct dhcpv6_ia_hdr*)&odata[-4];
+			if (is_na) {
+				uint8_t *sdata;
+				uint16_t stype, slen;
+				dhcpv6_for_each_sub_option(&ia[1], odata + olen, stype, slen, sdata) {
+					if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
+						return;
+
+					struct dhcpv6_ia_addr *ia_addr = (struct dhcpv6_ia_addr *)&sdata[-4];
+					if (memcmp(&ia_addr->addr, &source->sin6_addr, sizeof(struct in6_addr)) != 0)
+						return;
+				}
+			}
+		}
 	}
 
 	/* use memcpy here as the destination fields are unaligned */

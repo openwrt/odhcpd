@@ -69,7 +69,7 @@ struct sys_conf sys_conf = {
 #define HOSTID_LEN_MAX	64
 #define HOSTID_LEN_DEFAULT HOSTID_LEN_MIN
 
-#define PD_MIN_LEN_MAX (64-2) // must delegate at least 2 bits of prefix
+#define PD_MIN_LEN_MAX	64
 
 #define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
 
@@ -1456,12 +1456,14 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_PD_MIN_LEN])) {
 		uint32_t pd_min_len = blobmsg_get_u32(c);
-		if (pd_min_len > PD_MIN_LEN_MAX)
-			iface->dhcpv6_pd_min_len = PD_MIN_LEN_MAX;
-		iface->dhcpv6_pd_min_len = pd_min_len;
-		if (pd_min_len > PD_MIN_LEN_MAX)
+
+		if (pd_min_len > PD_MIN_LEN_MAX) {
+			pd_min_len = PD_MIN_LEN_MAX;
 			warn("Clamped invalid %s value configured for interface '%s' to %d",
-			     iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, iface->dhcpv6_pd_min_len);
+			     iface_attrs[IFACE_ATTR_DHCPV6_PD_MIN_LEN].name, iface->name, pd_min_len);
+		}
+
+		iface->dhcpv6_pd_min_len = pd_min_len;
 	}
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))

@@ -207,6 +207,9 @@ enum duid_type {
 	DUID_TYPE_UUID = 4,
 };
 
+/* Linux kernel boot_id = UUIDv4 */
+#define BOOT_ID_LEN 36
+
 struct config {
 	bool enable_tz;
 	bool main_dhcpv4;
@@ -228,6 +231,8 @@ struct config {
 
 	uint8_t default_duid[DUID_MAX_LEN];
 	size_t default_duid_len;
+
+	uint8_t boot_id[BOOT_ID_LEN + 1];
 };
 
 struct sys_conf {

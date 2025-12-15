@@ -106,6 +106,20 @@ static bool ipv6_enabled(void)
 	return true;
 }
 
+static void read_boot_id(void)
+{
+	int fd;
+
+	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+
+	if (read(fd, config.boot_id, sizeof(config.boot_id) - 1) <= 0)
+		warn("Failed to read boot_id");
+
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	int opt;
@@ -162,6 +176,8 @@ int main(int argc, char **argv)
 	}
 
 	uloop_init();
+
+	read_boot_id();
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ioctl_sock < 0)

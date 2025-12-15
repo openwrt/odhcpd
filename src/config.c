@@ -54,6 +54,7 @@ struct config config = {
 	.log_syslog = true,
 	.default_duid = { 0 },
 	.default_duid_len = 0,
+	.boot_id = { 0 },
 };
 
 struct sys_conf sys_conf = {

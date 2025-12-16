@@ -459,7 +459,7 @@ static void statefiles_write_hosts(time_t now)
 	}
 }
 
-static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
+static void statefiles_write_lease6_addr(struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
 					 _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, void *arg)
 {
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
@@ -477,7 +477,7 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 	fprintf(ctxt->fp, " %s/%" PRIu8, ipbuf, prefix_len);
 }
 
-static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)
+static void statefiles_write_lease6(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)
 {
 	char duidbuf[DUID_HEXSTRLEN];
 
@@ -499,13 +499,13 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 			lease->length);
 	}
 
-	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_state6_addr, ctxt);
+	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_lease6_addr, ctxt);
 
 	if (ctxt->fp)
 		putc('\n', ctxt->fp);
 }
 
-static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
+static void statefiles_write_lease4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
 	char ipbuf[INET6_ADDRSTRLEN];
 
@@ -533,7 +533,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 }
 
 /* Returns true if there are changes to be written to the hosts file(s) */
-static bool statefiles_write_state(time_t now)
+static bool statefiles_write_leases(time_t now)
 {
 	struct write_ctxt ctxt = {
 		.fp = NULL,
@@ -543,7 +543,7 @@ static bool statefiles_write_state(time_t now)
 	uint8_t newmd5[16];
 
 	/* Return value unchecked, continue in order to get the md5 */
-	ctxt.fp = statefiles_open_tmp_file(config.dhcp_statedir_fd);
+	ctxt.fp = statefiles_open_tmp_file(config.dhcp_leasefiledir_fd);
 
 	md5_begin(&ctxt.md5);
 
@@ -558,7 +558,7 @@ static bool statefiles_write_state(time_t now)
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
 					continue;
 
-				statefiles_write_state6(&ctxt, lease);
+				statefiles_write_lease6(&ctxt, lease);
 			}
 		}
 
@@ -572,12 +572,12 @@ static bool statefiles_write_state(time_t now)
 				if (!INFINITE_VALID(lease->valid_until) && lease->valid_until <= now)
 					continue;
 
-				statefiles_write_state4(&ctxt, lease);
+				statefiles_write_lease4(&ctxt, lease);
 			}
 		}
 	}
 
-	statefiles_finish_tmp_file(config.dhcp_statedir_fd, &ctxt.fp, config.dhcp_statefile, NULL);
+	statefiles_finish_tmp_file(config.dhcp_leasefiledir_fd, &ctxt.fp, config.dhcp_leasefile, NULL);
 
 	md5_end(newmd5, &ctxt.md5);
 	if (!memcmp(newmd5, statemd5, sizeof(newmd5)))
@@ -591,7 +591,7 @@ bool statefiles_write()
 {
 	time_t now = odhcpd_time();
 
-	if (!statefiles_write_state(now))
+	if (!statefiles_write_leases(now))
 		return false;
 
 	statefiles_write_hosts(now);

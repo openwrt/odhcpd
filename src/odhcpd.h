@@ -216,8 +216,9 @@ struct config {
 	char *dhcp_cb;
 	bool use_ubus;
 
-	char *dhcp_statefile;
-	int dhcp_statedir_fd;
+	char *dhcp_leasefile;
+	int dhcp_leasefiledir_fd;
+
 	char *dhcp_hostsdir;
 	int dhcp_hostsdir_fd;
 

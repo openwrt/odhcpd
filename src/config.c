@@ -42,8 +42,8 @@ struct config config = {
 #else
 	.use_ubus = false,
 #endif /* WITH_UBUS */
-	.dhcp_statefile = NULL,
-	.dhcp_statedir_fd = -1,
+	.dhcp_leasefile = NULL,
+	.dhcp_leasefiledir_fd = -1,
 	.dhcp_hostsdir = NULL,
 	.dhcp_hostsdir_fd = -1,
 	.ra_piodir = NULL,
@@ -459,8 +459,8 @@ static void set_config(struct uci_section *s)
 		config.main_dhcpv4 = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_LEASEFILE])) {
-		free(config.dhcp_statefile);
-		config.dhcp_statefile = strdup(blobmsg_get_string(c));
+		free(config.dhcp_leasefile);
+		config.dhcp_leasefile = strdup(blobmsg_get_string(c));
 	}
 
 	if ((c = tb[ODHCPD_ATTR_HOSTSDIR])) {
@@ -492,14 +492,14 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_ENABLE_TZ]))
 		config.enable_tz = blobmsg_get_bool(c);
 
-	if (config.dhcp_statefile) {
-		char *dir = dirname(strdupa(config.dhcp_statefile));
-		char *file = basename(config.dhcp_statefile);
+	if (config.dhcp_leasefile) {
+		char *dir = dirname(strdupa(config.dhcp_leasefile));
+		char *file = basename(config.dhcp_leasefile);
 
-		memmove(config.dhcp_statefile, file, strlen(file) + 1);
-		statefiles_setup_dirfd(dir, &config.dhcp_statedir_fd);
+		memmove(config.dhcp_leasefile, file, strlen(file) + 1);
+		statefiles_setup_dirfd(dir, &config.dhcp_leasefiledir_fd);
 	} else {
-		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
+		statefiles_setup_dirfd(NULL, &config.dhcp_leasefiledir_fd);
 	}
 	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
 	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);

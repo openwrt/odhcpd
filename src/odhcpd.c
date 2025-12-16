@@ -44,6 +44,7 @@
 
 #include "odhcpd.h"
 #include "dhcpv6-ia.h"
+#include "dhcpv4.h"
 
 static int ioctl_sock = -1;
 

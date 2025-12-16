@@ -647,23 +647,6 @@ int router_init(void);
 int dhcpv6_init(void);
 int ndp_init(void);
 
-#ifdef DHCPV4_SUPPORT
-int dhcpv4_init(void);
-void dhcpv4_free_lease(struct dhcpv4_lease *a);
-bool dhcpv4_setup_interface(struct interface *iface, bool enable);
-void dhcpv4_handle_msg(void *addr, void *data, size_t len,
-		       struct interface *iface, _o_unused void *dest_addr,
-		       send_reply_cb_t send_reply, void *opaque);
-#else
-static inline bool dhcpv4_setup_interface(struct interface *iface, bool enable) {
-	return true;
-}
-
-static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
-	error("Trying to free IPv4 assignment 0x%p", lease);
-}
-#endif /* DHCPV4_SUPPORT */
-
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 int ndp_setup_interface(struct interface *iface, bool enable);

@@ -361,7 +361,7 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 	free(lease);
 }
 
-static struct dhcpv4_lease *
+struct dhcpv4_lease *
 dhcpv4_alloc_lease(struct interface *iface, const struct ether_addr *macaddr,
 		   const uint8_t *duid, size_t duid_len, uint32_t iaid)
 {
@@ -386,7 +386,7 @@ dhcpv4_alloc_lease(struct interface *iface, const struct ether_addr *macaddr,
 	return lease;
 }
 
-static bool
+bool
 dhcpv4_insert_lease(struct interface *iface, struct dhcpv4_lease *lease, struct in_addr addr)
 {
 	lease->ipv4 = addr;

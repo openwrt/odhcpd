@@ -44,6 +44,8 @@ struct config config = {
 #endif /* WITH_UBUS */
 	.dhcp_leasefile = NULL,
 	.dhcp_leasefiledir_fd = -1,
+	.statedir = NULL,
+	.statedir_fd = -1,
 	.dhcp_hostsdir = NULL,
 	.dhcp_hostsdir_fd = -1,
 	.ra_piodir = NULL,
@@ -220,6 +222,7 @@ enum {
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_LOGLEVEL,
+	ODHCPD_ATTR_STATEDIR,
 	ODHCPD_ATTR_HOSTSDIR,
 	ODHCPD_ATTR_PIODIR,
 	ODHCPD_ATTR_ENABLE_TZ,
@@ -231,6 +234,7 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
+	[ODHCPD_ATTR_STATEDIR] = { .name = "statedir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_HOSTSDIR] = { .name = "hostsdir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_PIODIR] = { .name = "piodir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_ENABLE_TZ] = { .name = "enable_tz", .type = BLOBMSG_TYPE_BOOL },
@@ -463,6 +467,11 @@ static void set_config(struct uci_section *s)
 		config.dhcp_leasefile = strdup(blobmsg_get_string(c));
 	}
 
+	if ((c = tb[ODHCPD_ATTR_STATEDIR])) {
+		free(config.statedir);
+		config.statedir = strdup(blobmsg_get_string(c));
+	}
+
 	if ((c = tb[ODHCPD_ATTR_HOSTSDIR])) {
 		free(config.dhcp_hostsdir);
 		config.dhcp_hostsdir = strdup(blobmsg_get_string(c));
@@ -501,6 +510,7 @@ static void set_config(struct uci_section *s)
 	} else {
 		statefiles_setup_dirfd(NULL, &config.dhcp_leasefiledir_fd);
 	}
+	statefiles_setup_dirfd(config.statedir, &config.statedir_fd);
 	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
 	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);
 }

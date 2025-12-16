@@ -219,6 +219,9 @@ struct config {
 	char *dhcp_leasefile;
 	int dhcp_leasefiledir_fd;
 
+	char *statedir;
+	int statedir_fd;
+
 	char *dhcp_hostsdir;
 	int dhcp_hostsdir_fd;
 

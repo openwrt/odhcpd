@@ -62,11 +62,12 @@ and may also receive information from ubus
 | Option	| Type	|Default| Description |
 | :------------ | :---- | :----	| :---------- |
 | maindhcp	| bool	| 0	| Use odhcpd as the main DHCPv4 service |
-| leasefile	| string|	| DHCPv4/6 lease file |
-| leasetrigger	| string|	| Lease trigger script |
+| leasefile	| string|	| DHCPv4/6 lease file (legacy) |
+| leasetrigger	| string|	| Lease trigger script (legacy) |
+| statedir	| string|	| DHCPv4/v6 state directory (for persisting information such as active leases across reboots/restarts) |
 | hostsdir	| string|	| DHCPv4/v6 hostfile directory (one file per interface will be created) |
-| loglevel	|integer| 6	| Syslog level priority (0-7) |
 | piodir	|string |	| Directory to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
+| loglevel	|integer| 6	| Syslog level priority (0-7) |
 | enable_tz |bool | 1 | Toggle whether RFC4833 timezone information is sent to clients, if set in system  |
 
 

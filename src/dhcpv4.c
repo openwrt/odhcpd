@@ -386,11 +386,11 @@ dhcpv4_alloc_lease(struct interface *iface, const struct ether_addr *macaddr,
 	return lease;
 }
 
-static bool dhcpv4_insert_lease(struct avl_tree *avl, struct dhcpv4_lease *lease,
-				struct in_addr addr)
+static bool
+dhcpv4_insert_lease(struct interface *iface, struct dhcpv4_lease *lease, struct in_addr addr)
 {
 	lease->ipv4 = addr;
-	if (!avl_insert(avl, &lease->iface_avl))
+	if (!avl_insert(&iface->dhcpv4_leases, &lease->iface_avl))
 		return true;
 	else
 		return false;
@@ -421,7 +421,7 @@ static bool dhcpv4_assign_random(struct interface *iface,
 		if (config_find_lease_cfg_by_ipv4(in_try))
 			continue;
 
-		if (dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, in_try))
+		if (dhcpv4_insert_lease(iface, lease, in_try))
 			return true;
 	}
 
@@ -438,7 +438,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 
 	/* Preconfigured IP address by static lease */
 	if (lease->ipv4.s_addr) {
-		if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, lease->ipv4)) {
+		if (!dhcpv4_insert_lease(iface, lease, lease->ipv4)) {
 			error("The static IP address %s is already assigned on %s",
 			      inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)),
 			      iface->name);
@@ -464,7 +464,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 			debug("The requested IP address %s is statically assigned on %s",
 			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
 			      iface->ifname);
-		} else if (!dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, req_addr)) {
+		} else if (!dhcpv4_insert_lease(iface, lease, req_addr)) {
 			debug("The requested IP address %s is already assigned on %s",
 			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
 			      iface->ifname);

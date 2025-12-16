@@ -238,7 +238,7 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	};
 
 	odhcpd_urandom(&fr.xid, sizeof(fr.xid));
-	memcpy(fr.chaddr, lease->hwaddr, fr.hlen);
+	memcpy(fr.chaddr, &lease->macaddr, sizeof(lease->macaddr));
 
 	if (lease->accept_fr_nonce) {
 		uint8_t secretbytes[64] = { 0 };
@@ -279,13 +279,13 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 		char ipv4_str[INET_ADDRSTRLEN];
 
 		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
-		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
+		      ether_ntoa(&lease->macaddr),
 		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
 	} else {
 		char ipv4_str[INET_ADDRSTRLEN];
 
 		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
-		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
+		      ether_ntoa(&lease->macaddr),
 		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
 	}
 }
@@ -362,13 +362,12 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 }
 
 static struct dhcpv4_lease *
-dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
-		   size_t hwaddr_len, const uint8_t *duid, size_t duid_len,
-		   uint32_t iaid)
+dhcpv4_alloc_lease(struct interface *iface, const struct ether_addr *macaddr,
+		   const uint8_t *duid, size_t duid_len, uint32_t iaid)
 {
 	struct dhcpv4_lease *lease;
 
-	if (!iface || !hwaddr || hwaddr_len == 0 || hwaddr_len > sizeof(lease->hwaddr))
+	if (!iface || !macaddr)
 		return NULL;
 
 	lease = calloc(1, sizeof(*lease) + duid_len);
@@ -376,8 +375,7 @@ dhcpv4_alloc_lease(struct interface *iface, const uint8_t *hwaddr,
 		return NULL;
 
 	lease->iface_avl.key = &lease->ipv4;
-	lease->hwaddr_len = hwaddr_len;
-	memcpy(lease->hwaddr, hwaddr, hwaddr_len);
+	memcpy(&lease->macaddr, macaddr, sizeof(lease->macaddr));
 	if (duid_len > 0) {
 		lease->duid_len = duid_len;
 		memcpy(lease->duid, duid, duid_len);
@@ -408,7 +406,7 @@ static bool dhcpv4_assign_random(struct interface *iface,
 	uint32_t try;
 
 	/* Pick a random starting point, using hwaddr as seed... */
-	memcpy(xsubi, lease->hwaddr, sizeof(xsubi));
+	memcpy(xsubi, &lease->macaddr, sizeof(xsubi));
 	try = pool_start + nrand48(xsubi) % pool_size;
 
 	/* ...then loop over the whole pool from that point */
@@ -490,12 +488,12 @@ out:
 	return true;
 }
 
-static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
+static struct dhcpv4_lease *find_lease_by_macaddr(struct interface *iface, const struct ether_addr *macaddr)
 {
 	struct dhcpv4_lease *lease;
 
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl)
-		if (!memcmp(lease->hwaddr, hwaddr, ETH_ALEN))
+		if (!memcmp(&lease->macaddr, macaddr, sizeof(lease->macaddr)))
 			return lease;
 
 	return NULL;
@@ -518,7 +516,7 @@ find_lease_by_duid_iaid(struct interface *iface, const uint8_t *duid,
 }
 
 static struct dhcpv4_lease *
-dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
+dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const struct ether_addr *req_mac,
 	     const uint8_t *clid, size_t clid_len, const struct in_addr req_addr,
 	     uint32_t *req_leasetime, const char *req_hostname, const size_t
 	     req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
@@ -546,10 +544,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	}
 
 	if (!lease)
-		lease = find_lease_by_hwaddr(iface, req_mac);
+		lease = find_lease_by_macaddr(iface, req_mac);
 
 	if (!lease_cfg)
-		lease_cfg = config_find_lease_cfg_by_mac(req_mac);
+		lease_cfg = config_find_lease_cfg_by_macaddr(req_mac);
 
 	if (lease_cfg && lease_cfg->ignore4)
 		return NULL;
@@ -589,7 +587,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		lease->bound = false;
 
 		if (!lease->lease_cfg || lease->lease_cfg->ipv4.s_addr != lease->ipv4.s_addr) {
-			memset(lease->hwaddr, 0, sizeof(lease->hwaddr));
+			memset(&lease->macaddr, 0, sizeof(lease->macaddr));
 			lease->valid_until = now + 3600; /* Block address for 1h */
 		} else {
 			lease->valid_until = now - 1;
@@ -617,7 +615,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 		if (!lease) {
 			/* Create new binding */
-			lease = dhcpv4_alloc_lease(iface, req_mac, ETH_ALEN, duid, duid_len, iaid);
+			lease = dhcpv4_alloc_lease(iface, req_mac, duid, duid_len, iaid);
 			if (!lease) {
 				warn("Failed to allocate memory for DHCPv4 lease on interface %s", iface->ifname);
 				return NULL;
@@ -796,6 +794,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 {
 	/* Request variables */
 	struct dhcpv4_message *req = data;
+	struct ether_addr *req_macaddr = (struct ether_addr *)req->chaddr;
 	uint8_t req_msg = DHCPV4_MSG_REQUEST;
 	uint8_t *req_opts = NULL;
 	size_t req_opts_len = 0;
@@ -1020,14 +1019,14 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	}
 
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
-	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
+	     ether_ntoa(req_macaddr), iface->name);
 
 	switch (req_msg) {
 	case DHCPV4_MSG_INFORM:
 		break;
 	case DHCPV4_MSG_DECLINE:
 	case DHCPV4_MSG_RELEASE:
-		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
+		dhcpv4_lease(iface, req_msg, req_macaddr, req_clientid,
 			     req_clientid_len, req_addr, &req_leasetime,
 			     req_hostname, req_hostname_len, req_accept_fr,
 			     &reply_incl_fr, &fr_serverid);
@@ -1037,7 +1036,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 			break;
 		_o_fallthrough;
 	case DHCPV4_MSG_REQUEST:
-		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
+		lease = dhcpv4_lease(iface, req_msg, req_macaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,
 				     req_hostname, req_hostname_len, req_accept_fr,
 				     &reply_incl_fr, &fr_serverid);
@@ -1325,7 +1324,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		error("Failed to send %s to %s - %s: %m",
 		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
-		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      "ff:ff:ff:ff:ff:ff": ether_ntoa(req_macaddr),
 		      inet_ntop(AF_INET, &dest_addr.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	} else {
 		char ipv4_str[INET_ADDRSTRLEN];
@@ -1333,7 +1332,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		error("Sent %s to %s - %s",
 		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
-		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),
+		      "ff:ff:ff:ff:ff:ff": ether_ntoa(req_macaddr),
 		      inet_ntop(AF_INET, &dest_addr.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	}
 

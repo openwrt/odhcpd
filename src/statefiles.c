@@ -523,7 +523,7 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 	fprintf(ctxt->fp,
 		"# %s %s ipv4 %s%s %" PRId64 " %x 32 %s/32\n",
 		ctxt->iface->ifname,
-		ether_ntoa((struct ether_addr *)lease->hwaddr),
+		ether_ntoa(&lease->macaddr),
 		lease->hostname && !lease->hostname_valid ? "broken\\x20" : "",
 		lease->hostname ? lease->hostname : "-",
 		(lease->valid_until > ctxt->now ?

@@ -43,10 +43,9 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);
-			char *buf = blobmsg_alloc_string_buffer(&b, "mac", sizeof(c->hwaddr) * 2 + 1);
+			char *buf;
 
-			odhcpd_hexlify(buf, c->hwaddr, sizeof(c->hwaddr));
-			blobmsg_add_string_buffer(&b);
+			blobmsg_add_string(&b, "mac", ether_ntoa(&c->macaddr));
 
 			if (c->duid_len > 0) {
 				buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
@@ -411,7 +410,7 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "interface", iface);
 	blobmsg_add_string(&b, "ipv4", inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
-	blobmsg_add_string(&b, "mac", odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)));
+	blobmsg_add_string(&b, "mac", ether_ntoa(&lease->macaddr));
 	if (lease->hostname)
 		blobmsg_add_string(&b, "hostname", lease->hostname);
 	if (lease->duid_len > 0) {

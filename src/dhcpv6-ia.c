@@ -952,7 +952,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	time_t now = odhcpd_time();
 	uint16_t otype, olen, duid_len = 0;
 	uint8_t *start = (uint8_t *)&hdr[1], *odata;
-	uint8_t *duid = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	uint8_t *duid = NULL;
+	struct ether_addr mac = { .ether_addr_octet = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff} };
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
 	char duidbuf[DUID_HEXSTRLEN], hostname[256];
@@ -963,9 +964,9 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			duid_len = olen;
 
 			if (olen == 14 && odata[0] == 0 && odata[1] == 1)
-				memcpy(mac, &odata[8], sizeof(mac));
+				memcpy(&mac, &odata[8], sizeof(mac));
 			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
-				memcpy(mac, &odata[4], sizeof(mac));
+				memcpy(&mac, &odata[4], sizeof(mac));
 
 			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
@@ -1000,7 +1001,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, ntohl(ia->iaid));
 		if (!lease_cfg)
-			lease_cfg = config_find_lease_cfg_by_mac(mac);
+			lease_cfg = config_find_lease_cfg_by_macaddr(&mac);
 
 		if (lease_cfg && lease_cfg->ignore6)
 			return -1;
@@ -1099,7 +1100,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				 * on the same client. This is similar to how multiple MAC adresses
 				 * are handled for DHCPv4.
 				 */
-				for (size_t i = 0; i < lease_cfg->duid_count; i++) {
+				for (size_t i = 0; i < lease_cfg->duid_cnt; i++) {
 					if (lease_cfg->duids[i].iaid_set && lease_cfg->duids[i].iaid != htonl(ia->iaid))
 						continue;
 

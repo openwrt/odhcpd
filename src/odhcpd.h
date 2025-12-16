@@ -262,8 +262,7 @@ struct dhcpv4_lease {
 	time_t valid_until;			// CLOCK_MONOTONIC time, 0 = inf
 	char *hostname;				// client hostname
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?
-	size_t hwaddr_len;			// hwaddr length
-	uint8_t hwaddr[ETH_ALEN];		// hwaddr (only MAC supported)
+	struct ether_addr macaddr;		// MAC address
 
 	// ForceRenew Nonce - RFC6704 §3.1.2
 	struct uloop_timeout fr_timer;		// FR message transmission timer
@@ -319,10 +318,10 @@ struct lease_cfg {
 	struct dhcpv4_lease *dhcpv4_lease;
 	struct in_addr ipv4;
 	uint64_t hostid;
-	size_t mac_count;
-	struct ether_addr *macs;
-	size_t duid_count;
+	struct ether_addr *macaddrs;
+	size_t macaddrs_cnt;
 	struct duid *duids;
+	size_t duid_cnt;
 	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
 	char *hostname;
 	bool ignore4;
@@ -559,7 +558,6 @@ int odhcpd_run(void);
 time_t odhcpd_time(void);
 ssize_t odhcpd_unhexlify(uint8_t *dst, size_t len, const char *src);
 void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len);
-const char *odhcpd_print_mac(const uint8_t *mac, const size_t len);
 
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits);
 void odhcpd_bmemcpy(void *av, const void *bv, size_t bits);
@@ -577,7 +575,7 @@ int config_parse_interface(void *data, size_t len, const char *iname, bool overw
 struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
-struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
+struct lease_cfg *config_find_lease_cfg_by_macaddr(const struct ether_addr *macaddr);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
 struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);
 int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba);

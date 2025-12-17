@@ -694,12 +694,15 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 			continue;
 		}
 
-		if (lease->flags & OAF_DHCPV6_NA) {
+		switch (lease->type) {
+		case DHCPV6_IA_NA:
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
 			addr = in6_from_prefix_and_iid(&addrs[i], lease->assigned_host_id);
-		} else {
+			break;
+
+		case DHCPV6_IA_PD:
 			if (!valid_prefix_length(lease, addrs[i].prefix_len))
 				continue;
 

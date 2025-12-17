@@ -66,7 +66,7 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 
-	if (a->bound && (a->flags & OAF_DHCPV6_PD))
+	if (a->bound && a->type == DHCPV6_IA_PD)
 		apply_lease(a, false);
 
 	if (a->fr_cnt)
@@ -289,7 +289,7 @@ struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint
 static void __apply_lease(struct dhcpv6_lease *a,
 		struct odhcpd_ipaddr *addrs, ssize_t addr_len, bool add)
 {
-	if (a->flags & OAF_DHCPV6_NA)
+	if (a->type == DHCPV6_IA_NA)
 		return;
 
 	for (ssize_t i = 0; i < addr_len; ++i) {
@@ -350,7 +350,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
 	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (c->flags & OAF_DHCPV6_NA)
+			if (c->type == DHCPV6_IA_NA)
 				continue;
 
 			if (assign->assigned_subnet_id >= current && assign->assigned_subnet_id + asize < c->assigned_subnet_id) {
@@ -369,7 +369,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	/* Fallback to a variable assignment */
 	current = 1;
 	list_for_each_entry(c, &iface->ia_assignments, head) {
-		if (c->flags & OAF_DHCPV6_NA)
+		if (c->type == DHCPV6_IA_NA)
 			continue;
 
 		current = (current + asize) & (~asize);
@@ -424,7 +424,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 	/* Preconfigured assignment by static lease */
 	if (a->assigned_host_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > a->assigned_host_id ) {
+			if (c->type != DHCPV6_IA_NA || c->assigned_host_id > a->assigned_host_id ) {
 				list_add_tail(&a->head, &c->head);
 				return true;
 			} else if (c->assigned_host_id == a->assigned_host_id)
@@ -451,7 +451,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > try) {
+			if (c->type != DHCPV6_IA_NA || c->assigned_host_id > try) {
 				a->assigned_host_id = try;
 				list_add_tail(&a->head, &c->head);
 				return true;
@@ -472,7 +472,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	time_t now = odhcpd_time();
 
 	list_for_each_entry(c, &iface->ia_assignments, head) {
-		if ((c->flags & OAF_DHCPV6_PD) && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
+		if (c->type == DHCPV6_IA_PD && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
 		    && (c->bound))
 			__apply_lease(c, info->addrs_old.addrs,
 					info->addrs_old.len, false);
@@ -481,8 +481,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	set_border_assignment_size(iface, border);
 
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
-		if (c->duid_len == 0 ||
-	            !(c->flags & OAF_DHCPV6_PD)	||
+		if (c->duid_len == 0 || c->type != DHCPV6_IA_PD ||
 		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now))
 			continue;
 
@@ -665,7 +664,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (prefix_preferred_lt > prefix_valid_lt)
 				prefix_preferred_lt = prefix_valid_lt;
 
-			if (a->flags & OAF_DHCPV6_PD) {
+			switch (a->type) {
+			case DHCPV6_IA_PD:
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
 					.len = htons(sizeof(o_ia_p) - 4),
@@ -686,9 +686,9 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 				memcpy(buf + ia_len, &o_ia_p, sizeof(o_ia_p));
 				ia_len += sizeof(o_ia_p);
-			}
+				break;
 
-			if (a->flags & OAF_DHCPV6_NA) {
+			case DHCPV6_IA_NA:
 				struct dhcpv6_ia_addr o_ia_a = {
 					.type = htons(DHCPV6_OPT_IA_ADDR),
 					.len = htons(sizeof(o_ia_a) - 4),
@@ -705,6 +705,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 				memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
 				ia_len += sizeof(o_ia_a);
+				break;
 			}
 
 			/* Calculate T1 / T2 based on non-deprecated addresses */
@@ -1073,12 +1074,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		/* Find an existing assignment */
 		struct dhcpv6_lease *c, *a = NULL;
 		list_for_each_entry(c, &iface->ia_assignments, head) {
-			/* If we're looking for a PD, is this a PD? */
-			if (is_pd && !(c->flags & OAF_DHCPV6_PD))
+			if (is_pd && c->type != DHCPV6_IA_PD)
 				continue;
 
-			/* If we're looking for a NA, is this a NA? */
-			if (is_na && !(c->flags & OAF_DHCPV6_NA))
+			if (is_na && c->type != DHCPV6_IA_NA)
 				continue;
 
 			/* Is this assignment still valid? */
@@ -1174,7 +1173,7 @@ proceed:
 						a->valid_until = now;
 						a->preferred_until = now;
 						a->iface = iface;
-						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);
+						a->type = is_pd ? DHCPV6_IA_PD : DHCPV6_IA_NA;
 
 						if (first)
 							memcpy(a->key, first->key, sizeof(a->key));
@@ -1285,7 +1284,7 @@ proceed:
 				}
 			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
 				a->valid_until = now - 1;
-			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
+			} else if (a->type == DHCPV6_IA_NA && hdr->msg_type == DHCPV6_MSG_DECLINE) {
 				a->bound = false;
 
 				if (!a->lease_cfg || a->lease_cfg->hostid != a->assigned_host_id) {

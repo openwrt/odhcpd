@@ -373,7 +373,7 @@ static bool statefiles_write_host6(struct write_ctxt *ctxt, struct dhcpv6_lease 
 {
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (!lease->hostname || !lease->hostname_valid || !(lease->flags & OAF_DHCPV6_NA))
+	if (!lease->hostname || !lease->hostname_valid || lease->type != DHCPV6_IA_NA)
 		return false;
 
 	if (ctxt->fp) {
@@ -465,7 +465,7 @@ static void statefiles_write_lease6_addr(struct dhcpv6_lease *lease, struct in6_
 	struct write_ctxt *ctxt = (struct write_ctxt *)arg;
 	char ipbuf[INET6_ADDRSTRLEN];
 
-	if (lease->hostname && lease->hostname_valid && lease->flags & OAF_DHCPV6_NA) {
+	if (lease->hostname && lease->hostname_valid && lease->type == DHCPV6_IA_NA) {
 		md5_hash(addr, sizeof(*addr), &ctxt->md5);
 		md5_hash(lease->hostname, strlen(lease->hostname), &ctxt->md5);
 	}
@@ -493,9 +493,8 @@ static void statefiles_write_lease6(struct write_ctxt *ctxt, struct dhcpv6_lease
 			(lease->valid_until > ctxt->now ?
 			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
-			(lease->flags & OAF_DHCPV6_NA ?
-			 lease->assigned_host_id :
-			 (uint64_t)lease->assigned_subnet_id),
+			lease->type == DHCPV6_IA_NA ?
+			lease->assigned_host_id : (uint64_t)lease->assigned_subnet_id,
 			lease->length);
 	}
 

@@ -188,12 +188,6 @@ enum odhcpd_mode {
 	MODE_HYBRID
 };
 
-
-enum odhcpd_assignment_flags {
-	OAF_DHCPV6_NA		= (1 << 0),
-	OAF_DHCPV6_PD		= (1 << 1),
-};
-
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
 #define DUID_MAX_LEN 130
 /* In theory, 2 (type only), or 7 (DUID-EN + 1-byte data), but be reasonable */
@@ -281,6 +275,11 @@ struct dhcpv4_lease {
 	uint8_t duid[];
 };
 
+enum dhcpv6_lease_type {
+	DHCPV6_IA_NA,
+	DHCPV6_IA_PD,
+};
+
 struct dhcpv6_lease {
 	struct list_head head;
 	struct list_head lease_cfg_list;
@@ -304,7 +303,7 @@ struct dhcpv6_lease {
 	};
 	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
-	unsigned int flags;
+	enum dhcpv6_lease_type type;
 	bool bound;				// the lease has been accepted by the client
 	uint32_t leasetime;
 	char *hostname;

@@ -144,10 +144,21 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 			blobmsg_add_u32(&b, "iaid", ntohl(a->iaid));
 			blobmsg_add_string(&b, "hostname", (a->hostname) ? a->hostname : "");
 			blobmsg_add_u8(&b, "accept-reconf", a->accept_fr_nonce);
-			if (a->flags & OAF_DHCPV6_NA)
+
+			switch (a->type) {
+			case DHCPV6_IA_NA:
 				blobmsg_add_u64(&b, "assigned", a->assigned_host_id);
-			else
+				m = blobmsg_open_array(&b, "ipv6-addr");
+				odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
+				blobmsg_close_array(&b, m);
+				break;
+			case DHCPV6_IA_PD:
 				blobmsg_add_u16(&b, "assigned", a->assigned_subnet_id);
+				m = blobmsg_open_array(&b, "ipv6-prefix");
+				odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
+				blobmsg_close_array(&b, m);
+				break;
+			}
 
 			m = blobmsg_open_array(&b, "flags");
 			if (a->bound)
@@ -155,10 +166,6 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 
 			if (a->lease_cfg)
 				blobmsg_add_string(&b, NULL, "static");
-			blobmsg_close_array(&b, m);
-
-			m = blobmsg_open_array(&b, a->flags & OAF_DHCPV6_NA ? "ipv6-addr": "ipv6-prefix");
-			odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
 			blobmsg_close_array(&b, m);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(a->valid_until) ?

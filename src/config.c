@@ -2090,18 +2090,18 @@ void odhcpd_reload(void)
 				set_config(s);
 		}
 
-		/* 2. DHCP pools */
-		uci_foreach_element(&dhcp->sections, e) {
-			struct uci_section *s = uci_to_section(e);
-			if (!strcmp(s->type, "dhcp"))
-				set_interface(s);
-		}
-
-		/* 3. Static lease cfgs */
+		/* 2. Static lease cfgs */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
 			if (!strcmp(s->type, "host"))
 				set_lease_cfg_from_uci(s);
+		}
+
+		/* 3. DHCP pools */
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "dhcp"))
+				set_interface(s);
 		}
 
 		/* 4. IPv6 PxE */

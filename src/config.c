@@ -72,8 +72,6 @@ struct sys_conf sys_conf = {
 #define PD_MIN_LEN_MAX		64
 #define PD_MIN_LEN_DEFAULT	62
 
-#define OAF_DHCPV6	(OAF_DHCPV6_NA | OAF_DHCPV6_PD)
-
 enum {
 	IPV6_PXE_URL,
 	IPV6_PXE_ARCH,

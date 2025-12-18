@@ -100,7 +100,7 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 				return -1;
 			}
 
-			border->length = 64;
+			border->prefix_len = 64;
 			list_add(&border->head, &iface->ia_assignments);
 		} else
 			border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
@@ -301,7 +301,7 @@ static void __apply_lease(struct dhcpv6_lease *a,
 		prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;
-		netlink_setup_route(&prefix, a->length, a->iface->ifindex,
+		netlink_setup_route(&prefix, a->prefix_len, a->iface->ifindex,
 				    &a->peer.sin6_addr, 1024, add);
 	}
 }
@@ -347,7 +347,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 		return false;
 
 	/* Try honoring the hint first */
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
+	uint32_t current = 1, asize = (1 << (64 - assign->prefix_len)) - 1;
 	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->type == DHCPV6_IA_NA)
@@ -362,7 +362,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 				return true;
 			}
 
-			current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+			current = (c->assigned_subnet_id + (1 << (64 - c->prefix_len)));
 		}
 	}
 
@@ -384,7 +384,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			return true;
 		}
 
-		current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+		current = (c->assigned_subnet_id + (1 << (64 - c->prefix_len)));
 	}
 
 	return false;
@@ -651,7 +651,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					.len = htons(sizeof(o_ia_p) - 4),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
-					.prefix_len = a->length,
+					.prefix_len = a->prefix_len,
 					.addr = oaddr->addr.in6,
 				};
 
@@ -748,7 +748,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 						continue;
 
 					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
-						if (ia_p->prefix_len != a->length)
+						if (ia_p->prefix_len != a->prefix_len)
 							continue;
 
 						addr = oaddr->addr.in6;
@@ -1148,7 +1148,7 @@ proceed:
 						a->duid_len = duid_len;
 						memcpy(a->duid, duid, duid_len);
 						a->iaid = ia->iaid;
-						a->length = reqlen;
+						a->prefix_len = reqlen;
 						a->peer = *addr;
 						if (is_na)
 							a->assigned_host_id = lease_cfg ? lease_cfg->hostid : 0;
@@ -1166,7 +1166,7 @@ proceed:
 
 						if (is_pd && iface->dhcpv6_pd)
 							while (!(assigned = assign_pd(iface, a)) &&
-							       ++a->length <= 64);
+							       ++a->prefix_len <= 64);
 						else if (is_na && iface->dhcpv6_na)
 							assigned = assign_na(iface, a);
 

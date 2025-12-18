@@ -680,7 +680,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		struct in6_addr addr;
 		uint32_t preferred_lt, valid_lt;
-		int prefix = lease->length;
+		int prefix_len = 128;
 
 		if (!valid_addr(&addrs[i], now))
 			continue;
@@ -709,6 +709,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 			addr = addrs[i].addr.in6;
 			addr.s6_addr32[1] |= htonl(lease->assigned_subnet_id);
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
+			prefix_len = lease->prefix_len;
 		}
 
 		preferred_lt = addrs[i].preferred_lt;
@@ -728,7 +729,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 		if (valid_lt != UINT32_MAX)
 			valid_lt -= now;
 
-		func(lease, &addr, prefix, preferred_lt, valid_lt, arg);
+		func(lease, &addr, prefix_len, preferred_lt, valid_lt, arg);
 	}
 }
 

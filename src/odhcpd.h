@@ -307,10 +307,12 @@ struct dhcpv6_lease {
 	uint8_t key[16];
 
 	union {
-		uint64_t assigned_host_id;
-		uint32_t assigned_subnet_id;
+		uint64_t assigned_host_id;	// IA_NA
+		struct {			// IA_PD
+			uint32_t assigned_subnet_id;
+			uint8_t prefix_len;
+		};
 	};
-	uint8_t length; // length == 128 -> IA_NA, length <= 64 -> IA_PD
 
 	enum dhcpv6_lease_type type;
 	bool bound;				// the lease has been accepted by the client

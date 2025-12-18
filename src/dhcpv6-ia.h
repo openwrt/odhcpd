@@ -25,9 +25,9 @@ size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrle
 
 struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint64_t iid);
 
-static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8_t prefix_length)
+static inline bool valid_prefix_length(const struct dhcpv6_lease *a, uint8_t prefix_len)
 {
-	return a->length > prefix_length;
+	return a->prefix_len > prefix_len;
 }
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)

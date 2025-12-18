@@ -495,7 +495,8 @@ static void statefiles_write_lease6(struct write_ctxt *ctxt, struct dhcpv6_lease
 			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
 			lease->type == DHCPV6_IA_NA ?
 			lease->assigned_host_id : (uint64_t)lease->assigned_subnet_id,
-			lease->length);
+			lease->type == DHCPV6_IA_NA ?
+			128 : lease->prefix_len);
 	}
 
 	odhcpd_enum_addr6(ctxt->iface, lease, ctxt->now, statefiles_write_lease6_addr, ctxt);

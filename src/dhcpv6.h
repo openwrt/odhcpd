@@ -87,11 +87,6 @@
 #define DHCPV6_STATUS_USEMULTICAST 5
 #define DHCPV6_STATUS_NOPREFIXAVAIL 6
 
-// I just remembered I have an old one lying around...
-#define DHCPV6_ENT_NO 30462
-#define DHCPV6_ENT_TYPE 1
-
-
 #define DHCPV6_HOP_COUNT_LIMIT 32
 
 #define DHCPV6_REC_TIMEOUT	2000 /* msec */

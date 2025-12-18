@@ -215,10 +215,14 @@ static int send_reconf(struct dhcpv6_lease *assign)
 
 	memcpy(clientid.data, assign->duid, assign->duid_len);
 
+	size_t serverid_len, clientid_len;
+	serverid_len = sizeof(serverid.code) + sizeof(serverid.len) + ntohs(serverid.len);
+	clientid_len = sizeof(clientid.code) + sizeof(clientid.len) + ntohs(clientid.len);
+
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_HDR] = { &hdr, sizeof(hdr) },
-		[IOV_SERVERID] = { &serverid, sizeof(serverid) },
-		[IOV_CLIENTID] = { &clientid, sizeof(clientid) },
+		[IOV_SERVERID] = { &serverid, serverid_len },
+		[IOV_CLIENTID] = { &clientid, clientid_len },
 		[IOV_MESSAGE] = { &message, sizeof(message) },
 		[IOV_AUTH] = { &auth, sizeof(auth) },
 	};

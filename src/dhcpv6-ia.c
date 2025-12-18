@@ -73,6 +73,7 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 		stop_reconf(a);
 
 	free(a->hostname);
+	free(a->ias);
 	free(a);
 }
 
@@ -562,6 +563,33 @@ static void valid_until_cb(struct uloop_timeout *event)
 	uloop_timeout_set(event, 1000);
 }
 
+static void
+lease_add_or_update_ia(struct dhcpv6_lease *lease, struct dhcpv6_ia *ia, time_t now)
+{
+	struct dhcpv6_ia *tmp;
+
+	for (size_t i = 0; i < lease->ias_cnt; i++) {
+		struct dhcpv6_ia *old_ia = &lease->ias[i];
+
+		if (ia->prefix_len != old_ia->prefix_len)
+			continue;
+
+		if (!IN6_ARE_ADDR_EQUAL(&ia->addr, &old_ia->addr))
+			continue;
+
+		old_ia->preferred_until = ia->preferred_until;
+		old_ia->valid_until = ia->valid_until;
+		return;
+	}
+
+	tmp = realloc(lease->ias, sizeof(*tmp) * (lease->ias_cnt + 1));
+	if (!tmp)
+		return;
+
+	lease->ias = tmp;
+	lease->ias[lease->ias_cnt++] = *ia;
+}
+
 static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		const struct dhcpv6_ia_hdr *ia, struct dhcpv6_lease *a,
 		struct interface *iface, bool request)
@@ -646,17 +674,28 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 			switch (a->type) {
 			case DHCPV6_IA_PD:
+				struct in6_addr pd_addr = {
+					.s6_addr32 = {
+						oaddr->addr.in6.s6_addr32[0],
+						oaddr->addr.in6.s6_addr32[1] | htonl(a->assigned_subnet_id),
+						0,
+						0,
+					}
+				};
+				struct dhcpv6_ia lease_ia_pd = {
+					.preferred_until = lifetime_is_infinite(prefix_preferred_lt) ? MONOTIME_INFINITY : now + prefix_preferred_lt,
+					.valid_until = lifetime_is_infinite(prefix_valid_lt) ? MONOTIME_INFINITY : now + prefix_valid_lt,
+					.prefix_len = a->prefix_len,
+					.addr = pd_addr,
+				};
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
 					.len = htons(sizeof(o_ia_p) - 4),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
 					.prefix_len = a->prefix_len,
-					.addr = oaddr->addr.in6,
+					.addr = pd_addr,
 				};
-
-				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
-				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
 
 				if (!valid_prefix_length(a, oaddr->prefix_len))
 					continue;
@@ -664,15 +703,24 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				if (buflen < ia_len + sizeof(o_ia_p))
 					return 0;
 
+				lease_add_or_update_ia(a, &lease_ia_pd, now);
+
 				memcpy(buf + ia_len, &o_ia_p, sizeof(o_ia_p));
 				ia_len += sizeof(o_ia_p);
 				break;
 
 			case DHCPV6_IA_NA:
+				struct in6_addr na_addr = in6_from_prefix_and_iid(oaddr, a->assigned_host_id);
+				struct dhcpv6_ia lease_ia_na = {
+					.preferred_until = lifetime_is_infinite(prefix_preferred_lt) ? MONOTIME_INFINITY : now + prefix_preferred_lt,
+					.valid_until = lifetime_is_infinite(prefix_valid_lt) ? MONOTIME_INFINITY : now + prefix_valid_lt,
+					.prefix_len = 128,
+					.addr = na_addr,
+				};
 				struct dhcpv6_ia_addr o_ia_a = {
 					.type = htons(DHCPV6_OPT_IA_ADDR),
 					.len = htons(sizeof(o_ia_a) - 4),
-					.addr = in6_from_prefix_and_iid(oaddr, a->assigned_host_id),
+					.addr = na_addr,
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt)
 				};
@@ -682,6 +730,8 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 
 				if (buflen < ia_len + sizeof(o_ia_a))
 					return 0;
+
+				lease_add_or_update_ia(a, &lease_ia_na, now);
 
 				memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
 				ia_len += sizeof(o_ia_a);

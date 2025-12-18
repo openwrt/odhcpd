@@ -289,6 +289,13 @@ enum dhcpv6_lease_type {
 	DHCPV6_IA_PD,
 };
 
+struct dhcpv6_ia {
+	time_t preferred_until;
+	time_t valid_until;
+	uint8_t prefix_len;
+	struct in6_addr addr;
+};
+
 struct dhcpv6_lease {
 	struct list_head head;
 	struct list_head lease_cfg_list;
@@ -313,6 +320,9 @@ struct dhcpv6_lease {
 			uint8_t prefix_len;
 		};
 	};
+
+	struct dhcpv6_ia *ias;			// IAs that have been given to the client
+	size_t ias_cnt;				// Count of IAs
 
 	enum dhcpv6_lease_type type;
 	bool bound;				// the lease has been accepted by the client

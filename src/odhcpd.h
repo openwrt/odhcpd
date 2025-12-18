@@ -54,7 +54,16 @@
 // RFC 9463 - Discovery of Network-designated Resolvers (DNR)
 #define ND_OPT_DNR 144
 
-#define INFINITE_VALID(x) ((x) == 0)
+// This is for CLOCK_MONOTONIC durations
+#define MONOTIME_INFINITY 0
+#define INFINITE_VALID(x) ((x) == MONOTIME_INFINITY)
+
+// This is for IPv6 preferred/valid lifetimes
+#define LIFETIME_INFINITY UINT32_MAX
+static inline bool lifetime_is_infinite(uint32_t lt)
+{
+	return lt == LIFETIME_INFINITY;
+}
 
 #ifndef _o_fallthrough
 #define _o_fallthrough __attribute__((__fallthrough__))

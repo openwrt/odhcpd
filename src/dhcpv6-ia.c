@@ -627,14 +627,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				continue;
 			}
 
-			if (prefix_preferred_lt != UINT32_MAX) {
+			if (!lifetime_is_infinite(prefix_preferred_lt)) {
 				prefix_preferred_lt -= now;
 
 				if (iface->max_preferred_lifetime)
 					prefix_preferred_lt = min(prefix_preferred_lt, iface->max_preferred_lifetime);
 			}
 
-			if (prefix_valid_lt != UINT32_MAX) {
+			if (!lifetime_is_infinite(prefix_valid_lt)) {
 				prefix_valid_lt -= now;
 
 				if (iface->max_valid_lifetime)
@@ -688,7 +688,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				break;
 			}
 
-			/* Calculate T1 / T2 based on non-deprecated addresses */
+			/* We base T1 / T2 on the address with the shortest lifetime */
 			if (prefix_preferred_lt > 0) {
 				min_preferred_lt = min(min_preferred_lt, prefix_preferred_lt);
 				min_valid_lt = min(min_valid_lt, prefix_valid_lt);
@@ -696,15 +696,13 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		}
 
 		if (!INFINITE_VALID(a->valid_until))
-			/* UINT32_MAX is RFC defined as infinite lease-time */
-			a->valid_until = (min_valid_lt == UINT32_MAX) ? 0 : now + min_valid_lt;
+			a->valid_until = lifetime_is_infinite(min_valid_lt) ? MONOTIME_INFINITY : now + min_valid_lt;
 
 		if (!INFINITE_VALID(a->preferred_until))
-			/* UINT32_MAX is RFC defined as infinite lease-time */
-			a->preferred_until = (min_preferred_lt == UINT32_MAX) ? 0 : now + min_preferred_lt;
+			a->preferred_until = lifetime_is_infinite(min_preferred_lt) ? MONOTIME_INFINITY : now + min_preferred_lt;
 
-		o_ia.t1 = htonl((min_preferred_lt == UINT32_MAX) ? min_preferred_lt : min_preferred_lt * 5 / 10);
-		o_ia.t2 = htonl((min_preferred_lt == UINT32_MAX) ? min_preferred_lt : min_preferred_lt * 8 / 10);
+		o_ia.t1 = htonl(lifetime_is_infinite(min_preferred_lt) ? LIFETIME_INFINITY : min_preferred_lt * 5 / 10);
+		o_ia.t2 = htonl(lifetime_is_infinite(min_preferred_lt) ? LIFETIME_INFINITY : min_preferred_lt * 8 / 10);
 
 		if (!o_ia.t1)
 			o_ia.t1 = htonl(1);

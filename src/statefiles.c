@@ -30,6 +30,7 @@
 
 #include "odhcpd.h"
 #include "dhcpv6-ia.h"
+#include "dhcpv4.h"
 #include "statefiles.h"
 
 static uint8_t statemd5[16];
@@ -41,6 +42,46 @@ struct write_ctxt {
 	time_t now; // CLOCK_MONOTONIC
 	time_t wall_time;
 };
+
+static FILE *statefiles_open_file(int dirfd, const char *prefix, const char *suffix)
+{
+	char filename[strlen(prefix) + strlen(".") + strlen(suffix) + 1];
+	int fd;
+	FILE *fp;
+
+	if (dirfd < 0)
+		return NULL;
+
+	sprintf(filename, "%s.%s", prefix, suffix);
+
+	fd = openat(dirfd, filename, O_RDWR | O_CLOEXEC);
+	if (fd < 0)
+		return NULL;
+
+	if (lockf(fd, F_LOCK, 0) < 0)
+		goto err;
+
+	fp = fdopen(fd, "r");
+	if (!fp)
+		goto err;
+
+	return fp;
+
+err:
+	close(fd);
+	return NULL;
+}
+
+static void statefiles_rm_file(int dirfd, const char *prefix, const char *suffix)
+{
+	char filename[strlen(prefix) + strlen(".") + strlen(suffix) + 1];
+
+	if (dirfd < 0)
+		return;
+
+	sprintf(filename, "%s.%s", prefix, suffix);
+	unlinkat(dirfd, filename, 0);
+}
 
 static FILE *statefiles_open_tmp_file(int dirfd)
 {
@@ -587,9 +628,603 @@ static bool statefiles_write_leases(time_t now)
 	return true;
 }
 
+#define STATEFILE_VERSION_STR "# STATEFILE_VERSION="
+#define STATEFILE_BOOTID_STR "# BOOT_ID="
+
+static time_t
+statefiles_double_ts_to_monotime(bool rebooted, int64_t monotime, int64_t time_t_time)
+{
+	if (!rebooted)
+		return (time_t)monotime;
+	else if (INFINITE_VALID((time_t)time_t_time))
+		return 0;
+	else
+		return statefiles_time_from_json((time_t)time_t_time);
+}
+
+static void
+statefiles_read_state6(FILE *fp, struct interface *iface, const char *line,
+		       time_t now, bool rebooted)
+{
+	int lease_type;
+	int64_t valid_mono, valid_time_t;
+	int64_t preferred_mono, preferred_time_t;
+	uint16_t peer_port;
+	uint32_t peer_flowinfo;
+	char peer_addr_str[INET6_ADDRSTRLEN];
+	uint32_t peer_scope_id;
+	unsigned bound;
+	uint32_t leasetime;
+	unsigned hostname_valid;
+	char hostname[DNS_MAX_NAME_LEN];
+	uint32_t iaid;
+	uint16_t duid_len;
+	char duidbuf[DUID_HEXSTRLEN];
+	uint8_t duid[DUID_MAX_LEN];
+	unsigned accept_fr;
+	char fr_key_buf[33];
+	uint8_t fr_key[16];
+	uint64_t assigned_id;
+	uint8_t prefix_len;
+	size_t ias_cnt;
+	unsigned offset;
+	int r;
+
+	r = sscanf(line, "dhcpv6 %i %" SCNi64 " %" SCNi64 " %" SCNi64 " %" SCNi64
+		" %" SCNu16 " %" SCNu32 " %s %" SCNu32 " %u %" SCNu32
+		" %u %s %" SCNu32 " %" SCNu16 " %s %u %s %" SCNu64 " %" SCNu8 " %zu %n",
+		&lease_type,
+		&valid_mono,
+		&valid_time_t,
+		&preferred_mono,
+		&preferred_time_t,
+		/* line */
+		&peer_port,
+		&peer_flowinfo,
+		peer_addr_str,
+		&peer_scope_id,
+		&bound,
+		&leasetime,
+		/* line */
+		&hostname_valid,
+		hostname,
+		&iaid,
+		&duid_len,
+		duidbuf,
+		&accept_fr,
+		fr_key_buf,
+		&assigned_id,
+		&prefix_len,
+		&ias_cnt,
+		&offset);
+
+	debug("Read a dhcpv6 line: result %i, offset %u", r, offset);
+	if (r != 21)
+		return;
+
+	fprintf(stderr, "Found a stored dhcpv6 lease\n"
+		"iface		: %s\n"
+		"type		: %i\n"
+		"valid_mono	: %" PRIi64 "\n"
+		"valid_time_t	: %" PRIi64 "\n"
+		"pref_mono	: %" PRIi64 "\n"
+		"pref_time_t:	: %" PRIi64 "\n"
+		"peer_port	: %" PRIu16 "\n"
+		"peer_flowinfo	: %" PRIu32 "\n"
+		"peer_addr	: %s\n"
+		"peer_scope_id	: %" PRIu32 "\n"
+		"bound		: %s\n"
+		"leasetime	: %" PRIu32 "\n"
+		"valid_hostname	: %s\n"
+		"hostname	: %s\n"
+		"IAID		: %" PRIu32 "\n"
+		"DUID-len	: %" PRIu8 "\n"
+		"DUID		: %s\n"
+		"Accept FR	: %s\n"
+		"FR key		: %s\n"
+		"Assiged ID	: %" PRIu64 "\n"
+		"Prefix len	: %" PRIu8 "\n"
+		"IAS count	: %zu\n",
+		iface->ifname,
+		lease_type,
+		valid_mono,
+		valid_time_t,
+		preferred_mono,
+		preferred_time_t,
+		peer_port,
+		peer_flowinfo,
+		peer_addr_str,
+		peer_scope_id,
+		bound ? "true" : "false",
+		leasetime,
+		hostname_valid ? "true" : "false",
+		hostname,
+		iaid,
+		duid_len,
+		duidbuf,
+		accept_fr ? "true" : "false",
+		fr_key_buf,
+		assigned_id,
+		prefix_len,
+		ias_cnt);
+
+	struct dhcpv6_ia ias[ias_cnt];
+
+	for (size_t i = 0; i < ias_cnt; i++) {
+		int64_t ias_valid_mono, ias_valid_time_t;
+		int64_t ias_preferred_mono, ias_preferred_time_t;
+		uint8_t ias_prefix_len;
+		char ias_addr[INET6_ADDRSTRLEN];
+		unsigned ias_len;
+		struct dhcpv6_ia *ia = &ias[i];
+
+		r = sscanf(line + offset, "%" SCNi64 " %" SCNi64 " %" SCNi64 " %" SCNi64 " %" SCNu8 " %s %n",
+			   &ias_valid_mono,
+			   &ias_valid_time_t,
+			   &ias_preferred_mono,
+			   &ias_preferred_time_t,
+			   &ias_prefix_len,
+			   ias_addr,
+			   &ias_len);
+		debug("IAS sscanf returned %i", r);
+		if (r != 6)
+			return;
+
+		fprintf(stderr, "IA\n"
+			"valid_mono	: %" PRIi64 "\n"
+			"valid_time_t	: %" PRIi64 "\n"
+			"pref_mono	: %" PRIi64 "\n"
+			"pref_time_t:	: %" PRIi64 "\n"
+			"prefix_len	: %" PRIu8 "\n"
+			"addr		: %s\n"
+			"offset		: %u\n",
+			ias_valid_mono,
+			ias_valid_time_t,
+			ias_preferred_mono,
+			ias_preferred_time_t,
+			ias_prefix_len,
+			ias_addr,
+			ias_len);
+
+		offset += ias_len;
+
+		ia->preferred_until = statefiles_double_ts_to_monotime(rebooted, ias_valid_mono, ias_valid_time_t);
+		ia->valid_until = statefiles_double_ts_to_monotime(rebooted, ias_preferred_mono, ias_preferred_time_t);
+		ia->prefix_len = ias_prefix_len;
+		if (inet_pton(AF_INET6, ias_addr, &ia->addr) != 1)
+			return;
+	}
+
+	switch (lease_type) {
+	case DHCPV6_IA_NA:
+		if (!iface->dhcpv6_na)
+			return;
+		break;
+	case DHCPV6_IA_PD:
+		if (!iface->dhcpv6_pd)
+			return;
+		if (assigned_id > UINT32_MAX)
+			return;
+		if (prefix_len > 128)
+			return;
+		break;
+	default:
+		return;
+	}
+
+	time_t valid_until, preferred_until;
+
+	valid_until = statefiles_double_ts_to_monotime(rebooted, valid_mono, valid_time_t);
+	preferred_until = statefiles_double_ts_to_monotime(rebooted, preferred_mono, preferred_time_t);
+
+	if (!INFINITE_VALID(valid_until) && valid_until <= now) {
+		fprintf(stderr, "Expired\n");
+		return;
+	}
+
+	struct sockaddr_in6 peer;
+
+	peer.sin6_family = AF_INET6;
+	peer.sin6_port = htons(peer_port);
+	peer.sin6_flowinfo = peer_flowinfo;
+	peer.sin6_scope_id = peer_scope_id;
+	if (inet_pton(AF_INET6, peer_addr_str, &peer.sin6_addr) != 1)
+		return;
+
+	if (duid_len > DUID_MAX_LEN)
+		return;
+
+	if (odhcpd_unhexlify(duid, strlen(duidbuf), duidbuf) != duid_len)
+		return;
+
+	if (odhcpd_unhexlify(fr_key, strlen(fr_key_buf), fr_key_buf) != 16)
+		return;
+
+	struct dhcpv6_lease *lease;
+
+	lease = dhcpv6_alloc_lease(duid_len);
+	if (!lease)
+		return;
+
+	lease->ias = malloc(sizeof(ias));
+	if (!lease->ias)
+		goto err;
+
+	lease->iface = iface;
+	lease->peer = peer;
+	lease->valid_until = valid_until;
+	lease->preferred_until = preferred_until;
+	lease->accept_fr_nonce = !!accept_fr;
+	memcpy(lease->key, fr_key, sizeof(lease->key));
+	memcpy(lease->ias, &ias, sizeof(ias));
+	lease->ias_cnt = ias_cnt;
+	lease->type = lease_type;
+	lease->bound = !!bound;
+	lease->leasetime = leasetime;
+	lease->hostname = strdup(hostname);
+	lease->hostname_valid = !!hostname_valid;
+	lease->iaid = iaid;
+	lease->duid_len = duid_len;
+	memcpy(lease->duid, duid, duid_len);
+	lease->lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, iaid);
+
+	debug("Would insert DHCPv6 lease now");
+
+	if (list_empty(&iface->ia_assignments)) {
+		struct dhcpv6_lease *border;
+		debug("Adding border");
+		border = dhcpv6_alloc_lease(0);
+		border->prefix_len = 64;
+		list_add(&border->head, &iface->ia_assignments);
+	}
+
+	switch (lease_type) {
+	case DHCPV6_IA_NA:
+		lease->assigned_host_id = assigned_id;
+		if (!assign_na(iface, lease))
+			goto err;
+		break;
+	case DHCPV6_IA_PD:
+		lease->assigned_subnet_id = (uint32_t)assigned_id;
+		lease->prefix_len = prefix_len;
+		if (!assign_pd(iface, lease))
+			goto err;
+		break;
+	default:
+		goto err;
+	}
+
+	if (lease->lease_cfg) {
+		if (lease->lease_cfg->leasetime)
+			lease->leasetime = lease->lease_cfg->leasetime;
+		if (lease->lease_cfg->hostname) {
+			free(lease->hostname);
+			lease->hostname = strdup(lease->lease_cfg->hostname);
+			lease->hostname_valid = true;
+		}
+		list_add(&lease->lease_cfg_list, &lease->lease_cfg->dhcpv6_leases);
+	}
+
+	fprintf(stderr, "Inserted a dhcpv6 lease!\n");
+	return;
+
+err:
+	dhcpv6_free_lease(lease);
+	fprintf(stderr, "Error insering a dhcpv6 lease!\n");
+}
+
+static void
+statefiles_read_state4(FILE *fp, struct interface *iface, const char *line,
+		       time_t now, bool rebooted)
+{
+	int64_t valid_mono, valid_time_t;
+	unsigned bound, hostname_valid, accept_fr;
+	uint32_t iaid;
+	uint8_t duid_len;
+	char ipbuf[INET_ADDRSTRLEN];
+	char hostname[DNS_MAX_NAME_LEN];
+	char macbuf[ETH_ALEN * 3];
+	struct ether_addr macaddr;
+	struct in_addr ipaddr;
+	char duidbuf[DUID_HEXSTRLEN];
+	uint8_t duid[DUID_MAX_LEN];
+	char fr_key_buf[33];
+	uint8_t fr_key[16];
+	struct dhcpv4_lease *lease;
+	int r;
+
+	r = sscanf(line, "dhcpv4 %" SCNi64 " %" SCNi64 " %u %s %s %u %s %" SCNu32 " %" SCNu8 " %260s %u %32s",
+		   &valid_mono, &valid_time_t, &bound, ipbuf, macbuf,
+		   &hostname_valid, hostname, &iaid, &duid_len, duidbuf, &accept_fr, fr_key_buf);
+	debug("Read a dhcpv4 record: result %i\n", r);
+	if (r != 12)
+		return;
+
+	fprintf(stderr, "Found a stored lease\n"
+		"iface		: %s\n"
+		"valid_mono	: %" PRIi64 "\n"
+		"valid_time_t	: %" PRIi64 "\n"
+		"bound		: %s\n"
+		"IPv4		: %s\n"
+		"MAC		: %s\n"
+		"valid_hostname	: %s\n"
+		"hostname	: %s\n"
+		"IAID		: %" PRIu32 "\n"
+		"DUID-len	: %" PRIu8 "\n"
+		"DUID		: %s\n"
+		"Accept FR	: %s\n"
+		"FR key:	: %s\n",
+		iface->ifname,
+		valid_mono,
+		valid_time_t,
+		bound ? "true" : "false",
+		ipbuf,
+		macbuf,
+		hostname_valid ? "true" : "false",
+		hostname,
+		iaid,
+		duid_len,
+		duidbuf,
+		accept_fr ? "true" : "false",
+		fr_key_buf);
+
+	if (!rebooted)
+		valid_mono = (time_t)valid_mono;
+	else if (INFINITE_VALID(valid_time_t))
+		valid_mono = 0;
+	else
+		valid_mono = statefiles_time_from_json(valid_time_t);
+
+	if (valid_mono <= now) {
+		fprintf(stderr, "Expired\n");
+		return;
+	}
+
+	if (duid_len > DUID_MAX_LEN)
+		return;
+
+	if (odhcpd_unhexlify(duid, strlen(duidbuf), duidbuf) != duid_len)
+		return;
+
+	if (odhcpd_unhexlify(fr_key, strlen(fr_key_buf), fr_key_buf) != 16)
+		return;
+
+	if (!ether_aton_r(macbuf, &macaddr))
+		fprintf(stderr, "incorrect ether addr\n");
+
+	if (inet_pton(AF_INET, ipbuf, &ipaddr) != 1)
+		fprintf(stderr, "incorrect ipv4 addr\n");
+
+	lease = dhcpv4_alloc_lease(iface, &macaddr, duid, duid_len, iaid);
+
+	if (duid_len > 0)
+		lease->lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, iaid);
+
+	if (!lease->lease_cfg)
+		lease->lease_cfg = config_find_lease_cfg_by_macaddr(&macaddr);
+
+	if (lease->lease_cfg)
+		fprintf(stderr, "found a static config\n");
+	else
+		fprintf(stderr, "found no static cfg\n");
+
+	lease->bound = !!bound;
+	lease->valid_until = valid_mono;
+	lease->hostname = strdup(hostname);
+	lease->hostname_valid = !!hostname_valid;
+	lease->accept_fr_nonce = !!accept_fr;
+	memcpy(lease->key, fr_key, sizeof(lease->key));
+
+	if (!dhcpv4_insert_lease(iface, lease, ipaddr))
+		dhcpv4_free_lease(lease);
+	else
+		fprintf(stderr, "Inserted a lease!\n");
+}
+
+static void statefiles_read_state(struct interface *iface, time_t now)
+{
+	FILE *fp;
+	char line[1024];
+	int version;
+	char boot_id[BOOT_ID_LEN + 1];
+	bool rebooted;
+
+	fp = statefiles_open_file(config.statedir_fd, ODHCPD_STATE_FILE_PREFIX, iface->name);
+	if (!fp)
+		return;
+
+	if (!fgets(line, sizeof(line), fp) || sscanf(line, "# STATEFILE_VERSION=%u", &version) != 1)
+		goto err;
+
+	if (version != ODHCPD_STATE_FILE_VERSION)
+		goto err;
+
+	if (!fgets(line, sizeof(line), fp) || sscanf(line, "# BOOT_ID=%36s", boot_id) != 1)
+		goto err;
+
+	fprintf(stderr, "Read a file with boot id %s <-> %s\n", boot_id, config.boot_id);
+	rebooted = !!strcmp(boot_id, (char *)config.boot_id);
+	fprintf(stderr, "Rebooted: %s\n", rebooted ? "true" : "false");
+
+	while (fgets(line, sizeof(line), fp)) {
+		if (line[0] == '\0' || line[0] == '#')
+			continue;
+		else if (!strncmp(line, "dhcpv4 ", strlen("dhcpv4 ")))
+			statefiles_read_state4(fp, iface, line, now, rebooted);
+		else if (!strncmp(line, "dhcpv6 ", strlen("dhcpv6 ")))
+			statefiles_read_state6(fp, iface, line, now, rebooted);
+		else
+			debug("Unexpected line in statefile: %s", line);
+	}
+
+err:
+	fclose(fp);
+	statefiles_rm_file(config.statedir_fd, ODHCPD_STATE_FILE_PREFIX, iface->name);
+}
+
+static void statefiles_write_state4(FILE *fp, struct dhcpv4_lease *lease, time_t now)
+{
+	char ipbuf[INET_ADDRSTRLEN];
+	char duidbuf[DUID_HEXSTRLEN];
+	char fr_key_buf[33];
+	time_t valid_until_unixtime;
+
+	if (INFINITE_VALID(lease->valid_until))
+		valid_until_unixtime = 0;
+	else if (lease->valid_until > now)
+		valid_until_unixtime = statefiles_time_to_json(lease->valid_until);
+	else
+		return;
+
+	odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
+	odhcpd_hexlify(fr_key_buf, lease->key, 16);
+
+	// fmt: "dhcpv4 <valid_until_monotime> <valid_until_unixtime> <bound> <ipv4> <mac> <hostname_valid> <hostname> <iaid> <duid-len> <duid-hex>"
+	fprintf(fp, "dhcpv4 %" PRIi64 " %" PRIi64 " %u %s %s %u %s %" PRIu32 " %" PRIu8 " %s %u %s\n",
+		(int64_t)lease->valid_until,
+		(int64_t)valid_until_unixtime,
+		lease->bound,
+		inet_ntop(AF_INET, &lease->ipv4, ipbuf, sizeof(ipbuf)),
+		ether_ntoa(&lease->macaddr),
+		lease->hostname_valid,
+		lease->hostname,
+		lease->iaid,
+		lease->duid_len,
+		lease->duid_len ? duidbuf : "-",
+		lease->accept_fr_nonce,
+		fr_key_buf
+		);
+}
+
+static void statefiles_write_state6(FILE *fp, struct dhcpv6_lease *lease, time_t now)
+{
+	char ipbuf[INET6_ADDRSTRLEN];
+	char duidbuf[DUID_HEXSTRLEN];
+	char fr_key_buf[33];
+	time_t valid_until_unixtime, preferred_until_unixtime;
+
+	if (INFINITE_VALID(lease->valid_until))
+		valid_until_unixtime = 0;
+	else if (lease->valid_until > now)
+		valid_until_unixtime = statefiles_time_to_json(lease->valid_until);
+	else
+		return;
+
+	if (INFINITE_VALID(lease->preferred_until))
+		preferred_until_unixtime = 0;
+	else if (lease->preferred_until > now)
+		preferred_until_unixtime = statefiles_time_to_json(lease->preferred_until);
+	else
+		return;
+
+	odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
+	odhcpd_hexlify(fr_key_buf, lease->key, 16);
+	uint64_t assigned_id = lease->type == DHCPV6_IA_NA ?
+		lease->assigned_host_id : lease->assigned_subnet_id;
+	uint8_t prefix_len = lease->type == DHCPV6_IA_NA ?
+		128 : lease->prefix_len;
+
+
+
+	// fmt: "dhcpv6 <type> <valid_until_monotime> <valid_until_unixtime> <bound> <ipv4> <mac> <hostname_valid> <hostname> <iaid> <duid-len> <duid-hex>"
+	fprintf(fp, "dhcpv6 %i %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64
+		" %" PRIu16 " %" PRIu32 " %s %" PRIu32 " %u %" PRIu32
+		" %u %s %" PRIu32 " %" PRIu16 " %s %u %s %" PRIu64 " %" PRIu8 " %zu",
+		lease->type,
+		(int64_t)lease->valid_until,
+		(int64_t)valid_until_unixtime,
+		(int64_t)lease->preferred_until,
+		(int64_t)preferred_until_unixtime,
+		/* line */
+		ntohs(lease->peer.sin6_port),
+		lease->peer.sin6_flowinfo,
+		inet_ntop(AF_INET6, &lease->peer.sin6_addr, ipbuf, sizeof(ipbuf)),
+		lease->peer.sin6_scope_id,
+		lease->bound,
+		lease->leasetime,
+		/* line */
+		lease->hostname_valid,
+		lease->hostname,
+		lease->iaid,
+		lease->duid_len,
+		lease->duid_len ? duidbuf : "-",
+		lease->accept_fr_nonce,
+		fr_key_buf,
+		assigned_id,
+		prefix_len,
+		lease->ias_cnt);
+
+	for (size_t i = 0; i < lease->ias_cnt; i++) {
+		struct dhcpv6_ia *ia = &lease->ias[i];
+
+		fprintf(fp, " %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIu8 " %s",
+			(int64_t)ia->valid_until,
+			(int64_t)ia->valid_until,
+			(int64_t)ia->preferred_until,
+			(int64_t)ia->preferred_until,
+			ia->prefix_len,
+			inet_ntop(AF_INET6, &ia->addr, ipbuf, sizeof(ipbuf)));
+	}
+
+	putc('\n', fp);
+}
+
+static void statefiles_write_state(time_t now)
+{
+	struct interface *iface;
+	FILE *fp;
+
+	if (config.statedir_fd < 0)
+		return;
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->ignore)
+			continue;
+
+		if (iface->dhcpv4 != MODE_SERVER && iface->dhcpv6 != MODE_SERVER)
+			continue;
+
+		fp = statefiles_open_tmp_file(config.statedir_fd);
+		if (!fp)
+			continue;
+
+		fprintf(fp, "# STATEFILE_VERSION=%i\n", ODHCPD_STATE_FILE_VERSION);
+		fprintf(fp, "# BOOT_ID=%s\n", config.boot_id);
+
+		if (iface->dhcpv4 == MODE_SERVER) {
+			struct dhcpv4_lease *lease;
+
+			avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl)
+				statefiles_write_state4(fp, lease, now);
+		}
+
+		if (iface->dhcpv6 == MODE_SERVER) {
+			struct dhcpv6_lease *lease, *border;
+
+			border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
+
+			list_for_each_entry(lease, &iface->ia_assignments, head)
+				if (lease != border)
+					statefiles_write_state6(fp, lease, now);
+		}
+
+		statefiles_finish_tmp_file(config.statedir_fd, &fp,
+					   ODHCPD_STATE_FILE_PREFIX, iface->name);
+	}
+}
+
+void statefiles_read(struct interface *iface)
+{
+	time_t now = odhcpd_time();
+
+	statefiles_read_state(iface, now);
+}
+
 bool statefiles_write()
 {
 	time_t now = odhcpd_time();
+
+	statefiles_write_state(now);
 
 	if (!statefiles_write_leases(now))
 		return false;

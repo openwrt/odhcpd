@@ -43,6 +43,7 @@
 #include <libubox/uloop.h>
 
 #include "odhcpd.h"
+#include "dhcpv4.h"
 #include "dhcpv6-ia.h"
 #include "dhcpv4.h"
 

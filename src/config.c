@@ -1766,6 +1766,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	statefiles_read_prefix_information(iface);
+	statefiles_read(iface);
 
 	return 0;
 

@@ -587,14 +587,14 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			uint16_t val;
 		} o_status = {
 			.type = htons(DHCPV6_OPT_STATUS),
-			.len = htons(sizeof(o_status) - 4),
+			.len = htons(sizeof(o_status) - DHCPV6_OPT_HDR_SIZE),
 			.val = htons(status),
 		};
 
 		memcpy(buf + ia_len, &o_status, sizeof(o_status));
 		ia_len += sizeof(o_status);
 
-		o_ia.len = htons(ia_len - 4);
+		o_ia.len = htons(ia_len - DHCPV6_OPT_HDR_SIZE);
 		memcpy(buf, &o_ia, sizeof(o_ia));
 
 		return ia_len;
@@ -668,7 +668,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (a->flags & OAF_DHCPV6_PD) {
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
-					.len = htons(sizeof(o_ia_p) - 4),
+					.len = htons(sizeof(o_ia_p) - DHCPV6_OPT_HDR_SIZE),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
 					.prefix_len = a->length,
@@ -691,7 +691,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			if (a->flags & OAF_DHCPV6_NA) {
 				struct dhcpv6_ia_addr o_ia_a = {
 					.type = htons(DHCPV6_OPT_IA_ADDR),
-					.len = htons(sizeof(o_ia_a) - 4),
+					.len = htons(sizeof(o_ia_a) - DHCPV6_OPT_HDR_SIZE),
 					.addr = in6_from_prefix_and_iid(&addrs[i], a->assigned_host_id),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt)
@@ -736,16 +736,16 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 	}
 
 	if (!request) {
-		uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
+		uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + DHCPV6_OPT_HDR_SIZE;
 		uint16_t otype, olen;
 
 		dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
-			struct dhcpv6_ia_prefix *ia_p = (struct dhcpv6_ia_prefix *)&odata[-4];
-			struct dhcpv6_ia_addr *ia_a = (struct dhcpv6_ia_addr *)&odata[-4];
+			struct dhcpv6_ia_prefix *ia_p = (struct dhcpv6_ia_prefix *)&odata[-DHCPV6_OPT_HDR_SIZE];
+			struct dhcpv6_ia_addr *ia_a = (struct dhcpv6_ia_addr *)&odata[-DHCPV6_OPT_HDR_SIZE];
 			bool found = false;
 
-			if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*ia_p) - 4) &&
-					(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*ia_a) - 4))
+			if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*ia_p) - DHCPV6_OPT_HDR_SIZE) &&
+					(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*ia_a) - DHCPV6_OPT_HDR_SIZE))
 				continue;
 
 			if (a) {
@@ -785,7 +785,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				if (otype == DHCPV6_OPT_IA_PREFIX) {
 					struct dhcpv6_ia_prefix o_ia_p = {
 						.type = htons(DHCPV6_OPT_IA_PREFIX),
-						.len = htons(sizeof(o_ia_p) - 4),
+						.len = htons(sizeof(o_ia_p) - DHCPV6_OPT_HDR_SIZE),
 						.preferred_lt = 0,
 						.valid_lt = 0,
 						.prefix_len = ia_p->prefix_len,
@@ -800,7 +800,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				} else {
 					struct dhcpv6_ia_addr o_ia_a = {
 						.type = htons(DHCPV6_OPT_IA_ADDR),
-						.len = htons(sizeof(o_ia_a) - 4),
+						.len = htons(sizeof(o_ia_a) - DHCPV6_OPT_HDR_SIZE),
 						.addr = ia_a->addr,
 						.preferred_lt = 0,
 						.valid_lt = 0,
@@ -816,7 +816,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 		}
 	}
 
-	o_ia.len = htons(ia_len - 4);
+	o_ia.len = htons(ia_len - DHCPV6_OPT_HDR_SIZE);
 	memcpy(buf, &o_ia, sizeof(o_ia));
 	return ia_len;
 }
@@ -906,16 +906,16 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 	struct odhcpd_ipaddr *addrs = iface->addr6;
 	size_t addrlen = iface->addr6_len;
 	time_t now = odhcpd_time();
-	uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + 4;
+	uint8_t *odata, *end = ((uint8_t*)ia) + htons(ia->len) + DHCPV6_OPT_HDR_SIZE;
 	uint16_t otype, olen;
 	bool onlink = true;
 
 	dhcpv6_for_each_option((uint8_t*)&ia[1], end, otype, olen, odata) {
-		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix *)&odata[-4];
-		struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr *)&odata[-4];
+		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix *)&odata[-DHCPV6_OPT_HDR_SIZE];
+		struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr *)&odata[-DHCPV6_OPT_HDR_SIZE];
 
-		if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - 4) &&
-				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - 4))
+		if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - DHCPV6_OPT_HDR_SIZE) &&
+				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - DHCPV6_OPT_HDR_SIZE))
 			continue;
 
 		onlink = false;
@@ -992,7 +992,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		if (!is_pd && !is_na)
 			continue;
 
-		struct dhcpv6_ia_hdr *ia = (struct dhcpv6_ia_hdr*)&odata[-4];
+		struct dhcpv6_ia_hdr *ia = (struct dhcpv6_ia_hdr*)&odata[-DHCPV6_OPT_HDR_SIZE];
 		size_t ia_response_len = 0;
 		uint8_t reqlen = (is_pd) ? 62 : 128;
 		uint32_t reqhint = 0;
@@ -1010,10 +1010,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			uint8_t *sdata;
 			uint16_t stype, slen;
 			dhcpv6_for_each_sub_option(&ia[1], odata + olen, stype, slen, sdata) {
-				if (stype != DHCPV6_OPT_IA_PREFIX || slen < sizeof(struct dhcpv6_ia_prefix) - 4)
+				if (stype != DHCPV6_OPT_IA_PREFIX || slen < sizeof(struct dhcpv6_ia_prefix) - DHCPV6_OPT_HDR_SIZE)
 					continue;
 
-				struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&sdata[-4];
+				struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix*)&sdata[-DHCPV6_OPT_HDR_SIZE];
 				if (p->prefix_len) {
 					reqlen = p->prefix_len;
 					reqhint = ntohl(p->addr.s6_addr32[1]);
@@ -1053,7 +1053,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			uint8_t *sdata;
 			uint16_t stype, slen;
 			dhcpv6_for_each_sub_option(&ia[1], odata + olen, stype, slen, sdata) {
-				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - 4)
+				if (stype != DHCPV6_OPT_IA_ADDR || slen < sizeof(struct dhcpv6_ia_addr) - DHCPV6_OPT_HDR_SIZE)
 					continue;
 
 				ia_addr_present = true;
@@ -1211,7 +1211,7 @@ proceed:
 				if (hdr->msg_type == DHCPV6_MSG_REQUEST) {
 					struct dhcpv6_auth_reconfigure auth = {
 						htons(DHCPV6_OPT_AUTH),
-						htons(sizeof(auth) - 4),
+						htons(sizeof(auth) - DHCPV6_OPT_HDR_SIZE),
 						3, 1, 0,
 						{htonl(time(NULL)), htonl(++serial)},
 						1,

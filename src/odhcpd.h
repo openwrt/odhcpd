@@ -194,6 +194,8 @@ enum odhcpd_assignment_flags {
 	OAF_DHCPV6_PD		= (1 << 1),
 };
 
+#define DHCPV6_OPT_HDR_SIZE 4
+
 /* 2-byte type + 128-byte DUID, RFC8415, §11.1 */
 #define DUID_MAX_LEN 130
 /* In theory, 2 (type only), or 7 (DUID-EN + 1-byte data), but be reasonable */

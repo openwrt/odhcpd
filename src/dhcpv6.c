@@ -400,7 +400,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t type;
 		uint16_t len;
 		uint32_t value;
-	} maxrt = {htons(DHCPV6_OPT_SOL_MAX_RT), htons(sizeof(maxrt) - 4),
+	} maxrt = {htons(DHCPV6_OPT_SOL_MAX_RT), htons(sizeof(maxrt) - DHCPV6_OPT_HDR_SIZE),
 			htonl(60)};
 
 	struct _o_packed {
@@ -412,7 +412,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		uint16_t type;
 		uint16_t len;
 		uint16_t value;
-	} stat = {htons(DHCPV6_OPT_STATUS), htons(sizeof(stat) - 4),
+	} stat = {htons(DHCPV6_OPT_STATUS), htons(sizeof(stat) - DHCPV6_OPT_HDR_SIZE),
 			htons(DHCPV6_STATUS_USEMULTICAST)};
 
 	struct _o_packed {

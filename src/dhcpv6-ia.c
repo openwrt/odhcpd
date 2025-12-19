@@ -44,7 +44,7 @@ static struct netevent_handler dhcpv6_netevent_handler = { .cb = dhcpv6_netevent
 static struct uloop_timeout valid_until_timeout = {.cb = valid_until_cb};
 static uint32_t serial = 0;
 
-static struct dhcpv6_lease *
+struct dhcpv6_lease *
 dhcpv6_alloc_lease(size_t extra_len)
 {
 	struct dhcpv6_lease *a = calloc(1, sizeof(*a) + extra_len);
@@ -340,7 +340,7 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_le
 		b->assigned_subnet_id = 0;
 }
 
-static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
+bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 {
 	struct dhcpv6_lease *c;
 
@@ -413,7 +413,7 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 	return false;
 }
 
-static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
+bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 {
 	struct dhcpv6_lease *c;
 	uint64_t pool_start = 0x100;

@@ -1330,6 +1330,7 @@ out:
 /* Register or update address registration in the lease database */
 static bool register_ia_addr_in_lease_db(struct sockaddr_in6 *source,
 		const uint8_t *clientid_data, uint16_t clientid_len,
+		const char *clientfqdn_data, size_t clientfqdn_len,
 		const struct dhcpv6_ia_addr *ia_addr,
 		struct interface *iface)
 {
@@ -1388,6 +1389,19 @@ static bool register_ia_addr_in_lease_db(struct sockaddr_in6 *source,
 		lease->duid_len = clientid_len;
 		memcpy(lease->duid, clientid_data, clientid_len);
 		lease->length = 128;
+
+		/* Add optional Client FQDN */
+		if (clientfqdn_len > 0 && clientfqdn_data) {
+			char *tmp = realloc(lease->hostname, clientfqdn_len + 1);
+			if (tmp) {
+				lease->hostname = tmp;
+				memcpy(lease->hostname, clientfqdn_data, clientfqdn_len);
+				lease->hostname[clientfqdn_len] = 0;
+				lease->hostname_valid = odhcpd_hostname_valid(lease->hostname);
+			}
+		}
+
+
 
 		/* Try to find matching interface prefix and extract host ID */
 		for (size_t i = 0; i < iface->addr6_len; i++) {
@@ -1543,6 +1557,8 @@ void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
 
 	uint8_t *clientid_data = NULL;
 	uint16_t clientid_len = 0;
+	char clientfqdn_data[256];
+	size_t clientfqdn_len = 0;
 	struct dhcpv6_ia_addr *ia_addr = NULL;
 
 	if (len < sizeof(*hdr)) {
@@ -1553,6 +1569,7 @@ void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
 	/* RFC9686 §4.2: Client MUST include Client Identifier option */
 	/* RFC9686 §4.2: ADDR-REG-INFORM MUST NOT contain Server Identifier */
 	/* RFC9686 §4.2: MUST contain exactly one IA Address option */
+	/* RFC9686 §4.2: MAY include other options, such as the Client FQDN option */
 
 	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
 		switch (otype) {
@@ -1566,6 +1583,16 @@ void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
 			/* RFC9686 §4.2: Server MUST discard messages with Server ID */
 			notice("ADDR-REG-INFORM: message contains Server Identifier, discarding");
 			return;
+		case DHCPV6_OPT_FQDN:
+			if (olen >= 2 && olen <= 255) {
+				uint8_t fqdn_buf[256];
+				memcpy(fqdn_buf, odata, olen);
+				fqdn_buf[olen++] = 0;
+
+				if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], clientfqdn_data, sizeof(clientfqdn_data)) > 0)
+					clientfqdn_len = strcspn(clientfqdn_data, ".");
+			}
+			break;
 		case DHCPV6_OPT_IA_ADDR:
 			if (olen == sizeof(struct dhcpv6_ia_addr) - 4) {
 				if (ia_addr != NULL) {
@@ -1607,7 +1634,8 @@ void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
 	debug("Got ADDR-REG-INFORM for %s on %s", addrbuf, iface->name);
 
 	/* Register address in lease database */
-	if(!register_ia_addr_in_lease_db(source, clientid_data, clientid_len, ia_addr, iface))
+	if(!register_ia_addr_in_lease_db(source, clientid_data, clientid_len,
+									clientfqdn_data, clientfqdn_len, ia_addr, iface))
 		return;
 
 	/* Send ADDR-REG-REPLY response */

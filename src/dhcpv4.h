@@ -188,4 +188,47 @@ struct dhcpv4_dnr {
 			&opt->data[opt->len] <= (end); \
 		opt = (struct dhcpv4_option*)&opt->data[opt->len])
 
+#ifdef DHCPV4_SUPPORT
+int dhcpv4_init(void);
+void dhcpv4_free_lease(struct dhcpv4_lease *a);
+struct dhcpv4_lease *dhcpv4_alloc_lease(struct interface *iface,
+					const struct ether_addr *macaddr,
+					const uint8_t *duid,
+					size_t duid_len,
+					uint32_t iaid);
+bool dhcpv4_insert_lease(struct interface *iface, struct dhcpv4_lease *lease,
+			 struct in_addr addr);
+bool dhcpv4_setup_interface(struct interface *iface, bool enable);
+void dhcpv4_handle_msg(void *addr, void *data, size_t len,
+		       struct interface *iface, _o_unused void *dest_addr,
+		       send_reply_cb_t send_reply, void *opaque);
+#else
+static inline void
+dhcpv4_free_lease(struct dhcpv4_lease *lease)
+{
+	return;
+}
+
+static inline struct dhcpv4_lease *
+dhcpv4_alloc_lease(struct interface *iface, const struct ether_addr *macaddr,
+		   const uint8_t *duid, size_t duid_len, uint32_t iaid)
+{
+	return NULL;
+}
+
+static inline bool
+dhcpv4_insert_lease(struct interface *iface, struct dhcpv4_lease *lease,
+		    struct in_addr addr)
+{
+	return false;
+}
+
+static inline bool
+dhcpv4_setup_interface(struct interface *iface, bool enable)
+{
+	return true;
+}
+
+#endif /* DHCPV4_SUPPORT */
+
 #endif /* _DHCPV4_H_ */

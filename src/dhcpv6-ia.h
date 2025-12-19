@@ -21,13 +21,19 @@
 	 (i) == (m) || \
 	 (addrs)[(i)].prefix_len > 64)
 
+struct dhcpv6_lease *dhcpv6_alloc_lease(size_t extra_len);
+
 size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen);
 
 struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint64_t iid);
 
-static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8_t prefix_length)
+bool assign_pd(struct interface *iface, struct dhcpv6_lease *lease);
+
+bool assign_na(struct interface *iface, struct dhcpv6_lease *lease);
+
+static inline bool valid_prefix_length(const struct dhcpv6_lease *a, uint8_t prefix_len)
 {
-	return a->length > prefix_length;
+	return a->prefix_len > prefix_len;
 }
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)

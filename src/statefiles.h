@@ -9,12 +9,16 @@
 #define _STATEFILES_H_
 
 #define ODHCPD_HOSTS_FILE_PREFIX "odhcpd.hosts"
+#define ODHCPD_STATE_FILE_PREFIX "odhcpd.state"
+#define ODHCPD_STATE_FILE_VERSION 1
 #define ODHCPD_PIO_FILE_PREFIX "odhcpd.pio"
 #define ODHCPD_TMP_FILE ".odhcpd.tmp"
 
 void statefiles_read_prefix_information(struct interface *iface);
 
 void statefiles_write_prefix_information(struct interface *iface);
+
+void statefiles_read(struct interface *iface);
 
 bool statefiles_write(void);
 

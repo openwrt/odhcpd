@@ -43,7 +43,9 @@
 #include <libubox/uloop.h>
 
 #include "odhcpd.h"
+#include "dhcpv4.h"
 #include "dhcpv6-ia.h"
+#include "dhcpv4.h"
 
 static int ioctl_sock = -1;
 
@@ -106,6 +108,20 @@ static bool ipv6_enabled(void)
 	return true;
 }
 
+static void read_boot_id(void)
+{
+	int fd;
+
+	fd = open("/proc/sys/kernel/random/boot_id", O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return;
+
+	if (read(fd, config.boot_id, sizeof(config.boot_id) - 1) <= 0)
+		warn("Failed to read boot_id");
+
+	close(fd);
+}
+
 int main(int argc, char **argv)
 {
 	int opt;
@@ -162,6 +178,8 @@ int main(int argc, char **argv)
 	}
 
 	uloop_init();
+
+	read_boot_id();
 
 	ioctl_sock = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	if (ioctl_sock < 0)
@@ -625,17 +643,6 @@ void odhcpd_hexlify(char *dst, const uint8_t *src, size_t len)
 	*dst = 0;
 }
 
-const char *odhcpd_print_mac(const uint8_t *mac, const size_t len)
-{
-	static char buf[32];
-
-	snprintf(buf, sizeof(buf), "%02x", mac[0]);
-	for (size_t i = 1, j = 2; i < len && j < sizeof(buf); i++, j += 3)
-		snprintf(buf + j, sizeof(buf) - j, ":%02x", mac[i]);
-
-	return buf;
-}
-
 int odhcpd_bmemcmp(const void *av, const void *bv, size_t bits)
 {
 	const uint8_t *a = av, *b = bv;
@@ -674,7 +681,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		struct in6_addr addr;
 		uint32_t preferred_lt, valid_lt;
-		int prefix = lease->length;
+		int prefix_len = 128;
 
 		if (!valid_addr(&addrs[i], now))
 			continue;
@@ -688,18 +695,22 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 			continue;
 		}
 
-		if (lease->flags & OAF_DHCPV6_NA) {
+		switch (lease->type) {
+		case DHCPV6_IA_NA:
 			if (!ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs))
 				continue;
 
 			addr = in6_from_prefix_and_iid(&addrs[i], lease->assigned_host_id);
-		} else {
+			break;
+
+		case DHCPV6_IA_PD:
 			if (!valid_prefix_length(lease, addrs[i].prefix_len))
 				continue;
 
 			addr = addrs[i].addr.in6;
 			addr.s6_addr32[1] |= htonl(lease->assigned_subnet_id);
 			addr.s6_addr32[2] = addr.s6_addr32[3] = 0;
+			prefix_len = lease->prefix_len;
 		}
 
 		preferred_lt = addrs[i].preferred_lt;
@@ -719,7 +730,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 		if (valid_lt != UINT32_MAX)
 			valid_lt -= now;
 
-		func(lease, &addr, prefix, preferred_lt, valid_lt, arg);
+		func(lease, &addr, prefix_len, preferred_lt, valid_lt, arg);
 	}
 }
 

@@ -43,10 +43,9 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 				continue;
 
 			void *m, *l = blobmsg_open_table(&b, NULL);
-			char *buf = blobmsg_alloc_string_buffer(&b, "mac", sizeof(c->hwaddr) * 2 + 1);
+			char *buf;
 
-			odhcpd_hexlify(buf, c->hwaddr, sizeof(c->hwaddr));
-			blobmsg_add_string_buffer(&b);
+			blobmsg_add_string(&b, "mac", ether_ntoa(&c->macaddr));
 
 			if (c->duid_len > 0) {
 				buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
@@ -145,10 +144,21 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 			blobmsg_add_u32(&b, "iaid", ntohl(a->iaid));
 			blobmsg_add_string(&b, "hostname", (a->hostname) ? a->hostname : "");
 			blobmsg_add_u8(&b, "accept-reconf", a->accept_fr_nonce);
-			if (a->flags & OAF_DHCPV6_NA)
+
+			switch (a->type) {
+			case DHCPV6_IA_NA:
 				blobmsg_add_u64(&b, "assigned", a->assigned_host_id);
-			else
+				m = blobmsg_open_array(&b, "ipv6-addr");
+				odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
+				blobmsg_close_array(&b, m);
+				break;
+			case DHCPV6_IA_PD:
 				blobmsg_add_u16(&b, "assigned", a->assigned_subnet_id);
+				m = blobmsg_open_array(&b, "ipv6-prefix");
+				odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
+				blobmsg_close_array(&b, m);
+				break;
+			}
 
 			m = blobmsg_open_array(&b, "flags");
 			if (a->bound)
@@ -156,10 +166,6 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 
 			if (a->lease_cfg)
 				blobmsg_add_string(&b, NULL, "static");
-			blobmsg_close_array(&b, m);
-
-			m = blobmsg_open_array(&b, a->flags & OAF_DHCPV6_NA ? "ipv6-addr": "ipv6-prefix");
-			odhcpd_enum_addr6(iface, a, now, dhcpv6_blobmsg_ia_addr, NULL);
 			blobmsg_close_array(&b, m);
 
 			blobmsg_add_u32(&b, "valid", INFINITE_VALID(a->valid_until) ?
@@ -411,7 +417,7 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "interface", iface);
 	blobmsg_add_string(&b, "ipv4", inet_ntop(AF_INET, &lease->ipv4, ipv4_str, sizeof(ipv4_str)));
-	blobmsg_add_string(&b, "mac", odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)));
+	blobmsg_add_string(&b, "mac", ether_ntoa(&lease->macaddr));
 	if (lease->hostname)
 		blobmsg_add_string(&b, "hostname", lease->hostname);
 	if (lease->duid_len > 0) {

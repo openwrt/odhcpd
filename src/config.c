@@ -42,8 +42,10 @@ struct config config = {
 #else
 	.use_ubus = false,
 #endif /* WITH_UBUS */
-	.dhcp_statefile = NULL,
-	.dhcp_statedir_fd = -1,
+	.dhcp_leasefile = NULL,
+	.dhcp_leasefiledir_fd = -1,
+	.statedir = NULL,
+	.statedir_fd = -1,
 	.dhcp_hostsdir = NULL,
 	.dhcp_hostsdir_fd = -1,
 	.ra_piodir = NULL,
@@ -54,6 +56,7 @@ struct config config = {
 	.log_syslog = true,
 	.default_duid = { 0 },
 	.default_duid_len = 0,
+	.boot_id = { 0 },
 };
 
 struct sys_conf sys_conf = {
@@ -219,6 +222,7 @@ enum {
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
 	ODHCPD_ATTR_LOGLEVEL,
+	ODHCPD_ATTR_STATEDIR,
 	ODHCPD_ATTR_HOSTSDIR,
 	ODHCPD_ATTR_PIODIR,
 	ODHCPD_ATTR_ENABLE_TZ,
@@ -230,6 +234,7 @@ static const struct blobmsg_policy odhcpd_attrs[ODHCPD_ATTR_MAX] = {
 	[ODHCPD_ATTR_LEASEFILE] = { .name = "leasefile", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LEASETRIGGER] = { .name = "leasetrigger", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_LOGLEVEL] = { .name = "loglevel", .type = BLOBMSG_TYPE_INT32 },
+	[ODHCPD_ATTR_STATEDIR] = { .name = "statedir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_HOSTSDIR] = { .name = "hostsdir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_PIODIR] = { .name = "piodir", .type = BLOBMSG_TYPE_STRING },
 	[ODHCPD_ATTR_ENABLE_TZ] = { .name = "enable_tz", .type = BLOBMSG_TYPE_BOOL },
@@ -458,8 +463,13 @@ static void set_config(struct uci_section *s)
 		config.main_dhcpv4 = blobmsg_get_bool(c);
 
 	if ((c = tb[ODHCPD_ATTR_LEASEFILE])) {
-		free(config.dhcp_statefile);
-		config.dhcp_statefile = strdup(blobmsg_get_string(c));
+		free(config.dhcp_leasefile);
+		config.dhcp_leasefile = strdup(blobmsg_get_string(c));
+	}
+
+	if ((c = tb[ODHCPD_ATTR_STATEDIR])) {
+		free(config.statedir);
+		config.statedir = strdup(blobmsg_get_string(c));
 	}
 
 	if ((c = tb[ODHCPD_ATTR_HOSTSDIR])) {
@@ -491,15 +501,16 @@ static void set_config(struct uci_section *s)
 	if ((c = tb[ODHCPD_ATTR_ENABLE_TZ]))
 		config.enable_tz = blobmsg_get_bool(c);
 
-	if (config.dhcp_statefile) {
-		char *dir = dirname(strdupa(config.dhcp_statefile));
-		char *file = basename(config.dhcp_statefile);
+	if (config.dhcp_leasefile) {
+		char *dir = dirname(strdupa(config.dhcp_leasefile));
+		char *file = basename(config.dhcp_leasefile);
 
-		memmove(config.dhcp_statefile, file, strlen(file) + 1);
-		statefiles_setup_dirfd(dir, &config.dhcp_statedir_fd);
+		memmove(config.dhcp_leasefile, file, strlen(file) + 1);
+		statefiles_setup_dirfd(dir, &config.dhcp_leasefiledir_fd);
 	} else {
-		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
+		statefiles_setup_dirfd(NULL, &config.dhcp_leasefiledir_fd);
 	}
+	statefiles_setup_dirfd(config.statedir, &config.statedir_fd);
 	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
 	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);
 }
@@ -630,28 +641,28 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 {
 	struct blob_attr *tb[LEASE_CFG_ATTR_MAX], *c;
 	struct lease_cfg *lease_cfg = NULL;
-	int mac_count = 0;
-	struct ether_addr *macs;
-	int duid_count = 0;
+	struct ether_addr *macaddrs;
+	int macaddrs_cnt = 0;
 	struct duid *duids;
+	int duid_cnt = 0;
 
 	blobmsg_parse(lease_cfg_attrs, LEASE_CFG_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
 	if ((c = tb[LEASE_CFG_ATTR_MAC])) {
-		mac_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
-		if (mac_count < 0)
+		macaddrs_cnt = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (macaddrs_cnt < 0)
 			goto err;
 	}
 
 	if ((c = tb[LEASE_CFG_ATTR_DUID])) {
-		duid_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
-		if (duid_count < 0)
+		duid_cnt = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (duid_cnt < 0)
 			goto err;
 	}
 
 	lease_cfg = calloc_a(sizeof(*lease_cfg),
-			     &macs, mac_count * sizeof(*macs),
-			     &duids, duid_count * sizeof(*duids));
+			     &macaddrs, macaddrs_cnt * sizeof(*macaddrs),
+			     &duids, duid_cnt * sizeof(*duids));
 	if (!lease_cfg)
 		goto err;
 
@@ -660,11 +671,11 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 		size_t rem;
 		int i = 0;
 
-		lease_cfg->mac_count = mac_count;
-		lease_cfg->macs = macs;
+		lease_cfg->macaddrs = macaddrs;
+		lease_cfg->macaddrs_cnt = macaddrs_cnt;
 
 		blobmsg_for_each_attr(cur, c, rem)
-			if (!ether_aton_r(blobmsg_get_string(cur), &lease_cfg->macs[i++]))
+			if (!ether_aton_r(blobmsg_get_string(cur), &lease_cfg->macaddrs[i++]))
 				goto err;
 	}
 
@@ -673,7 +684,7 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 		size_t rem;
 		unsigned i = 0;
 
-		lease_cfg->duid_count = duid_count;
+		lease_cfg->duid_cnt = duid_cnt;
 		lease_cfg->duids = duids;
 
 		blobmsg_for_each_attr(cur, c, rem)
@@ -1755,6 +1766,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	statefiles_read_prefix_information(iface);
+	statefiles_read(iface);
 
 	return 0;
 
@@ -1812,10 +1824,10 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 	const struct lease_cfg *lease_cfg1 = k1, *lease_cfg2 = k2;
 	int cmp = 0;
 
-	if (lease_cfg1->duid_count != lease_cfg2->duid_count)
-		return lease_cfg1->duid_count - lease_cfg2->duid_count;
+	if (lease_cfg1->duid_cnt != lease_cfg2->duid_cnt)
+		return lease_cfg1->duid_cnt - lease_cfg2->duid_cnt;
 
-	for (size_t i = 0; i < lease_cfg1->duid_count; i++) {
+	for (size_t i = 0; i < lease_cfg1->duid_cnt; i++) {
 		if (lease_cfg1->duids[i].len != lease_cfg2->duids[i].len)
 			return lease_cfg1->duids[i].len - lease_cfg2->duids[i].len;
 
@@ -1827,13 +1839,13 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 		}
 	}
 
-	if (lease_cfg1->mac_count != lease_cfg2->mac_count)
-		return lease_cfg1->mac_count - lease_cfg2->mac_count;
+	if (lease_cfg1->macaddrs_cnt != lease_cfg2->macaddrs_cnt)
+		return lease_cfg1->macaddrs_cnt - lease_cfg2->macaddrs_cnt;
 
-	for (size_t i = 0; i < lease_cfg1->mac_count; i++) {
-		cmp = memcmp(lease_cfg1->macs[i].ether_addr_octet,
-			     lease_cfg2->macs[i].ether_addr_octet,
-			     sizeof(lease_cfg1->macs[i].ether_addr_octet));
+	for (size_t i = 0; i < lease_cfg1->macaddrs_cnt; i++) {
+		cmp = memcmp(&lease_cfg1->macaddrs[i],
+			     &lease_cfg2->macaddrs[i],
+			     sizeof(lease_cfg1->macaddrs[i]));
 		if (cmp)
 			return cmp;
 	}
@@ -1896,48 +1908,71 @@ static void lease_cfg_update(_o_unused struct vlist_tree *tree, struct vlist_nod
 		lease_cfg_delete(lease_cfg_old);
 }
 
-/*
- * Either find:
- *  a) a lease cfg with an exact DUID/IAID match; or
- *  b) a lease cfg with a matching DUID and no IAID set
- */
 struct lease_cfg *
-config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
-{
-	struct lease_cfg *lease_cfg, *candidate = NULL;
-
-	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
-		for (size_t i = 0; i < lease_cfg->duid_count; i++) {
-			if (lease_cfg->duids[i].len != len)
-				continue;
-
-			if (memcmp(lease_cfg->duids[i].id, duid, len))
-				continue;
-
-			if (!lease_cfg->duids[i].iaid_set) {
-				candidate = lease_cfg;
-				continue;
-			}
-
-			if (lease_cfg->duids[i].iaid == iaid)
-				return lease_cfg;
-		}
-	}
-
-	return candidate;
-}
-
-struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac)
+config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len)
 {
 	struct lease_cfg *lease_cfg;
 
+	/* Find a lease cfg with a matching DUID and no IAID set */
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
-		for (size_t i = 0; i < lease_cfg->mac_count; i++) {
-			if (!memcmp(lease_cfg->macs[i].ether_addr_octet, mac,
-				    sizeof(lease_cfg->macs[i].ether_addr_octet)))
+		for (size_t i = 0; i < lease_cfg->duid_cnt; i++) {
+			if (lease_cfg->duids[i].iaid_set)
+				continue;
+
+			if (lease_cfg->duids[i].len != len)
+				continue;
+
+			if (!memcmp(lease_cfg->duids[i].id, duid, len))
 				return lease_cfg;
 		}
 	}
+
+	/*
+	 * Find a lease cfg with a hwaddr matching what we dig out of the DUID
+	 * (against RFC8415bis, §11, but historic odhcpd behavior)
+	 */
+	if (len == 14 && !memcmp(duid, "\x00\x01\x00\x01", 4))
+		return config_find_lease_cfg_by_macaddr((const struct ether_addr *)&duid[8]);
+	else if (len == 10 && !memcmp(duid, "\x00\x03\x00\x01", 4))
+		return config_find_lease_cfg_by_macaddr((const struct ether_addr *)&duid[4]);
+	else
+		return NULL;
+}
+
+struct lease_cfg *
+config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
+{
+	struct lease_cfg *lease_cfg;
+
+	/* Find a lease_cfg with an exact DUID/IAID match */
+	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		for (size_t i = 0; i < lease_cfg->duid_cnt; i++) {
+			if (!lease_cfg->duids[i].iaid_set)
+				continue;
+
+			if (lease_cfg->duids[i].len != len)
+				continue;
+
+			if (lease_cfg->duids[i].iaid != iaid)
+				continue;
+
+			if (!memcmp(lease_cfg->duids[i].id, duid, len))
+				return lease_cfg;
+		}
+	}
+
+	/* Fallback */
+	return config_find_lease_cfg_by_duid(duid, len);
+}
+
+struct lease_cfg *config_find_lease_cfg_by_macaddr(const struct ether_addr *macaddr)
+{
+	struct lease_cfg *lease_cfg;
+
+	vlist_for_each_element(&lease_cfgs, lease_cfg, node)
+		for (size_t i = 0; i < lease_cfg->macaddrs_cnt; i++)
+			if (!memcmp(&lease_cfg->macaddrs[i], macaddr, sizeof(*macaddr)))
+				return lease_cfg;
 
 	return NULL;
 }
@@ -2056,18 +2091,18 @@ void odhcpd_reload(void)
 				set_config(s);
 		}
 
-		/* 2. DHCP pools */
-		uci_foreach_element(&dhcp->sections, e) {
-			struct uci_section *s = uci_to_section(e);
-			if (!strcmp(s->type, "dhcp"))
-				set_interface(s);
-		}
-
-		/* 3. Static lease cfgs */
+		/* 2. Static lease cfgs */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
 			if (!strcmp(s->type, "host"))
 				set_lease_cfg_from_uci(s);
+		}
+
+		/* 3. DHCP pools */
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "dhcp"))
+				set_interface(s);
 		}
 
 		/* 4. IPv6 PxE */

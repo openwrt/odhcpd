@@ -1969,9 +1969,14 @@ struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4)
 void reload_services(struct interface *iface)
 {
 	if (iface->ifflags & IFF_RUNNING) {
+		bool enable_dhcpv6;
+
+		enable_dhcpv6 = iface->dhcpv6 != MODE_DISABLED;
+		enable_dhcpv6 |= iface->ra == MODE_SERVER && iface->ra_flags & ND_RA_FLAG_OTHER;
+
 		debug("Enabling services with %s running", iface->ifname);
 		router_setup_interface(iface, iface->ra != MODE_DISABLED);
-		dhcpv6_setup_interface(iface, iface->dhcpv6 != MODE_DISABLED);
+		dhcpv6_setup_interface(iface, enable_dhcpv6);
 		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
 		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
 	} else {

@@ -47,7 +47,8 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
 
-	enable = enable && (iface->dhcpv6 != MODE_DISABLED);
+	if (enable && iface->dhcpv6 == MODE_DISABLED)
+		enable = iface->ra == MODE_SERVER && iface->ra_flags & ND_RA_FLAG_OTHER;
 
 	if (iface->dhcpv6_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
@@ -330,33 +331,56 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	if (len < sizeof(*hdr))
 		return;
 
-	switch (hdr->msg_type) {
-	/* Valid message types for clients */
-	case DHCPV6_MSG_SOLICIT:
-	case DHCPV6_MSG_REQUEST:
-	case DHCPV6_MSG_CONFIRM:
-	case DHCPV6_MSG_RENEW:
-	case DHCPV6_MSG_REBIND:
-	case DHCPV6_MSG_RELEASE:
-	case DHCPV6_MSG_DECLINE:
-	case DHCPV6_MSG_INFORMATION_REQUEST:
-	case DHCPV6_MSG_RELAY_FORW:
-#ifdef DHCPV4_SUPPORT
-	/* if we include DHCPV4 support, handle this message type */
-	case DHCPV6_MSG_DHCPV4_QUERY:
-#endif
+	switch (iface->dhcpv6)
+	{
+	case MODE_DISABLED:
+		if (!(iface->ra == MODE_SERVER && iface->ra_flags & ND_RA_FLAG_OTHER))
+			return;
+
+		switch (hdr->msg_type) {
+		case DHCPV6_MSG_INFORMATION_REQUEST:
+			break;
+		default:
+			return;
+		}
+
 		break;
-	/* Invalid message types for clients i.e. server messages */
-	case DHCPV6_MSG_ADVERTISE:
-	case DHCPV6_MSG_REPLY:
-	case DHCPV6_MSG_RECONFIGURE:
-	case DHCPV6_MSG_RELAY_REPL:
-#ifndef DHCPV4_SUPPORT
-	/* if we omit DHCPV4 support, ignore this client message type */
-	case DHCPV6_MSG_DHCPV4_QUERY:
+
+	case MODE_SERVER:
+		switch (hdr->msg_type) {
+		/* Valid message types for clients */
+		case DHCPV6_MSG_SOLICIT:
+		case DHCPV6_MSG_REQUEST:
+		case DHCPV6_MSG_CONFIRM:
+		case DHCPV6_MSG_RENEW:
+		case DHCPV6_MSG_REBIND:
+		case DHCPV6_MSG_RELEASE:
+		case DHCPV6_MSG_DECLINE:
+		case DHCPV6_MSG_INFORMATION_REQUEST:
+		case DHCPV6_MSG_RELAY_FORW:
+#ifdef DHCPV4_SUPPORT
+		/* if we include DHCPV4 support, handle this message type */
+		case DHCPV6_MSG_DHCPV4_QUERY:
 #endif
-	case DHCPV6_MSG_DHCPV4_RESPONSE:
-	default:
+			break;
+
+		/* Invalid message types for clients i.e. server messages */
+		case DHCPV6_MSG_ADVERTISE:
+		case DHCPV6_MSG_REPLY:
+		case DHCPV6_MSG_RECONFIGURE:
+		case DHCPV6_MSG_RELAY_REPL:
+#ifndef DHCPV4_SUPPORT
+		/* if we omit DHCPV4 support, ignore this client message type */
+		case DHCPV6_MSG_DHCPV4_QUERY:
+#endif
+		case DHCPV6_MSG_DHCPV4_RESPONSE:
+			return;
+		}
+
+		break;
+
+	case MODE_HYBRID:
+	case MODE_RELAY:
 		return;
 	}
 
@@ -803,13 +827,19 @@ static void handle_client_request(void *addr, void *data, size_t len,
 static void handle_dhcpv6(void *addr, void *data, size_t len,
 		struct interface *iface, void *dest_addr)
 {
-	if (iface->dhcpv6 == MODE_SERVER) {
+	switch (iface->dhcpv6) {
+	case MODE_SERVER:
+	case MODE_DISABLED:
 		handle_client_request(addr, data, len, iface, dest_addr);
-	} else if (iface->dhcpv6 == MODE_RELAY) {
+		break;
+	case MODE_RELAY:
 		if (iface->master)
 			relay_server_response(data, len);
 		else
 			relay_client_request(addr, data, len, iface);
+		break;
+	case MODE_HYBRID:
+		break;
 	}
 }
 

@@ -192,6 +192,7 @@ enum odhcpd_mode {
 enum odhcpd_assignment_flags {
 	OAF_DHCPV6_NA		= (1 << 0),
 	OAF_DHCPV6_PD		= (1 << 1),
+	OAF_DHCPV6_ADDR_REG	= (1 << 2),  /* RFC9686 Address Registration */
 };
 
 #define DHCPV6_OPT_HDR_SIZE 4
@@ -614,6 +615,9 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	return;
 }
 #endif /* WITH_UBUS */
+
+void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
+		const void *data, size_t len, struct interface *iface);
 
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end);

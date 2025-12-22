@@ -958,7 +958,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	char duidbuf[DUID_HEXSTRLEN], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
-		if (otype == DHCPV6_OPT_CLIENTID) {
+		switch (otype) {
+		case DHCPV6_OPT_CLIENTID:
 			duid = odata;
 			duid_len = olen;
 
@@ -969,17 +970,33 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
-		} else if (otype == DHCPV6_OPT_FQDN && olen >= 2 && olen <= 255) {
+			break;
+
+		case DHCPV6_OPT_FQDN:
+			if (olen < 2 || olen > 255)
+				break;
+
 			uint8_t fqdn_buf[256];
 			memcpy(fqdn_buf, odata, olen);
 			fqdn_buf[olen++] = 0;
 
 			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
 				hostname_len = strcspn(hostname, ".");
-		} else if (otype == DHCPV6_OPT_RECONF_ACCEPT)
+
+			break;
+
+		case DHCPV6_OPT_RECONF_ACCEPT:
 			accept_reconf = true;
-		else if (otype == DHCPV6_OPT_RAPID_COMMIT && hdr->msg_type == DHCPV6_MSG_SOLICIT)
-			rapid_commit = true;
+			break;
+
+		case DHCPV6_OPT_RAPID_COMMIT:
+			if (hdr->msg_type == DHCPV6_MSG_SOLICIT)
+				rapid_commit = true;
+			break;
+
+		default:
+			break;
+		}
 	}
 
 	if (!duid || duid_len < DUID_MIN_LEN || duid_len > DUID_MAX_LEN)
@@ -1095,8 +1112,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 				 * If there's a DUID configured for this static lease, but without
 				 * an IAID, we will proceed under the assumption that a request
 				 * with the right DUID but with *any* IAID should be able to take
-				 * over the assignment. E.g. when switching from WiFi to ethernet
-				 * on the same client. This is similar to how multiple MAC adresses
+				 * over the assignment. E.g. when switching from WiFi to Ethernet
+				 * on the same client. This is similar to how multiple MAC addresses
 				 * are handled for DHCPv4.
 				 */
 				for (size_t i = 0; i < lease_cfg->duid_count; i++) {
@@ -1139,11 +1156,16 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 proceed:
 		/* Generic message handling */
 		uint16_t status = DHCPV6_STATUS_OK;
+		bool assigned = false;
 
-		if (hdr->msg_type == DHCPV6_MSG_SOLICIT ||
-				hdr->msg_type == DHCPV6_MSG_REQUEST ||
-				(hdr->msg_type == DHCPV6_MSG_REBIND && !a)) {
-			bool assigned = !!a;
+		switch (hdr->msg_type) {
+		case DHCPV6_MSG_SOLICIT:
+		case DHCPV6_MSG_REQUEST:
+		case DHCPV6_MSG_REBIND: {
+			if (hdr->msg_type == DHCPV6_MSG_REBIND && a)
+				break;
+
+			assigned = (a != NULL);
 
 			if (!a) {
 				if ((!iface->no_dynamic_dhcp || (lease_cfg && is_na)) &&
@@ -1157,25 +1179,27 @@ proceed:
 						a->iaid = ia->iaid;
 						a->length = reqlen;
 						a->peer = *addr;
+						a->iface = iface;
+						a->flags = is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA;
+						a->valid_until = now;
+						a->preferred_until = now;
+
 						if (is_na)
 							a->assigned_host_id = lease_cfg ? lease_cfg->hostid : 0;
 						else
 							a->assigned_subnet_id = reqhint;
-						a->valid_until = now;
-						a->preferred_until = now;
-						a->iface = iface;
-						a->flags = (is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA);
 
 						if (first)
 							memcpy(a->key, first->key, sizeof(a->key));
 						else
 							odhcpd_urandom(a->key, sizeof(a->key));
 
-						if (is_pd && iface->dhcpv6_pd)
+						if (is_pd && iface->dhcpv6_pd) {
 							while (!(assigned = assign_pd(iface, a)) &&
 							       ++a->length <= 64);
-						else if (is_na && iface->dhcpv6_na)
+						} else if (is_na && iface->dhcpv6_na) {
 							assigned = assign_na(iface, a);
+						}
 
 						if (lease_cfg && assigned) {
 							if (lease_cfg->hostname) {
@@ -1193,15 +1217,20 @@ proceed:
 				}
 			}
 
-			if (!assigned || iface->addr6_len == 0)
+			/* Status evaluation */
+			if (!assigned || iface->addr6_len == 0) {
 				/* Set error status */
-				status = (is_pd) ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
-			else if (hdr->msg_type == DHCPV6_MSG_REQUEST && !dhcpv6_ia_on_link(ia, a, iface)) {
+				status = is_pd ? DHCPV6_STATUS_NOPREFIXAVAIL : DHCPV6_STATUS_NOADDRSAVAIL;
+			} else if (hdr->msg_type == DHCPV6_MSG_REQUEST && !dhcpv6_ia_on_link(ia, a, iface)) {
 				/* Send NOTONLINK status for the IA */
 				status = DHCPV6_STATUS_NOTONLINK;
 				assigned = false;
-			} else if (accept_reconf && assigned && !first &&
-					hdr->msg_type != DHCPV6_MSG_REBIND) {
+			}
+
+			/* Reconfigure Accept */
+			if (accept_reconf && assigned && !first &&
+				hdr->msg_type != DHCPV6_MSG_REBIND) {
+
 				size_t handshake_len = 4;
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_RECONF_ACCEPT;
@@ -1217,11 +1246,11 @@ proceed:
 						1,
 						{0}
 					};
+
 					memcpy(auth.key, a->key, sizeof(a->key));
 					memcpy(buf + handshake_len, &auth, sizeof(auth));
 					handshake_len += sizeof(auth);
 				}
-
 
 				buf += handshake_len;
 				buflen -= handshake_len;
@@ -1230,61 +1259,97 @@ proceed:
 				first = a;
 			}
 
-			ia_response_len = build_ia(buf, buflen, status, ia, a, iface,
-							hdr->msg_type == DHCPV6_MSG_REBIND ? false : true);
+			ia_response_len = build_ia(
+				buf, buflen, status, ia, a, iface,
+				hdr->msg_type != DHCPV6_MSG_REBIND);
 
 			/* Was only a solicitation: mark binding for removal in 60 seconds */
-			if (assigned && hdr->msg_type == DHCPV6_MSG_SOLICIT && !rapid_commit) {
-				a->bound = false;
-				a->valid_until = now + 60;
-
-			} else if (assigned &&
-				   ((hdr->msg_type == DHCPV6_MSG_SOLICIT && rapid_commit) ||
-				    hdr->msg_type == DHCPV6_MSG_REQUEST ||
-				    hdr->msg_type == DHCPV6_MSG_REBIND)) {
-				if (hostname_len > 0 && (!a->lease_cfg || !a->lease_cfg->hostname)) {
-					char *tmp = realloc(a->hostname, hostname_len + 1);
-					if (tmp) {
-						a->hostname = tmp;
-						memcpy(a->hostname, hostname, hostname_len);
-						a->hostname[hostname_len] = 0;
-						a->hostname_valid = odhcpd_hostname_valid(a->hostname);
+			if (assigned) {
+				switch (hdr->msg_type) {
+				case DHCPV6_MSG_SOLICIT:
+					if (!rapid_commit) {
+						a->bound = false;
+						a->valid_until = now + 60;
+						break;
 					}
+
+					_o_fallthrough;
+				case DHCPV6_MSG_REQUEST:
+				case DHCPV6_MSG_REBIND:
+					if (hostname_len > 0 && (!a->lease_cfg || !a->lease_cfg->hostname)) {
+
+						char *tmp = realloc(a->hostname, hostname_len + 1);
+						if (tmp) {
+							a->hostname = tmp;
+							memcpy(a->hostname, hostname, hostname_len);
+							a->hostname[hostname_len] = 0;
+							a->hostname_valid = odhcpd_hostname_valid(a->hostname);
+						}
+					}
+
+					a->accept_fr_nonce = accept_reconf;
+					a->bound = true;
+					apply_lease(a, true);
+					break;
+
+				default:
+					break;
 				}
-				a->accept_fr_nonce = accept_reconf;
-				a->bound = true;
-				apply_lease(a, true);
-			} else if (!assigned) {
-				/* Cleanup failed assignment */
+			} else {
+				/* Clean up failed assignment */
 				dhcpv6_free_lease(a);
 				a = NULL;
 			}
-		} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
-				hdr->msg_type == DHCPV6_MSG_RELEASE ||
-				hdr->msg_type == DHCPV6_MSG_REBIND ||
-				hdr->msg_type == DHCPV6_MSG_DECLINE) {
-			if (!a && hdr->msg_type != DHCPV6_MSG_REBIND) {
+
+			break;
+		}
+
+		case DHCPV6_MSG_RENEW:
+		case DHCPV6_MSG_RELEASE:
+		case DHCPV6_MSG_DECLINE: {
+			/* RENEW / RELEASE / DECLINE require an existing binding */
+			if (!a) {
 				status = DHCPV6_STATUS_NOBINDING;
 				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
-			} else if (hdr->msg_type == DHCPV6_MSG_RENEW ||
-					hdr->msg_type == DHCPV6_MSG_REBIND) {
+				break;
+			}
+
+			switch (hdr->msg_type) {
+			case DHCPV6_MSG_RENEW:
 				ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
-				if (a) {
-					a->bound = true;
-					apply_lease(a, true);
-				}
-			} else if (hdr->msg_type == DHCPV6_MSG_RELEASE) {
+
+				a->bound = true;
+				apply_lease(a, true);
+				break;
+
+			case DHCPV6_MSG_RELEASE:
+				/* Immediately expire the lease */
 				a->valid_until = now - 1;
-			} else if ((a->flags & OAF_DHCPV6_NA) && hdr->msg_type == DHCPV6_MSG_DECLINE) {
+				break;
+
+			case DHCPV6_MSG_DECLINE:
+				/* DECLINE only applies to non-temporary addresses */
+				if (!(a->flags & OAF_DHCPV6_NA))
+					break;
+
 				a->bound = false;
 
-				if (!a->lease_cfg || a->lease_cfg->hostid != a->assigned_host_id) {
-					memset(a->duid, 0, a->duid_len);
-					a->valid_until = now + 3600; /* Block address for 1h */
-				} else
+				if (a->lease_cfg &&
+				    a->lease_cfg->hostid == a->assigned_host_id) {
+					/* Static lease: release immediately */
 					a->valid_until = now - 1;
+				} else {
+					/* Dynamic lease: block address for 1 hour */
+					memset(a->duid, 0, a->duid_len);
+					a->valid_until = now + 3600;
+				}
+				break;
 			}
-		} else if (hdr->msg_type == DHCPV6_MSG_CONFIRM) {
+
+			break;
+		}
+
+		case DHCPV6_MSG_CONFIRM:
 			if (ia_addr_present && !dhcpv6_ia_on_link(ia, a, iface)) {
 				notonlink = true;
 				break;
@@ -1294,13 +1359,23 @@ proceed:
 				response_len = 0;
 				goto out;
 			}
+			break;
+
+		default:
+			break;
+		}
+
+		if (hdr->msg_type == DHCPV6_MSG_REBIND && a) {
+			ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
+			a->bound = true;
+			apply_lease(a, true);
 		}
 
 		buf += ia_response_len;
 		buflen -= ia_response_len;
 		response_len += ia_response_len;
 		dhcpv6_log(hdr->msg_type, iface, now, duidbuf, is_pd, a, status);
-	}
+	} /* end dhcpv6_for_each_option */
 
 	switch (hdr->msg_type) {
 	case DHCPV6_MSG_RELEASE:

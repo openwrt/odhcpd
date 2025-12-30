@@ -53,6 +53,29 @@ static struct event_socket rtnl_event = {
 	.sock_bufsize = 133120,
 };
 
+/* Shut down and free netlink sockets/registration. Safe to call multiple times. */
+static void netlink_shutdown(void)
+{
+	/* Deregister event and free the event socket */
+	if (rtnl_event.sock) {
+		odhcpd_deregister(&rtnl_event.ev);
+
+		if (rtnl_event.ev.uloop.fd >= 0) {
+			close(rtnl_event.ev.uloop.fd);
+			rtnl_event.ev.uloop.fd = -1;
+		}
+
+		nl_socket_free(rtnl_event.sock);
+		rtnl_event.sock = NULL;
+	}
+
+	/* Free the primary rtnl socket */
+	if (rtnl_socket) {
+		nl_socket_free(rtnl_socket);
+		rtnl_socket = NULL;
+	}
+}
+
 int netlink_init(void)
 {
 	rtnl_socket = create_socket(NETLINK_ROUTE);
@@ -85,19 +108,12 @@ int netlink_init(void)
 
 	odhcpd_register(&rtnl_event.ev);
 
+	atexit(netlink_shutdown);
+
 	return 0;
 
 err:
-	if (rtnl_socket) {
-		nl_socket_free(rtnl_socket);
-		rtnl_socket = NULL;
-	}
-
-	if (rtnl_event.sock) {
-		nl_socket_free(rtnl_event.sock);
-		rtnl_event.sock = NULL;
-		rtnl_event.ev.uloop.fd = -1;
-	}
+	netlink_shutdown();
 
 	return -1;
 }

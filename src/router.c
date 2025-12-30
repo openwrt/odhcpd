@@ -45,6 +45,15 @@ static FILE *fp_route = NULL;
 
 #define TIME_LEFT(t1, now) ((t1) != UINT32_MAX ? (t1) - (now) : UINT32_MAX)
 
+/* Shutdown helper: close fp_route if open. Safe to call multiple times. */
+static void router_shutdown(void)
+{
+	if (fp_route) {
+		fclose(fp_route);
+		fp_route = NULL;
+	}
+}
+
 int router_init(void)
 {
 	int ret = 0;
@@ -60,11 +69,11 @@ int router_init(void)
 		ret = -1;
 	}
 
+	atexit(router_shutdown);
+
 out:
-	if (ret < 0 && fp_route) {
-		fclose(fp_route);
-		fp_route = NULL;
-	}
+	if (ret < 0)
+		router_shutdown();
 
 	return ret;
 }

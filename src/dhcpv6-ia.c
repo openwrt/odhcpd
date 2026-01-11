@@ -1401,3 +1401,318 @@ proceed:
 out:
 	return response_len;
 }
+
+/* Register or update address registration in the lease database */
+static bool register_ia_addr_in_lease_db(struct sockaddr_in6 *source,
+		const uint8_t *clientid_data, uint16_t clientid_len,
+		const char *clientfqdn_data, size_t clientfqdn_len,
+		const struct dhcpv6_ia_addr *ia_addr,
+		struct interface *iface)
+{
+	/* RFC9686 §4.2.1: Lease lifetime is the valid-lifetime from IA Address option */
+	time_t now = odhcpd_time();
+	uint32_t valid_lt = ntohl(ia_addr->valid_lt);
+	time_t lease_end = now + valid_lt;
+	bool onlink = false;
+	/* variables for logging */
+	char addrbuf[INET6_ADDRSTRLEN];
+	inet_ntop(AF_INET6, &ia_addr->addr, addrbuf, sizeof(addrbuf));
+	char duidbuf[DUID_HEXSTRLEN] = {0};
+	const char *duidstr = duidbuf;
+
+	/* Search for existing binding with this address */
+	struct dhcpv6_lease *binding = NULL, *lease = NULL;
+	list_for_each_entry(binding, &iface->ia_assignments, head) {
+		/* Check if this address is already registered by another client */
+		if ((binding->flags & OAF_DHCPV6_ADDR_REG) &&
+		    memcmp(&binding->peer.sin6_addr, &ia_addr->addr, sizeof(struct in6_addr)) == 0) {
+			/* Found address registration for this address */
+			if (binding->duid_len == clientid_len &&
+			    memcmp(binding->duid, clientid_data, clientid_len) == 0) {
+				/* Same client, update the lease */
+				lease = binding;
+				break;
+			} else {
+				/* RFC9686 §4.2.1: Different client, should log and update binding
+				 * We'll update to the new client */
+
+				if (!binding->duid_len || binding->duid_len > DUID_MAX_LEN)
+					duidstr = "<invalid-duid>";
+				else
+					odhcpd_hexlify(duidbuf, binding->duid, binding->duid_len);
+
+				notice("ADDR-REG-INFORM: address collision for %s: was bound to "
+					"different client DUID(%s); updating", addrbuf, duidstr);
+				lease = binding;
+				break;
+			}
+		}
+	}
+
+	if (!lease) {
+		/* Create new lease for this address registration */
+		lease = dhcpv6_alloc_lease(clientid_len);
+		if (!lease) {
+			warn("ADDR-REG-INFORM: failed to allocate lease for %s", addrbuf);
+			return false;
+		}
+
+		/* Initialize lease structure */
+		lease->iface = iface;
+		lease->peer = *source;
+		lease->peer.sin6_addr = ia_addr->addr;  /* Store full registered address */
+		lease->duid_len = clientid_len;
+		memcpy(lease->duid, clientid_data, clientid_len);
+		lease->length = 128;
+
+		/* Add optional Client FQDN */
+		if (clientfqdn_len > 0 && clientfqdn_data) {
+			char *tmp = realloc(lease->hostname, clientfqdn_len + 1);
+			if (tmp) {
+				lease->hostname = tmp;
+				memcpy(lease->hostname, clientfqdn_data, clientfqdn_len);
+				lease->hostname[clientfqdn_len] = 0;
+				lease->hostname_valid = odhcpd_hostname_valid(lease->hostname);
+			}
+		}
+
+
+
+		/* Try to find matching interface prefix and extract host ID */
+		for (size_t i = 0; i < iface->addr6_len; i++) {
+			if (!valid_addr(&iface->addr6[i], now))
+				continue;
+
+			if (ADDR_MATCH_PIO_FILTER(&iface->addr6[i], iface))
+				continue;
+
+			/* RFC9686 §4.2.1: the server SHOULD verify that the address 
+			 * is "appropriate to the link" */
+			if (odhcpd_bmemcmp(&ia_addr->addr, &iface->addr6[i].addr.in6,
+								iface->addr6[i].prefix_len) == 0) {
+				/* Address is within this prefix - extract host ID portion */
+				onlink = true;
+				uint64_t host_id = 0;
+				memcpy(&host_id, &ia_addr->addr.s6_addr[8], 8);
+				lease->assigned_host_id = be64toh(host_id);
+				break;
+			}
+		}
+
+		if (onlink) {
+			/* Add to interface's lease list */
+			list_add(&lease->head, &iface->ia_assignments);
+		} else {
+			/* RFC9686 §4.2.1: If the address fails verification, the server SHOULD log this fact */
+			notice("ADDR-REG-INFORM: address %s not on this link: %s; discarding", addrbuf, iface->name);
+			dhcpv6_free_lease(lease);
+			lease = NULL;
+			return onlink;
+		}
+
+	} else {
+		/* Update existing lease */
+		lease->peer = *source;
+		lease->peer.sin6_addr = ia_addr->addr;  /* Update registered address */
+		lease->duid_len = clientid_len;
+		memcpy(lease->duid, clientid_data, clientid_len);
+	}
+
+	/* Update lifetimes */
+	lease->valid_until = lease_end;
+	lease->preferred_until = now + ntohl(ia_addr->preferred_lt);
+	lease->bound = true;
+
+	/* Mark flags - RFC9686 Address Registration lease */
+	lease->flags = OAF_DHCPV6_ADDR_REG;
+
+
+	if (!lease->duid_len || lease->duid_len > DUID_MAX_LEN)
+		duidstr = "<invalid-duid>";
+	else
+		odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
+
+	info("ADDR-REG-INFORM: registered %s for client with DUID %s, "
+		"valid until %ld (in %u seconds)", addrbuf, duidstr,
+		lease_end, valid_lt);
+
+	return true;
+}
+
+/* Send RFC9686 ADDR-REG-REPLY message to client */
+static void send_ia_addr_reg_reply(struct sockaddr_in6 *source,
+		const struct dhcpv6_client_header *hdr,
+		const uint8_t *clientid_data,
+		uint16_t clientid_len,
+		const struct dhcpv6_ia_addr *ia_addr,
+		struct interface *iface)
+{
+	/* RFC9686 §4.3: Reply MUST contain:
+	 * - msg_type: ADDR-REG-REPLY (37)
+	 * - transaction_id: copied from ADDR-REG-INFORM
+	 * - IA Address option: identical to the one in the request
+	 */
+
+	struct {
+		uint8_t msg_type;
+		uint8_t tr_id[3];
+	} _o_packed reply = {
+		.msg_type = DHCPV6_MSG_ADDR_REG_REPLY,
+	};
+	/* Copy transaction ID from request */
+	memcpy(reply.tr_id, hdr->transaction_id, sizeof(reply.tr_id));
+
+	struct {
+		uint16_t code;
+		uint16_t len;
+		uint8_t data[DUID_MAX_LEN];
+	} _o_packed serverid = {
+		.code = htons(DHCPV6_OPT_SERVERID),
+		.len = 0,
+		.data = { 0 },
+	};
+	struct {
+		uint16_t code;
+		uint16_t len;
+		uint8_t data[DUID_MAX_LEN];
+	} _o_packed clientid = {
+		.code = htons(DHCPV6_OPT_CLIENTID),
+		.len = htons(clientid_len),
+		.data = { 0 },
+	};
+	memcpy(clientid.data, clientid_data, clientid_len);
+
+	if (config.default_duid_len > 0) {
+		memcpy(serverid.data, config.default_duid, config.default_duid_len);
+		serverid.len = htons(config.default_duid_len);
+	} else {
+		uint16_t duid_ll_hdr[] = {
+			htons(DUID_TYPE_LL),
+			htons(ARPHRD_ETHER)
+		};
+		memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
+		odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
+		serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
+	}
+
+	struct iovec iov[] = {
+		{ &reply, sizeof(reply) },
+		{ &serverid, sizeof(serverid) },
+		{ &clientid, sizeof(clientid) },
+		{ (void *)ia_addr, sizeof(struct dhcpv6_ia_addr) },
+	};
+
+	size_t serverid_len, clientid_opt_len;
+
+	serverid_len = sizeof(serverid.code) + sizeof(serverid.len) + ntohs(serverid.len);
+	clientid_opt_len = sizeof(clientid.code) + sizeof(clientid.len) + clientid_len;
+
+	iov[1].iov_len = serverid_len;
+	iov[2].iov_len = clientid_opt_len;
+
+	/* RFC9686 §4.3: If not relayed, destination is the address being registered.
+	 * If relayed, we would construct Relay-reply (handled separately in relay_server_response).
+	 * For direct replies, source is already the registered address. */
+
+	char addrbuf[INET6_ADDRSTRLEN];
+	inet_ntop(AF_INET6, &ia_addr->addr, addrbuf, sizeof(addrbuf));
+	debug("Sending ADDR-REG-REPLY for %s on %s", addrbuf, iface->name);
+
+	odhcpd_send(iface->dhcpv6_event.uloop.fd, source, iov, ARRAY_SIZE(iov), iface);
+}
+
+/* RFC9686 Address Registration Message Handler */
+void handle_ia_addr_reg_inform(struct sockaddr_in6 *source,
+		const void *data, size_t len, struct interface *iface)
+{
+	const struct dhcpv6_client_header *hdr = data;
+	uint8_t *opts = (uint8_t *)&hdr[1], *opts_end = (uint8_t *)data + len;
+	uint16_t otype, olen;
+	uint8_t *odata;
+
+	uint8_t *clientid_data = NULL;
+	uint16_t clientid_len = 0;
+	char clientfqdn_data[256];
+	size_t clientfqdn_len = 0;
+	struct dhcpv6_ia_addr *ia_addr = NULL;
+
+	if (len < sizeof(*hdr)) {
+		warn("ADDR-REG-INFORM: received message too short; dropping");
+		return;
+	}
+
+	/* RFC9686 §4.2: Client MUST include Client Identifier option */
+	/* RFC9686 §4.2: ADDR-REG-INFORM MUST NOT contain Server Identifier */
+	/* RFC9686 §4.2: MUST contain exactly one IA Address option */
+	/* RFC9686 §4.2: MAY include other options, such as the Client FQDN option */
+
+	dhcpv6_for_each_option(opts, opts_end, otype, olen, odata) {
+		switch (otype) {
+		case DHCPV6_OPT_CLIENTID:
+			if (olen > 0) {
+				clientid_data = odata;
+				clientid_len = olen;
+			}
+			break;
+		case DHCPV6_OPT_SERVERID:
+			/* RFC9686 §4.2: Server MUST discard messages with Server ID */
+			notice("ADDR-REG-INFORM: message contains Server Identifier, discarding");
+			return;
+		case DHCPV6_OPT_FQDN:
+			if (olen >= 2 && olen <= 255) {
+				uint8_t fqdn_buf[256];
+				memcpy(fqdn_buf, odata, olen);
+				fqdn_buf[olen++] = 0;
+
+				if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], clientfqdn_data, sizeof(clientfqdn_data)) > 0)
+					clientfqdn_len = strcspn(clientfqdn_data, ".");
+			}
+			break;
+		case DHCPV6_OPT_IA_ADDR:
+			if (olen == sizeof(struct dhcpv6_ia_addr) - 4) {
+				if (ia_addr != NULL) {
+					notice("ADDR-REG-INFORM: message contains more than one IA_ADDR, discarding");
+					return;
+				}
+				ia_addr = (struct dhcpv6_ia_addr *)&odata[-4];
+			}
+			break;
+		case DHCPV6_OPT_ORO:
+			/* RFC9686 §4.2: ADDR-REG-INFORM MUST NOT contain Option Request option */
+			notice("ADDR-REG-INFORM: message contains Option Request, discarding");
+			return;
+		default:
+			break;
+		}
+	}
+
+	/* Validate message contents */
+	if (!clientid_data || clientid_len == 0) {
+		notice("ADDR-REG-INFORM: missing Client Identifier option, discarding");
+		return;
+	}
+
+	if (!ia_addr) {
+		notice("ADDR-REG-INFORM: missing or invalid IA Address option, discarding");
+		return;
+	}
+
+	/* RFC9686 §4.2.1: Verify source address matches the IA Address option
+	 * The message MUST be sent from the address being registered */
+	if (memcmp(&source->sin6_addr, &ia_addr->addr, sizeof(struct in6_addr)) != 0) {
+		notice("ADDR-REG-INFORM: source address does not match IA Address option");
+		return;
+	}
+
+	char addrbuf[INET6_ADDRSTRLEN];
+	inet_ntop(AF_INET6, &ia_addr->addr, addrbuf, sizeof(addrbuf));
+	debug("Got ADDR-REG-INFORM for %s on %s", addrbuf, iface->name);
+
+	/* Register address in lease database */
+	if(!register_ia_addr_in_lease_db(source, clientid_data, clientid_len,
+									clientfqdn_data, clientfqdn_len, ia_addr, iface))
+		return;
+
+	/* Send ADDR-REG-REPLY response */
+	send_ia_addr_reg_reply(source, hdr, clientid_data, clientid_len, ia_addr, iface);
+}

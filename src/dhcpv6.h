@@ -41,6 +41,9 @@
 /* RFC7341 */
 #define DHCPV6_MSG_DHCPV4_QUERY 20
 #define DHCPV6_MSG_DHCPV4_RESPONSE 21
+/* RFC9686 */
+#define DHCPV6_MSG_ADDR_REG_INFORM 36
+#define DHCPV6_MSG_ADDR_REG_REPLY 37
 
 #define DHCPV6_OPT_CLIENTID 1
 #define DHCPV6_OPT_SERVERID 2
@@ -77,6 +80,8 @@
 /* RFC8910 */
 #define DHCPV6_OPT_CAPTIVE_PORTAL 103
 #define DHCPV6_OPT_DNR 144
+/* RFC9686 */
+#define DHCPV6_OPT_ADDR_REG_ENABLE 148
 
 #define DHCPV6_DUID_VENDOR 2
 
@@ -151,6 +156,12 @@ struct dhcpv6_ia_addr {
 	struct in6_addr addr;
 	uint32_t preferred_lt;
 	uint32_t valid_lt;
+} _o_packed;
+
+/* RFC9686 - Address Registration Option (empty option, no data) */
+struct dhcpv6_addr_reg_enable {
+	uint16_t type;
+	uint16_t len;
 } _o_packed;
 
 struct dhcpv6_cer_id {

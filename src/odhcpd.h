@@ -510,6 +510,12 @@ void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac, const size_t mac_len,
 		const struct in_addr *addr, const char *name, const char *interface);
+void ubus_bcast_dhcp6_event(
+	const char* type,
+	const struct dhcp_assignment *assignment,
+	size_t addrs_len,
+	const struct odhcpd_ipaddr addrs[static addrs_len]
+);
 #endif
 
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,

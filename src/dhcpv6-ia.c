@@ -208,7 +208,7 @@ static void dhcpv6_ia_free_assignment(struct dhcp_assignment *a)
 		close(a->managed_sock.fd.fd);
 	}
 
-	if ((a->flags & OAF_BOUND) && (a->flags & OAF_DHCPV6_PD))
+	if (a->flags & OAF_BOUND)
 		apply_lease(a, false);
 
 	if (a->fr_cnt)
@@ -591,6 +591,10 @@ void dhcpv6_ia_write_statefile(void)
 static void __apply_lease(struct dhcp_assignment *a,
 		struct odhcpd_ipaddr *addrs, ssize_t addr_len, bool add)
 {
+	#ifdef WITH_UBUS
+		ubus_bcast_dhcp6_event(add ? "dhcpv6.ack" : "dhcpv6.release", a, addr_len, addrs);
+	#endif
+
 	if (a->flags & OAF_DHCPV6_NA)
 		return;
 
@@ -844,6 +848,9 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > a->assigned_host_id ) {
 				list_add_tail(&a->head, &c->head);
+				if (a->flags &OAF_BOUND)
+					apply_lease(a, true);
+
 				return true;
 			} else if (c->assigned_host_id == a->assigned_host_id)
 				return false;
@@ -891,6 +898,9 @@ static bool assign_na(struct interface *iface, struct dhcp_assignment *a)
 			if (!(c->flags & OAF_DHCPV6_NA) || c->assigned_host_id > try) {
 				a->assigned_host_id = try;
 				list_add_tail(&a->head, &c->head);
+				if (a->flags &OAF_BOUND)
+					apply_lease(a, true);
+
 				return true;
 			} else if (c->assigned_host_id == try)
 				break;

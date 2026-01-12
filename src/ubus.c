@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <syslog.h>
 #include <libubus.h>
 #include <libubox/uloop.h>
@@ -6,7 +7,9 @@
 #include <inttypes.h>
 
 #include <libubox/utils.h>
+#include <time.h>
 
+#include "libubox/blobmsg.h"
 #include "odhcpd.h"
 #include "dhcpv6.h"
 #include "dhcpv4.h"
@@ -413,6 +416,88 @@ void ubus_bcast_dhcp_event(const char *type, const uint8_t *mac,
 	if (interface)
 		blobmsg_add_string(&b, "interface", interface);
 
+	ubus_notify(ubus, &main_object, type, b.head, -1);
+}
+
+void ubus_bcast_dhcp6_event(
+	const char* type,
+	const struct dhcp_assignment *assignment,
+	size_t addrs_len_,
+	const struct odhcpd_ipaddr addrs[static addrs_len_]
+) {
+	if (type == NULL || assignment == NULL || (addrs_len_ != 0 && addrs == NULL) || addrs_len_ > PTRDIFF_MAX)
+		return;
+
+	ptrdiff_t addrs_len = addrs_len_;
+
+	if (ubus == NULL || !main_object.has_subscribers)
+		return;
+
+	blob_buf_init(&b, 0);
+	if (assignment->hostname != NULL)
+		blobmsg_add_string(&b, "hostname", assignment->hostname);
+
+	if (assignment->iface != NULL && assignment->iface->ifname != NULL)
+		blobmsg_add_string(&b, "interface", assignment->iface->ifname);
+
+	if (assignment->iaid != 0)
+		blobmsg_add_u32(&b, "iaid", ntohl(assignment->iaid));
+
+	if (assignment->clid_len != 0) {
+		char *duid_buf = blobmsg_alloc_string_buffer(&b, "duid", assignment->clid_len * 2 + 1);
+		odhcpd_hexlify(duid_buf, assignment->clid_data, assignment->clid_len);
+		blobmsg_add_string_buffer(&b);
+	}
+
+	blobmsg_add_u8(&b, "accept-reconf", assignment->accept_fr_nonce);
+	blobmsg_add_u64(&b, "valid-until", assignment->valid_until);
+	blobmsg_add_u64(&b, "preferred-until", assignment->preferred_until);
+
+	if (assignment->flags & OAF_DHCPV6_NA)
+		blobmsg_add_u64(&b, "assigned", assignment->assigned_host_id);
+	else
+		blobmsg_add_u16(&b, "assigned", assignment->assigned_subnet_id);
+
+	{
+		void *array_h = blobmsg_open_array(&b, "flags");
+		if (assignment->flags & OAF_BOUND)
+			blobmsg_add_string(&b, NULL, "bound");
+
+		if (assignment->flags & OAF_STATIC)
+			blobmsg_add_string(&b, NULL, "static");
+
+		blobmsg_close_array(&b, array_h);
+	}
+
+	void *array_h = blobmsg_open_array(&b, assignment->flags & OAF_DHCPV6_NA ? "ipv6-addr" : "ipv6-prefix");
+	for (ptrdiff_t ix = 0; ix != addrs_len; ++ix) {
+		const struct odhcpd_ipaddr *entry = &addrs[ix];
+
+		void *table_h = blobmsg_open_table(&b, NULL);
+
+		struct in6_addr prefix = entry->addr.in6;
+		if (assignment->flags & OAF_DHCPV6_NA) {
+			prefix.s6_addr32[2] = htonl(assignment->assigned_host_id >> 32);
+			prefix.s6_addr32[3] = htonl(assignment->assigned_host_id & UINT32_MAX);
+		} else {
+			prefix.s6_addr32[1] |= htonl(assignment->assigned_subnet_id);
+			prefix.s6_addr32[2]  = 0;
+			prefix.s6_addr32[3]  = 0;
+		}
+
+		char *addr_buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
+		memset(addr_buf, 0, INET6_ADDRSTRLEN);
+
+		(void) inet_ntop(AF_INET6, &prefix, addr_buf, INET6_ADDRSTRLEN);
+		blobmsg_add_string_buffer(&b);
+
+		if (entry->prefix != 128)
+			blobmsg_add_u8(&b, "prefix-length", entry->prefix);
+
+		blobmsg_close_table(&b, table_h);
+	}
+
+	blobmsg_close_array(&b, array_h);
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }
 

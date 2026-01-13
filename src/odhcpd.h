@@ -192,6 +192,7 @@ enum odhcpd_mode {
 enum odhcpd_assignment_flags {
 	OAF_DHCPV6_NA		= (1 << 0),
 	OAF_DHCPV6_PD		= (1 << 1),
+	OAF_DHCPV6_PD_EXCLUDE	= (1 << 2),
 };
 
 #define DHCPV6_OPT_HDR_SIZE 4
@@ -468,6 +469,7 @@ struct interface {
 	bool dhcpv6_na;
 	uint32_t dhcpv6_hostid_len;
 	uint32_t dhcpv6_pd_min_len; // minimum delegated prefix length
+	bool dhcpv6_pd_exclude;
 
 	char *upstream;
 	size_t upstream_len;

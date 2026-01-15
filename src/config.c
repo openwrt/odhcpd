@@ -139,6 +139,7 @@ enum {
 	IFACE_ATTR_NTP,
 	IFACE_ATTR_CAPTIVE_PORTAL_URI,
 	IFACE_ATTR_IPV6_ONLY_PREFERRED,
+	IFACE_ATTR_DHCPV6_RELAY_SERVERS,
 	IFACE_ATTR_MAX
 };
 
@@ -193,6 +194,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_NTP] = { .name = "ntp", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_CAPTIVE_PORTAL_URI] = { .name = "captive_portal_uri", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_IPV6_ONLY_PREFERRED] = { .name = "ipv6_only_preferred", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_DHCPV6_RELAY_SERVERS] = { .name = "dhcpv6_relay_servers", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 const struct uci_blob_param_list interface_attr_list = {
@@ -351,6 +353,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv6_raw);
 	free(iface->dhcpv4_ntp);
 	free(iface->dhcpv6_ntp);
+	free(iface->dhcpv6_relay_server_addrs6);
 	free(iface->dhcpv6_sntp);
 	free(iface->captive_portal_uri);
 	for (unsigned i = 0; i < iface->dnr_cnt; i++) {
@@ -1709,6 +1712,39 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),
 					  &iface->pio_filter_addr,
 					  &iface->pio_filter_length);
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_RELAY_SERVERS])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			struct in6_addr addr6, *tmp6;
+
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING || !blobmsg_check_attr(cur, false))
+				continue;
+
+			if (inet_pton(AF_INET6, blobmsg_get_string(cur), &addr6) == 1) {
+				if (IN6_IS_ADDR_UNSPECIFIED(&addr6)) {
+					error("Invalid %s value configured for interface '%s'",
+					      iface_attrs[IFACE_ATTR_DHCPV6_RELAY_SERVERS].name, iface->name);
+					continue;
+				}
+
+				tmp6 = realloc(iface->dhcpv6_relay_server_addrs6,
+					       (iface->dhcpv6_relay_server_addrs6_cnt + 1) *
+					       sizeof(*iface->dhcpv6_relay_server_addrs6));
+
+				if (!tmp6)
+					goto err;
+
+				iface->dhcpv6_relay_server_addrs6 = tmp6;
+				iface->dhcpv6_relay_server_addrs6[iface->dhcpv6_relay_server_addrs6_cnt++] = addr6;
+			} else {
+				error("Invalid %s value configured for interface '%s'",
+				      iface_attrs[IFACE_ATTR_DHCPV6_RELAY_SERVERS].name, iface->name);
+			}
+		}
+	}
 
 	if (overwrite && (c = tb[IFACE_ATTR_NTP])) {
 		struct blob_attr *cur;

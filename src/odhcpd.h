@@ -468,6 +468,8 @@ struct interface {
 	bool dhcpv6_na;
 	uint32_t dhcpv6_hostid_len;
 	uint32_t dhcpv6_pd_min_len; // minimum delegated prefix length
+	struct in6_addr *dhcpv6_relay_server_addrs6;
+	size_t dhcpv6_relay_server_addrs6_cnt;
 
 	char *upstream;
 	size_t upstream_len;

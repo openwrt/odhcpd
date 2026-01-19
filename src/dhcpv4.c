@@ -1330,7 +1330,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	} else {
 		char ipv4_str[INET_ADDRSTRLEN];
 
-		error("Sent %s to %s - %s",
+		debug("Sent %s to %s - %s",
 		      dhcpv4_msg_to_string(reply_msg.data),
 		      dest_addr.sin_addr.s_addr == INADDR_BROADCAST ?
 		      "ff:ff:ff:ff:ff:ff": odhcpd_print_mac(req->chaddr, req->hlen),

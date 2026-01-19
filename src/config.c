@@ -113,6 +113,7 @@ enum {
 	IFACE_ATTR_DHCPV6_PD_PREFERRED,
 	IFACE_ATTR_DHCPV6_PD,
 	IFACE_ATTR_DHCPV6_PD_MIN_LEN,
+	IFACE_ATTR_DHCPV6_PD_EXCLUDE,
 	IFACE_ATTR_DHCPV6_NA,
 	IFACE_ATTR_DHCPV6_HOSTID_LEN,
 	IFACE_ATTR_RA_DEFAULT,
@@ -167,6 +168,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DHCPV6_PD_PREFERRED] = { .name = "dhcpv6_pd_preferred", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_PD] = { .name = "dhcpv6_pd", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_PD_MIN_LEN] = { .name = "dhcpv6_pd_min_len", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_DHCPV6_PD_EXCLUDE] = { .name = "dhcpv6_pd_exclude", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_NA] = { .name = "dhcpv6_na", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_HOSTID_LEN] = { .name = "dhcpv6_hostidlength", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_DEFAULT] = { .name = "ra_default", .type = BLOBMSG_TYPE_INT32 },
@@ -324,6 +326,7 @@ static void set_interface_defaults(struct interface *iface)
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_pd_preferred = false;
 	iface->dhcpv6_pd_min_len = PD_MIN_LEN_DEFAULT;
+	iface->dhcpv6_pd_exclude = false;
 	iface->dhcpv6_na = true;
 	iface->dhcpv6_hostid_len = HOSTID_LEN_DEFAULT;
 	iface->dns_service = true;
@@ -1464,6 +1467,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 		iface->dhcpv6_pd_min_len = pd_min_len;
 	}
+
+	if ((c = tb[IFACE_ATTR_DHCPV6_PD_EXCLUDE]))
+		iface->dhcpv6_pd_exclude = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_NA]))
 		iface->dhcpv6_na = blobmsg_get_bool(c);

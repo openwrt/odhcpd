@@ -346,8 +346,15 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	if (iface->addr6_len < 1)
 		return false;
 
+	bool allow_exclude =
+		iface->dhcpv6_pd_exclude &&
+		(assign->flags & OAF_DHCPV6_PD_EXCLUDE) &&
+		(assign->length < 64);	/* Excluded prefix must be larger than the delegated prefix (RFC6603 § 4.2) */
+
+	const uint32_t asize = (1 << (64 - assign->length)) - 1;
+
 	/* Try honoring the hint first */
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
+	uint32_t current = allow_exclude ? 0 : 1;
 	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->flags & OAF_DHCPV6_NA)
@@ -355,6 +362,8 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 
 			if (assign->assigned_subnet_id >= current && assign->assigned_subnet_id + asize < c->assigned_subnet_id) {
 				list_add_tail(&assign->head, &c->head);
+				debug("assign_pd chose subnet_id %08x on %s (hint honored)",
+				      assign->assigned_subnet_id, iface->name);
 
 				if (assign->bound)
 					apply_lease(assign, true);
@@ -367,7 +376,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	}
 
 	/* Fallback to a variable assignment */
-	current = 1;
+	current = allow_exclude ? 0 : 1;
 	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if (c->flags & OAF_DHCPV6_NA)
 			continue;
@@ -377,6 +386,8 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 		if (current + asize < c->assigned_subnet_id) {
 			assign->assigned_subnet_id = current;
 			list_add_tail(&assign->head, &c->head);
+			debug("assign_pd chose subnet_id %08x on %s",
+			      assign->assigned_subnet_id, iface->name);
 
 			if (assign->bound)
 				apply_lease(assign, true);
@@ -666,9 +677,42 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				prefix_preferred_lt = prefix_valid_lt;
 
 			if (a->flags & OAF_DHCPV6_PD) {
+				if (!valid_prefix_length(a, addrs[i].prefix_len))
+					continue;
+
+				/* If assign_pd() chose subnet id 0, send a PD-Exclude option for the first /64 in the delegated prefix */
+				struct {
+					uint16_t option_code;
+					uint16_t option_len;
+					uint8_t prefix_len;
+				} _o_packed o_pd_exl;
+				size_t o_pd_exl_len = 0;
+				if (a->assigned_subnet_id == 0) {
+					const uint8_t excluded_prefix_len = 64;
+					if (a->length < excluded_prefix_len) {
+						uint8_t	excl_subnet_id_nbits = excluded_prefix_len - a->length;
+						uint8_t excl_subnet_id_nbytes = ((excl_subnet_id_nbits - 1) / 8) + 1;
+						o_pd_exl_len = sizeof(o_pd_exl) + excl_subnet_id_nbytes;
+
+						/* Work around a bug in odhcp6c that ignores DHCPV6_OPT_PD_EXCLUDE with valid option length of 2. */
+						if(o_pd_exl_len - DHCPV6_OPT_HDR_SIZE == 2)
+							o_pd_exl_len++;
+
+						o_pd_exl.option_code = htons(DHCPV6_OPT_PD_EXCLUDE);
+						o_pd_exl.option_len = htons(o_pd_exl_len - DHCPV6_OPT_HDR_SIZE);
+						o_pd_exl.prefix_len = excluded_prefix_len;
+						/* (IPv6 subnet ID field is all zeros) */
+					} else {
+						error("BUG: Can't exclude a prefix from from IA_PD of size %u on %s",
+						      a->length, iface->name);
+						continue;
+					}
+						      
+				}
+
 				struct dhcpv6_ia_prefix o_ia_p = {
 					.type = htons(DHCPV6_OPT_IA_PREFIX),
-					.len = htons(sizeof(o_ia_p) - DHCPV6_OPT_HDR_SIZE),
+					.len = htons(sizeof(o_ia_p) - DHCPV6_OPT_HDR_SIZE + o_pd_exl_len),
 					.preferred_lt = htonl(prefix_preferred_lt),
 					.valid_lt = htonl(prefix_valid_lt),
 					.prefix_len = a->length,
@@ -678,14 +722,17 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				o_ia_p.addr.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 				o_ia_p.addr.s6_addr32[2] = o_ia_p.addr.s6_addr32[3] = 0;
 
-				if (!valid_prefix_length(a, addrs[i].prefix_len))
-					continue;
-
-				if (buflen < ia_len + sizeof(o_ia_p))
+				if (buflen < ia_len + sizeof(o_ia_p) + o_pd_exl_len)
 					return 0;
 
 				memcpy(buf + ia_len, &o_ia_p, sizeof(o_ia_p));
 				ia_len += sizeof(o_ia_p);
+
+				if(o_pd_exl_len) {
+					memset(buf + ia_len, 0, o_pd_exl_len);
+					memcpy(buf + ia_len, &o_pd_exl, sizeof(o_pd_exl));
+					ia_len += o_pd_exl_len;
+				}
 			}
 
 			if (a->flags & OAF_DHCPV6_NA) {
@@ -955,6 +1002,7 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint8_t *duid = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	size_t hostname_len = 0, response_len = 0;
 	bool notonlink = false, rapid_commit = false, accept_reconf = false;
+	bool oro_pd_exclude = false;
 	char duidbuf[DUID_HEXSTRLEN], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -993,6 +1041,20 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			if (hdr->msg_type == DHCPV6_MSG_SOLICIT)
 				rapid_commit = true;
 			break;
+
+		case DHCPV6_OPT_ORO: {
+			size_t reqopts_cnt = olen / sizeof(uint16_t);
+			uint16_t* reqopts = (uint16_t *)odata;
+			for (size_t i = 0; i < reqopts_cnt; i++) {
+				uint16_t opt = ntohs(reqopts[i]);
+				switch (opt) {
+				case DHCPV6_OPT_PD_EXCLUDE:
+					oro_pd_exclude = true;
+					break;
+				}
+			}
+			break;
+		}
 
 		default:
 			break;
@@ -1180,7 +1242,12 @@ proceed:
 						a->length = reqlen;
 						a->peer = *addr;
 						a->iface = iface;
-						a->flags = is_pd ? OAF_DHCPV6_PD : OAF_DHCPV6_NA;
+						if (is_pd) {
+							a->flags = OAF_DHCPV6_PD;
+							if (oro_pd_exclude)
+								a->flags |= OAF_DHCPV6_PD_EXCLUDE;
+						} else
+							a->flags = OAF_DHCPV6_NA;
 						a->valid_until = now;
 						a->preferred_until = now;
 

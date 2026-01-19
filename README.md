@@ -90,6 +90,7 @@ and may also receive information from ubus
 | dhcpv6_pd		|bool	| 1	| DHCPv6 stateful addressing hands out IA_PD - Internet Address - Prefix Delegation (PD) |
 | dhcpv6_pd_preferred   |bool | 0 | Set the DHCPv6-PD Preferred (P) flag in outgoing ICMPv6 RA message PIOs (RFC9762); requires `dhcpv6` and `dhcpv6_pd`. |
 | dhcpv6_pd_min_len	|integer| 62	| Minimum prefix length to delegate with IA_PD (adjusted, if necessary, to be longer than the interface prefix length).  Range [1,64] |
+| dhcpv6_pd_exclude	|bool	| 0	| Allow delegation of a prefix containing the smaller on-link prefix (RFC6603); allows an entire interface prefix to be delegated. |
 | router		|list	|`<local address>`| IPv4 addresses of routers on a given subnet (provided via DHCPv4, should be in order of preference) |
 | dns			|list	|`<local address>`| DNS servers to announce, accepts IPv4 and IPv6 |
 | dnr			|list	|disabled| Encrypted DNS servers to announce, `<priority> <domain name> [<comma separated IP addresses> <SvcParams (key=value)>...]` |

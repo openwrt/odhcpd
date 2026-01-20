@@ -351,7 +351,6 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 
 	if (lease->iface) {
 		lease->iface->update_statefile = true;
-		avl_delete(&lease->iface->dhcpv4_leases, &lease->iface_avl);
 	}
 
 	if (lease->lease_cfg)

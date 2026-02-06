@@ -824,6 +824,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 struct log_ctxt {
 	char *buf;
 	int buf_len;
+	/* if full, buf_idx will point to the last valid memory in buf */
 	int buf_idx;
 };
 
@@ -832,10 +833,20 @@ static void dhcpv6_log_ia_addr(_o_unused struct dhcpv6_lease *lease, struct in6_
 {
 	struct log_ctxt *ctxt = (struct log_ctxt *)arg;
 	char addrbuf[INET6_ADDRSTRLEN];
+	int ret;
+
+	/* Log buffer full */
+	if (ctxt->buf_idx >= ctxt->buf_len - 1)
+		return;
 
 	inet_ntop(AF_INET6, addr, addrbuf, sizeof(addrbuf));
-	ctxt->buf_idx += snprintf(ctxt->buf + ctxt->buf_idx, ctxt->buf_len - ctxt->buf_idx,
-				  " %s/%" PRIu8, addrbuf, prefix_len);
+	ret = snprintf(ctxt->buf + ctxt->buf_idx, ctxt->buf_len - ctxt->buf_idx,
+		       " %s/%" PRIu8, addrbuf, prefix_len);
+
+	if (ret + ctxt->buf_idx < ctxt->buf_len - 1)
+		ctxt->buf_idx += ret;
+	else
+		ctxt->buf_idx = ctxt->buf_len - 1;
 }
 
 static void dhcpv6_log(uint8_t msgtype, struct interface *iface, time_t now,

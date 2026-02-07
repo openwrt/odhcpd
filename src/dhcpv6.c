@@ -28,7 +28,8 @@
 #endif
 
 static void relay_client_request(struct sockaddr_in6 *source,
-		const void *data, size_t len, struct interface *iface);
+		const void *data, size_t len, struct interface *iface,
+		struct in6_addr *dest);
 static void relay_server_response(uint8_t *data, size_t len);
 
 static void handle_dhcpv6(void *addr, void *data, size_t len,
@@ -806,10 +807,15 @@ static void handle_dhcpv6(void *addr, void *data, size_t len,
 	if (iface->dhcpv6 == MODE_SERVER) {
 		handle_client_request(addr, data, len, iface, dest_addr);
 	} else if (iface->dhcpv6 == MODE_RELAY) {
-		if (iface->master)
+		if (iface->master) {
 			relay_server_response(data, len);
-		else
-			relay_client_request(addr, data, len, iface);
+		} else if (iface->dhcpv6_relay_server_addrs6_cnt > 0) {
+			for (size_t i = 0; i < iface->dhcpv6_relay_server_addrs6_cnt; i++) {
+				relay_client_request(addr, data, len, iface, &iface->dhcpv6_relay_server_addrs6[i]);
+			}
+		} else {
+			relay_client_request(addr, data, len, iface, NULL);
+		}
 	}
 }
 
@@ -926,7 +932,8 @@ static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)
 
 /* Relay client request (regular DHCPv6-relay) */
 static void relay_client_request(struct sockaddr_in6 *source,
-		const void *data, size_t len, struct interface *iface)
+		const void *data, size_t len, struct interface *iface,
+		struct in6_addr *dest)
 {
 	const struct dhcpv6_relay_header *h = data;
 	/* Construct our forwarding envelope */
@@ -988,7 +995,11 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	memset(&s, 0, sizeof(s));
 	s.sin6_family = AF_INET6;
 	s.sin6_port = htons(DHCPV6_SERVER_PORT);
-	inet_pton(AF_INET6, ALL_DHCPV6_SERVERS, &s.sin6_addr);
+
+	if (dest)
+	    s.sin6_addr = *dest;
+	else
+	    inet_pton(AF_INET6, ALL_DHCPV6_SERVERS, &s.sin6_addr);
 
 	avl_for_each_element(&interfaces, c, avl) {
 		if (!c->master || c->dhcpv6 != MODE_RELAY)

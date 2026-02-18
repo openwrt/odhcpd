@@ -1489,7 +1489,7 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	if (!enable || iface->dhcpv4 == MODE_DISABLED) {
 		struct dhcpv4_lease *lease, *tmp;
 
-		avl_remove_all_elements(&iface->dhcpv4_leases, lease, iface_avl, tmp)
+		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp)
 			dhcpv4_free_lease(lease);
 		return true;
 	}

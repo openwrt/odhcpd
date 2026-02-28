@@ -148,7 +148,7 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 			if (a->flags & OAF_DHCPV6_NA)
 				blobmsg_add_u64(&b, "assigned", a->assigned_host_id);
 			else
-				blobmsg_add_u16(&b, "assigned", a->assigned_subnet_id);
+				blobmsg_add_u32(&b, "assigned", a->assigned_subnet_id);
 
 			m = blobmsg_open_array(&b, "flags");
 			if (a->bound)

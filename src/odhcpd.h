@@ -655,6 +655,8 @@ static inline bool dhcpv4_setup_interface(struct interface *iface, bool enable) 
 }
 
 static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
+	if (!lease)
+		return;
 	error("Trying to free IPv4 assignment 0x%p", lease);
 }
 #endif /* DHCPV4_SUPPORT */

@@ -349,7 +349,7 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 	if (lease->fr_ip)
 		dhcpv4_fr_stop(lease);
 
-	if (lease->iface) {
+	if (avl_find(&lease->iface->dhcpv4_leases, &lease->ipv4) == &lease->iface_avl) {
 		lease->iface->update_statefile = true;
 		avl_delete(&lease->iface->dhcpv4_leases, &lease->iface_avl);
 	}

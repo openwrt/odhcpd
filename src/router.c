@@ -920,6 +920,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (iface->ra_dns && iface->dns_search_len > 0) {
 		search_sz = sizeof(*search) + ((iface->dns_search_len + 7) & ~7);
 		search = alloca(search_sz);
+		memset(search, 0, search_sz);
 		*search = (struct nd_opt_search_list) {
 			.type = ND_OPT_DNS_SEARCH,
 			.len = search_sz / 8,

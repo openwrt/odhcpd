@@ -278,12 +278,18 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 		netlink_dump_neigh_table(false);
 		_o_fallthrough;
 	case NETEV_ADDR6_ADD:
+		if (IN6_MATCH_PREFIX_FILTER(info->addr.in6, iface))
+			break; /* Address filtered out */
+
 		setup_addr_for_relaying(&info->addr.in6, iface, add);
 		break;
 	case NETEV_NEIGH6_DEL:
 		add = false;
 		_o_fallthrough;
 	case NETEV_NEIGH6_ADD:
+		if (IN6_MATCH_PREFIX_FILTER(info->neigh.dst.in6, iface))
+			break; /* Address filtered out */
+
 		if (info->neigh.flags & NTF_PROXY) {
 			if (add) {
 				netlink_setup_proxy_neigh(&info->neigh.dst.in6, iface->ifindex, false);
@@ -380,12 +386,15 @@ static void handle_solicit(void *addr, void *data, size_t len,
 		return;
 
 	if (len < sizeof(*ip6) + sizeof(*req))
-		return; // Invalid total length
+		return; /* Invalid total length */
 
 	if (IN6_IS_ADDR_LINKLOCAL(&req->nd_ns_target) ||
 			IN6_IS_ADDR_LOOPBACK(&req->nd_ns_target) ||
 			IN6_IS_ADDR_MULTICAST(&req->nd_ns_target))
 		return; /* Invalid target */
+
+	if (IN6_MATCH_PREFIX_FILTER(req->nd_ns_target, iface))
+		return; /* Address filtered out */
 
 	inet_ntop(AF_INET6, &req->nd_ns_target, ipbuf, sizeof(ipbuf));
 	debug("Got a NS for %s on %s", ipbuf, iface->name);

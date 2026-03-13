@@ -760,7 +760,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue;
 		}
 
-		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
+		if (ADDR_MATCH_PREFIX_FILTER(addr, iface)) {
 			info("Address %s filtered out as RA prefix on %s",
 			     inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			     iface->name);
@@ -1018,7 +1018,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue;
 		}
 
-		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
+		if (ADDR_MATCH_PREFIX_FILTER(addr, iface)) {
 			debug("Address %s filtered out as RA route on %s",
 			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
 			      iface->name);
@@ -1169,22 +1169,17 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	struct sockaddr_in6 all_nodes;
 	struct icmpv6_opt *opt;
 	struct interface *c;
-	struct iovec iov = { .iov_base = data, .iov_len = len };
 	/* Rewrite options */
 	uint8_t *end = data + len;
-	uint8_t *mac_ptr = NULL;
-	struct in6_addr *dns_addrs6 = NULL;
-	size_t dns_addrs6_cnt = 0;
-	// MTU option
-	struct nd_opt_mtu *mtu_opt = NULL;
-	uint32_t ingress_mtu_val = 0;
 	/* PIO L/A/R/P flag and RA M/O Flags */
 	uint8_t ra_flags;
 	size_t pio_count = 0;
-	struct fwd_pio_flags {
-		uint8_t *ptr;
-		uint8_t flags;
-	} *pio_flags = NULL;
+	size_t pio_index = 0;
+	uint8_t *pio_flags_all = NULL;
+	
+	size_t opt_count = 0;
+	size_t iov_capacity;
+	struct iov_builder ra_builder;
 
 	icmpv6_for_each_option(opt, &adv[1], end) {
 		/* check our packet content is not truncated */
@@ -1193,6 +1188,8 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			return;
 		}
 
+		opt_count++;
+
 		switch(opt->type) {
 		case ND_OPT_PREFIX_INFORMATION:
 			pio_count++;
@@ -1200,36 +1197,23 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		}
 	}
 
-	if (pio_count > 0) {
-		pio_flags = alloca(sizeof(*pio_flags) * pio_count);
-		pio_count = 0;
-	}
+	if (pio_count > 0)
+		pio_flags_all = alloca(pio_count);
+	
+	/*	Capacity is computed as an upper bound of the number of chunks to sent,
+	 *	which is when options alternate between being kept and deleted.
+	 */
+	iov_capacity = opt_count / 2 + 1;
+	struct iovec iov_buf[iov_capacity];
 
 	/* Parse existing options */
+	pio_index = 0;
 	icmpv6_for_each_option(opt, &adv[1], end) {
 		switch (opt->type) {
-		case ND_OPT_SOURCE_LINKADDR:
-			mac_ptr = opt->data;
-			break;
-
-		case ND_OPT_RECURSIVE_DNS:
-			if (opt->len > 1) {
-				dns_addrs6 = (struct in6_addr *)&opt->data[6];
-				dns_addrs6_cnt = (opt->len - 1) / 2;
-			}
-			break;
-
-		case ND_OPT_MTU:
-			if (opt->len == 1 && (uint8_t *)opt + sizeof(struct nd_opt_mtu) <= end) {
-				mtu_opt = (struct nd_opt_mtu *)opt;
-				ingress_mtu_val = ntohl(mtu_opt->nd_opt_mtu_mtu);
-			}
-			break;
 		case ND_OPT_PREFIX_INFORMATION:
-			/* Store options for each PIO */
-			pio_flags[pio_count].ptr = &opt->data[1];
-			pio_flags[pio_count].flags = opt->data[1];
-			pio_count++;
+			/* Store original flags for each PIO */
+			pio_flags_all[pio_index] = opt->data[1];
+			pio_index++;
 			break;
 		}
 	}
@@ -1250,33 +1234,8 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		if (c->ra != MODE_RELAY || c->master)
 			continue;
 
-		/* Fixup source hardware address option */
-		if (mac_ptr)
-			odhcpd_get_mac(c, mac_ptr);
-
 		if (pio_count > 0)
 			debug("RA forward: Rewriting RA PIO flags");
-
-		for (size_t i = 0; i < pio_count; i++) {
-			/* restore the flags byte to its upstream state before applying per-interface policy */
-			*pio_flags[i].ptr = pio_flags[i].flags;
-			/* ensure L flag (on-link) cleared; relayed == not on-link */
-			*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_ONLINK;
-			/*	upstream no SLAAC, downstream no SLAAC: no change
-			 *	upstream no SLAAC, downstream SLAAC: no change
-			 *	upstream SLAAC, downstream SLAAC: no change
-			 *	upstream SLAAC, downstream no SLAAC: clear flag
-			 *	Why? We shall not SLAAC downstream if upstream disables it. Sometimes
-			 *	we just inform about a prefix for DHCPv6 and routing info. 
-			 */
-			if (!c->ra_slaac)
-				*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_AUTO;/* ensure A flag cleared */
-
-			/* we have no opinion on the R flag - it can be forwarded */
-
-			if (c->dhcpv6 == MODE_DISABLED || !c->dhcpv6_pd || !c->dhcpv6_pd_preferred)
-				*pio_flags[i].ptr &= ~ND_OPT_PI_FLAG_PD_PREFERRED;/* ensure P flag (DHCPv6-PD) cleared */
-		}
 
 		/* Apply per-interface modifications of upstream RA state */
 		adv->nd_ra_flags_reserved = ra_flags;
@@ -1288,37 +1247,130 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 			adv->nd_ra_flags_reserved |= c->ra_flags & (ND_RA_FLAG_MANAGED | ND_RA_FLAG_OTHER);
 		}
 
-		/* If we have to rewrite DNS entries */
-		if (c->always_rewrite_dns && dns_addrs6 && dns_addrs6_cnt > 0) {
-			const struct in6_addr *rewrite = c->dns_addrs6;
-			struct in6_addr addr;
-			size_t rewrite_cnt = c->dns_addrs6_cnt;
+		pio_index = 0;
 
-			if (rewrite_cnt == 0) {
-				if (odhcpd_get_interface_dns_addr6(c, &addr))
-					continue; /* Unable to comply */
+		odhcpd_iov_builder_init(&ra_builder, data, iov_buf, iov_capacity);
+		/* Router advertisement header */
+		odhcpd_iov_builder_advance(&ra_builder, sizeof(struct nd_router_advert), true);
 
-				rewrite = &addr;
-				rewrite_cnt = 1;
+		icmpv6_for_each_option(opt, &adv[1], end) {
+			bool include_opt = true;
+
+			switch (opt->type) {
+			case ND_OPT_SOURCE_LINKADDR: {
+				odhcpd_get_mac(c, opt->data);
+				break;
+			}
+			case ND_OPT_RECURSIVE_DNS: {
+				/* DNS rewriting is disabled or the option is too short to contain one address */
+				if (!c->always_rewrite_dns || opt->len < 3)
+					break;
+
+				struct in6_addr *cur_dns_addrs6 = (struct in6_addr *)&opt->data[6];
+				size_t cur_dns_addrs6_cnt = (opt->len - 1) / 2;
+				const struct in6_addr *rewrite = c->dns_addrs6;
+				struct in6_addr addr;
+				size_t rewrite_cnt = c->dns_addrs6_cnt;
+
+				if (rewrite_cnt == 0) {
+					if (odhcpd_get_interface_dns_addr6(c, &addr)) {
+						include_opt = false; /* Unable to comply */
+						break;
+					}
+
+					rewrite = &addr;
+					rewrite_cnt = 1;
+				}
+
+				/* Copy over any other addresses */
+				for (size_t j = 0; j < cur_dns_addrs6_cnt; ++j) {
+					size_t k = (j < rewrite_cnt) ? j : rewrite_cnt - 1;
+					cur_dns_addrs6[j] = rewrite[k];
+				}
+
+				break;
+			}
+			case ND_OPT_MTU: {
+				/* MTU rewriting is disabled, or invalid or incomplete MTU option */
+				if (!c->ra_mtu || opt->len != 1 || (uint8_t *)opt + sizeof(struct nd_opt_mtu) > end)
+					break;
+
+				struct nd_opt_mtu *cur_mtu = (struct nd_opt_mtu *)opt;
+				uint32_t ingress_mtu_val = ntohl(cur_mtu->nd_opt_mtu_mtu);
+
+				if (ingress_mtu_val != c->ra_mtu) {
+					debug("Rewriting RA MTU from %u to %u on %s",
+						ingress_mtu_val, c->ra_mtu, c->name);
+					cur_mtu->nd_opt_mtu_mtu = htonl(c->ra_mtu);
+				}
+
+				break;
+			}
+			case ND_OPT_PREFIX_INFORMATION: {
+				uint8_t pio_flags_orig = pio_flags_all[pio_index];
+				pio_index++;
+
+				struct nd_opt_prefix_info *pio = (struct nd_opt_prefix_info *)opt;
+				struct odhcpd_ipaddr pio_prefix = {
+					.addr.in6 = pio->nd_opt_pi_prefix,
+					.prefix_len = pio->nd_opt_pi_prefix_len,
+				};
+
+				/* Filtered PIO prefix */
+				if (ADDR_MATCH_PREFIX_FILTER(&pio_prefix, c)) {
+					include_opt = false;
+					break;
+				}
+				
+				uint8_t *pio_flags = &pio->nd_opt_pi_flags_reserved;
+				/* restore the flags byte to its upstream state before applying per-interface policy */
+				*pio_flags = pio_flags_orig;
+				/* ensure L flag (on-link) cleared; relayed == not on-link */
+				*pio_flags &= ~ND_OPT_PI_FLAG_ONLINK;
+				/*	upstream no SLAAC, downstream no SLAAC: no change
+				*	upstream no SLAAC, downstream SLAAC: no change
+				*	upstream SLAAC, downstream SLAAC: no change
+				*	upstream SLAAC, downstream no SLAAC: clear flag
+				*	Why? We shall not SLAAC downstream if upstream disables it. Sometimes
+				*	we just inform about a prefix for DHCPv6 and routing info.
+				*/
+				if (!c->ra_slaac)
+					*pio_flags &= ~ND_OPT_PI_FLAG_AUTO; /* ensure A flag cleared */
+
+				/* we have no opinion on the R flag - it can be forwarded */
+				if (c->dhcpv6 == MODE_DISABLED || !c->dhcpv6_pd || !c->dhcpv6_pd_preferred)
+					*pio_flags &= ~ND_OPT_PI_FLAG_PD_PREFERRED; /* ensure P flag (DHCPv6-PD) cleared */
+				
+				break;
+			}
+			case ND_OPT_ROUTE_INFO: {
+				struct nd_opt_route_info *rio = (struct nd_opt_route_info *)opt;
+				struct odhcpd_ipaddr rio_prefix = {
+					.addr.in6 = IN6ADDR_ANY_INIT,
+					.prefix_len = rio->prefix_len,
+				};
+
+				if (opt->len > 1) {
+					size_t rio_prefix_bytes = (size_t)(opt->len - 1) * 8;
+					size_t copy_len = min(sizeof(rio_prefix.addr.in6), rio_prefix_bytes);
+					memcpy(&rio_prefix.addr.in6, &rio->addr[0], copy_len);
+				}
+
+				/* Filtered RIO prefix */
+				if (ADDR_MATCH_PREFIX_FILTER(&rio_prefix, c))
+					include_opt = false;
+	
+				break;
+			}
 			}
 
-			/* Copy over any other addresses */
-			for (size_t i = 0; i < dns_addrs6_cnt; ++i) {
-				size_t j = (i < rewrite_cnt) ? i : rewrite_cnt - 1;
-				dns_addrs6[i] = rewrite[j];
-			}
+			/* Current ICMPv6 option */
+			odhcpd_iov_builder_advance(&ra_builder, (size_t)(opt->len) * 8, include_opt);
 		}
 
-		/* Rewrite MTU option if local RA MTU is configured */
-		if (c->ra_mtu && mtu_opt) {
-			if (ingress_mtu_val != c->ra_mtu) {
-				debug("Rewriting RA MTU from %u to %u on %s",
-				      ingress_mtu_val, c->ra_mtu, c->name);
-				mtu_opt->nd_opt_mtu_mtu = htonl(c->ra_mtu);
-			}
-		}
+		odhcpd_iov_builder_finalize(&ra_builder);
 
 		info("Forward a RA on %s", c->name);
-		odhcpd_send(c->router_event.uloop.fd, &all_nodes, &iov, 1, c);
+		odhcpd_send(c->router_event.uloop.fd, &all_nodes, iov_buf, ra_builder.iov_count, c);
 	}
 }

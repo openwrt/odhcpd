@@ -27,7 +27,11 @@ struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint
 
 static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8_t prefix_length)
 {
-	return a->length > prefix_length;
+	/* If the assigned_subnet_id is 0, allow the interface's entire prefix to be delegated. */
+	if (a->assigned_subnet_id == 0)
+		return a->length >= prefix_length;
+	else
+		return a->length > prefix_length;
 }
 
 static inline bool valid_addr(const struct odhcpd_ipaddr *addr, time_t now)

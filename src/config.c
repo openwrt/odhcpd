@@ -2216,6 +2216,8 @@ void odhcpd_reload(void)
 	if (!uci)
 		return;
 
+	notice("Reloading...");
+
 	if (config.uci_cfgdir) {
 		size_t dlen = strlen(config.uci_cfgdir);
 

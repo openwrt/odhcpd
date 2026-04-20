@@ -1760,17 +1760,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
-		const char *prio = blobmsg_get_string(c);
-
-		if (!strcmp(prio, "high"))
-			iface->route_preference = 1;
-		else if (!strcmp(prio, "low"))
-			iface->route_preference = -1;
-		else if (!strcmp(prio, "medium") || !strcmp(prio, "default"))
-			iface->route_preference = 0;
-		else
+		if (parse_ra_route_preference(c, &iface->route_preference)) {
 			error("Invalid %s mode configured for interface '%s'",
 			      iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))

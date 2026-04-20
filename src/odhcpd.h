@@ -439,7 +439,7 @@ struct interface {
 	uint8_t pio_filter_length;
 	struct in6_addr pio_filter_addr;
 	int default_router;
-	int route_preference;
+	int8_t route_preference;
 	uint32_t ra_maxinterval;
 	uint32_t ra_mininterval;
 	uint32_t ra_lifetime;

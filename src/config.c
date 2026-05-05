@@ -2099,14 +2099,21 @@ void odhcpd_reload(void)
 				set_interface(s);
 		}
 
-		/* 3. Static lease cfgs */
+		/* 3. dnsmasq instances */
+		uci_foreach_element(&dhcp->sections, e) {
+			struct uci_section *s = uci_to_section(e);
+			if (!strcmp(s->type, "dnsmasq"))
+				set_interface(s);
+		}
+
+		/* 4. Static lease cfgs */
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
 			if (!strcmp(s->type, "host"))
 				set_lease_cfg_from_uci(s);
 		}
 
-		/* 4. IPv6 PxE */
+		/* 5. IPv6 PxE */
 		ipv6_pxe_clear();
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
@@ -2121,7 +2128,7 @@ void odhcpd_reload(void)
 	if (config.enable_tz && !uci_load(uci, uci_system_path, &system)) {
 		struct uci_element *e;
 
-		/* 5. System settings */
+		/* 6. System settings */
 		uci_foreach_element(&system->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "system"))

@@ -1710,8 +1710,8 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 
 	if ((c = tb[IFACE_ATTR_PREFIX_FILTER]))
 		odhcpd_parse_addr6_prefix(blobmsg_get_string(c),
-					  &iface->pio_filter_addr,
-					  &iface->pio_filter_length);
+					  &iface->prefix_filter_addr,
+					  &iface->prefix_filter_length);
 
 	if (overwrite && (c = tb[IFACE_ATTR_DHCPV6_RELAY_SERVERS])) {
 		struct blob_attr *cur;

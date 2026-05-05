@@ -82,10 +82,12 @@
 
 #define IN6_IS_ADDR_ULA(a) (((a)->s6_addr32[0] & htonl(0xfe000000)) == htonl(0xfc000000))
 
-#define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
-							    &(iface)->pio_filter_addr, \
-							    (iface)->pio_filter_length) != 0 || \
-					     (_addr)->prefix_len < (iface)->pio_filter_length)
+#define IN6_MATCH_PREFIX_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr), \
+							&(iface)->prefix_filter_addr, \
+							(iface)->prefix_filter_length) != 0)
+
+#define ADDR_MATCH_PREFIX_FILTER(_addr, iface) (IN6_MATCH_PREFIX_FILTER((_addr)->addr, iface) || \
+							(_addr)->prefix_len < (iface)->prefix_filter_length)
 
 struct interface;
 struct nl_sock;
@@ -423,8 +425,8 @@ struct interface {
 	uint32_t pref64_prefix[3];
 	bool no_dynamic_dhcp;
 	bool have_link_local;
-	uint8_t pio_filter_length;
-	struct in6_addr pio_filter_addr;
+	uint8_t prefix_filter_length;
+	struct in6_addr prefix_filter_addr;
 	int default_router;
 	int route_preference;
 	uint32_t ra_maxinterval;
@@ -669,5 +671,19 @@ int ndp_setup_interface(struct interface *iface, bool enable);
 void reload_services(struct interface *iface);
 
 void odhcpd_reload(void);
+
+struct iov_builder {
+	struct iovec *iov_buf;
+	size_t iov_capacity;
+	size_t iov_count;
+	uint8_t *current_iov_base;
+	size_t current_iov_len;
+	bool include_iov;
+};
+
+void odhcpd_iov_builder_init(struct iov_builder *builder, uint8_t *data, struct iovec* iov_buf, size_t iov_capacity);
+int odhcpd_iov_builder_advance(struct iov_builder *builder, size_t chunk_len, bool include_chunk);
+int odhcpd_iov_builder_append(struct iov_builder *builder, uint8_t *iov_base, size_t iov_len);
+int odhcpd_iov_builder_finalize(struct iov_builder *builder);
 
 #endif /* _ODHCPD_H_ */

@@ -680,7 +680,7 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 			continue;
 
 		/* Filter Out Prefixes */
-		if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
+		if (ADDR_MATCH_PREFIX_FILTER(&addrs[i], iface)) {
 			char addrbuf[INET6_ADDRSTRLEN];
 			info("Address %s filtered out on %s",
 			     inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
@@ -788,4 +788,53 @@ bool odhcpd_hostname_valid(const char *name)
 	}
 
 	return (label_sz && label_sz <= DNS_MAX_LABEL_LEN ? true : false);
+}
+
+void odhcpd_iov_builder_init(struct iov_builder *builder, uint8_t *data, struct iovec* iov_buf, size_t iov_capacity) {
+	builder->iov_count = 0;
+	builder->current_iov_base = data;
+	builder->current_iov_len = 0;
+	builder->include_iov = false;
+
+	if (iov_buf) {
+		builder->iov_buf = iov_buf;
+		builder->iov_capacity = iov_capacity;
+	}
+}
+
+int odhcpd_iov_builder_advance(struct iov_builder *builder, size_t chunk_len, bool include_chunk) {
+	if (include_chunk ^ builder->include_iov) {
+		if (builder->include_iov) {
+			int error = odhcpd_iov_builder_append(builder, builder->current_iov_base, builder->current_iov_len);
+			if (error)
+				return error;
+		}
+
+		builder->current_iov_base += builder->current_iov_len;
+		builder->current_iov_len = chunk_len;
+		builder->include_iov = include_chunk;
+	} else {
+		builder->current_iov_len += chunk_len;
+	}
+
+	return 0;
+}
+
+int odhcpd_iov_builder_append(struct iov_builder *builder, uint8_t *iov_base, size_t iov_len) {
+	if (iov_len == 0)
+		return 0;
+	if (builder->iov_count >= builder->iov_capacity)
+		return 1;
+
+	builder->iov_buf[builder->iov_count] = (struct iovec) {
+		.iov_base = iov_base,
+		.iov_len = iov_len
+	};
+	builder->iov_count++;
+
+	return 0;
+}
+
+int odhcpd_iov_builder_finalize(struct iov_builder *builder) {
+	return odhcpd_iov_builder_advance(builder, 0, false);
 }

@@ -295,7 +295,7 @@ static void __apply_lease(struct dhcpv6_lease *a,
 	for (ssize_t i = 0; i < addr_len; ++i) {
 		struct in6_addr prefix;
 
-		if (ADDR_MATCH_PIO_FILTER(&addrs[i], a->iface))
+		if (ADDR_MATCH_PREFIX_FILTER(&addrs[i], a->iface))
 			continue;
 
 		prefix = addrs[i].addr.in6;
@@ -324,7 +324,7 @@ static void set_border_assignment_size(struct interface *iface, struct dhcpv6_le
 	for (size_t i = 0; i < iface->addr6_len; ++i) {
 		struct odhcpd_ipaddr *addr = &iface->addr6[i];
 
-		if (ADDR_MATCH_PIO_FILTER(addr, iface))
+		if (ADDR_MATCH_PREFIX_FILTER(addr, iface))
 			continue;
 
 		if (addr->preferred_lt > (uint32_t)now &&
@@ -634,7 +634,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 				continue;
 
 			/* Filter Out Prefixes */
-			if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface)) {
+			if (ADDR_MATCH_PREFIX_FILTER(&addrs[i], iface)) {
 				char addrbuf[INET6_ADDRSTRLEN];
 				info("Address %s filtered out on %s",
 				     inet_ntop(AF_INET6, &addrs[i].addr.in6, addrbuf, sizeof(addrbuf)),
@@ -761,7 +761,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					if (!valid_prefix_length(a, addrs[i].prefix_len))
 						continue;
 
-					if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
+					if (ADDR_MATCH_PREFIX_FILTER(&addrs[i], iface))
 						continue;
 
 					if (ia->type == htons(DHCPV6_OPT_IA_PD)) {
@@ -934,7 +934,7 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 			if (!valid_addr(&addrs[i], now))
 				continue;
 
-			if (ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
+			if (ADDR_MATCH_PREFIX_FILTER(&addrs[i], iface))
 				continue;
 
 			if (ia->type == htons(DHCPV6_OPT_IA_PD)) {

@@ -217,6 +217,26 @@ const struct uci_blob_param_list lease_cfg_attr_list = {
 };
 
 enum {
+	RA_ROUTE_ATTR_PREFIX,
+	RA_ROUTE_ATTR_INTERFACE,
+	RA_ROUTE_ATTR_PREFERENCE,
+	RA_ROUTE_ATTR_LIFETIME,
+	RA_ROUTE_ATTR_MAX
+};
+
+static const struct blobmsg_policy ra_route_attrs[RA_ROUTE_ATTR_MAX] = {
+	[RA_ROUTE_ATTR_PREFIX] = { .name = "prefix", .type = BLOBMSG_TYPE_STRING },
+	[RA_ROUTE_ATTR_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_ARRAY },
+	[RA_ROUTE_ATTR_PREFERENCE] = { .name = "preference", .type = BLOBMSG_TYPE_STRING },
+	[RA_ROUTE_ATTR_LIFETIME] = { .name = "lifetime", .type = BLOBMSG_TYPE_STRING },
+};
+
+const struct uci_blob_param_list ra_route_attr_list = {
+	.n_params = RA_ROUTE_ATTR_MAX,
+	.params = ra_route_attrs,
+};
+
+enum {
 	ODHCPD_ATTR_MAINDHCP,
 	ODHCPD_ATTR_LEASEFILE,
 	ODHCPD_ATTR_LEASETRIGGER,
@@ -316,6 +336,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->learn_routes = 1;
 	iface->ndp_from_link_local = true;
 	iface->cached_linklocal_valid = false;
+	iface->ra_static_routes = NULL;
+	iface->ra_static_routes_cnt = 0;
 	iface->dhcp_leasetime = 43200;
 	iface->max_preferred_lifetime = ND_PREFERRED_LIMIT;
 	iface->max_valid_lifetime = ND_VALID_LIMIT;
@@ -349,6 +371,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dns_addrs6);
 	free(iface->dns_search);
 	free(iface->upstream);
+	free(iface->ra_static_routes);
 	free(iface->dhcpv4_routers);
 	free(iface->dhcpv6_raw);
 	free(iface->dhcpv4_ntp);
@@ -356,7 +379,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv6_relay_server_addrs6);
 	free(iface->dhcpv6_sntp);
 	free(iface->captive_portal_uri);
-	for (unsigned i = 0; i < iface->dnr_cnt; i++) {
+	for (size_t i = 0; i < iface->dnr_cnt; i++) {
 		free(iface->dnr[i].adn);
 		free(iface->dnr[i].addr4);
 		free(iface->dnr[i].addr6);
@@ -424,6 +447,60 @@ static int parse_ra_flags(uint8_t *flags, struct blob_attr *attr)
 
 		if (!ra_flags[i].name)
 			return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * Parses static route prefix from attribute to `route`
+ *
+ * Returns: 0 on success, -1 on failure
+ */
+static int parse_ra_route_prefix(struct blob_attr *attr, struct odhcpd_ip6prefix *route)
+{
+	const char *str = blobmsg_get_string(attr);
+
+	/* Parse the address and prefix length */
+	if (odhcpd_parse_addr6_prefix(str, &(route->addr), &(route->len)) < 0) {
+		return -1;
+	}
+
+	/*
+	 * Validate prefix length
+	 * Default route (::/0) is managed elsewhere.
+	 */
+	if (route->len == 0 || route->len > 128) {
+		return -1;
+	}
+
+	/*
+	 * Validate address
+	 * Zero-address (::) specifies default route and is managed elsewhere,
+	 * loopback and link-local addresses are not routable.
+	 */
+	if (IN6_IS_ADDR_UNSPECIFIED(&(route->addr)) ||
+	    IN6_IS_ADDR_LOOPBACK(&(route->addr)) ||
+	    IN6_IS_ADDR_LINKLOCAL(&(route->addr))) {
+		return -1;
+	}
+
+	return 0;
+}
+
+static int parse_ra_route_preference(struct blob_attr *attr, int8_t *preference)
+{
+	const char *str = blobmsg_get_string(attr);
+
+	if (!strcmp(str, "high")) {
+		*preference = 1;
+	} else if (!strcmp(str, "medium")) {
+		*preference = 0;
+	} else if (!strcmp(str, "low")) {
+		*preference = -1;
+	} else {
+		// Invalid preference value
+		return -1;
 	}
 
 	return 0;
@@ -1686,17 +1763,10 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_RA_PREFERENCE])) {
-		const char *prio = blobmsg_get_string(c);
-
-		if (!strcmp(prio, "high"))
-			iface->route_preference = 1;
-		else if (!strcmp(prio, "low"))
-			iface->route_preference = -1;
-		else if (!strcmp(prio, "medium") || !strcmp(prio, "default"))
-			iface->route_preference = 0;
-		else
+		if (parse_ra_route_preference(c, &iface->route_preference)) {
 			error("Invalid %s mode configured for interface '%s'",
 			      iface_attrs[IFACE_ATTR_RA_PREFERENCE].name, iface->name);
+		}
 	}
 
 	if ((c = tb[IFACE_ATTR_NDPROXY_ROUTING]))
@@ -2002,6 +2072,135 @@ struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4)
 	return NULL;
 }
 
+static int append_ra_route_to_interface(const char *name,
+					const struct odhcpd_ra_route *route,
+					bool preference_set)
+{
+	struct interface *iface;
+	iface = avl_find_element(&interfaces, name, iface, avl);
+
+	if (!iface) {
+		error("Interface '%s' not found for RA route", name);
+		return -1;
+	}
+
+	struct odhcpd_ra_route r = *route;
+
+	if (!preference_set) {
+		/* Inherit route preference */
+		r.preference = iface->route_preference;
+	}
+
+	if (r.lifetime == 0) {
+		/* Set default lifetime */
+		r.lifetime = iface->ra_lifetime;
+	} else if (r.lifetime < iface->ra_maxinterval) {
+		/* Ensure route lifetime is not less than the interface's maximum RA interval */
+		r.lifetime = iface->ra_maxinterval;
+	}
+
+	/* Append the route to the interface's RA routes */
+	struct odhcpd_ra_route *tmp = realloc(iface->ra_static_routes,
+		(iface->ra_static_routes_cnt + 1) * sizeof(*iface->ra_static_routes));
+	if (!tmp) {
+		error("Failed to allocate memory for RA route on interface '%s'", name);
+		return -1;
+	}
+
+	iface->ra_static_routes = tmp;
+	iface->ra_static_routes[iface->ra_static_routes_cnt] = r;
+	iface->ra_static_routes_cnt++;
+
+	/* Print the route */
+	char addr_str[INET6_ADDRSTRLEN];
+	inet_ntop(AF_INET6, &r.prefix.addr, addr_str, sizeof(addr_str));
+	info("Added static RA route %s/%u with preference %d and lifetime %" PRIu32
+	     " to interface '%s'",
+	     addr_str, r.prefix.len, r.preference, r.lifetime,
+	     name);
+
+	return 0;
+}
+
+static int config_parse_ra_route(void *data, size_t len, const char *section_name)
+{
+	struct blob_attr *tb[RA_ROUTE_ATTR_MAX], *c;
+	blobmsg_parse(ra_route_attrs, RA_ROUTE_ATTR_MAX, tb, data, len);
+
+	bool preference_set = false;
+	struct odhcpd_ra_route route = {};
+
+	if ((c = tb[RA_ROUTE_ATTR_PREFIX])) {
+		if (parse_ra_route_prefix(c, &route.prefix) != 0) {
+			error("Invalid %s value (%s) configured for RA route '%s'",
+			      ra_route_attrs[RA_ROUTE_ATTR_PREFIX].name,
+			      blobmsg_get_string(c), section_name);
+			return -1;
+		}
+	} else {
+		error("Missing required attribute '%s' for RA route '%s'",
+		      ra_route_attrs[RA_ROUTE_ATTR_PREFIX].name, section_name);
+		return -1;
+	}
+
+	if ((c = tb[RA_ROUTE_ATTR_PREFERENCE])) {
+		if (parse_ra_route_preference(c, &route.preference) == 0) {
+			preference_set = true;
+		} else {
+			warn("Invalid %s value (%s) configured for RA route '%s', using default",
+			     ra_route_attrs[RA_ROUTE_ATTR_PREFERENCE].name,
+			     blobmsg_get_string(c), section_name);
+		}
+	}
+
+	if ((c = tb[RA_ROUTE_ATTR_LIFETIME])) {
+		route.lifetime = parse_leasetime(c);
+
+		if (route.lifetime == 0) {
+			warn("Invalid %s value (%s) configured for RA route '%s', using default",
+			     ra_route_attrs[RA_ROUTE_ATTR_LIFETIME].name,
+			     blobmsg_get_string(c), section_name);
+		}
+	}
+
+	/* Append the route to the specified interfaces, or to all interfaces if none specified */
+	if ((c = tb[RA_ROUTE_ATTR_INTERFACE])) {
+		struct blob_attr *cur;
+		unsigned rem;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (blobmsg_type(cur) != BLOBMSG_TYPE_STRING ||
+			    !blobmsg_check_attr(cur, false)) {
+				continue;
+			}
+
+			const char *ifname = blobmsg_get_string(cur);
+			if (append_ra_route_to_interface(ifname, &route, preference_set) != 0) {
+				error("Failed to add RA route '%s' to interface '%s'",
+				      section_name, ifname);
+			}
+		}
+	} else {
+		struct interface *iface;
+		avl_for_each_element(&interfaces, iface, avl) {
+			if (append_ra_route_to_interface(iface->name, &route, preference_set) != 0) {
+				error("Failed to add RA route '%s' to interface '%s'",
+				      section_name, iface->name);
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int set_ra_route(struct uci_section *s)
+{
+	blob_buf_init(&b, 0);
+	uci_to_blob(&b, s, &ra_route_attr_list);
+
+	return config_parse_ra_route(blob_data(b.head), blob_len(b.head), s->e.name);
+}
+
 void reload_services(struct interface *iface)
 {
 	if (iface->ifflags & IFF_RUNNING) {
@@ -2052,6 +2251,8 @@ void odhcpd_reload(void)
 
 	if (!uci)
 		return;
+
+	notice("Reloading...");
 
 	if (config.uci_cfgdir) {
 		size_t dlen = strlen(config.uci_cfgdir);
@@ -2106,7 +2307,17 @@ void odhcpd_reload(void)
 				set_lease_cfg_from_uci(s);
 		}
 
-		/* 4. IPv6 PxE */
+		/* 4. RA routes (depends on parsed interfaces) */
+		if (!avl_is_empty(&interfaces)) {
+			uci_foreach_element(&dhcp->sections, e) {
+				struct uci_section* s = uci_to_section(e);
+				if (!strcmp(s->type, "ra_route")) {
+					set_ra_route(s);
+				}
+			}
+		}
+
+		/* 5. IPv6 PxE */
 		ipv6_pxe_clear();
 		uci_foreach_element(&dhcp->sections, e) {
 			struct uci_section* s = uci_to_section(e);
@@ -2121,7 +2332,7 @@ void odhcpd_reload(void)
 	if (config.enable_tz && !uci_load(uci, uci_system_path, &system)) {
 		struct uci_element *e;
 
-		/* 5. System settings */
+		/* 6. System settings */
 		uci_foreach_element(&system->sections, e) {
 			struct uci_section *s = uci_to_section(e);
 			if (!strcmp(s->type, "system"))

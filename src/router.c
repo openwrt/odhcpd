@@ -622,6 +622,29 @@ static void router_stale_ra_pio(struct interface *iface,
 	     pio->length);
 }
 
+/* Converts an odhcpd RA route to a route info option */
+static void router_convert_ra_route_to_route_info(const struct odhcpd_ra_route *r,
+						  struct nd_opt_route_info *ri)
+{
+	ri->type = ND_OPT_ROUTE_INFO;
+	ri->len = sizeof(*ri) / 8;
+	ri->prefix_len = r->prefix.len;
+
+	/* Set flags */
+	ri->flags = 0;
+	if (r->preference < 0) {
+		ri->flags |= ND_RA_PREF_LOW;
+	} else if (r->preference > 0) {
+		ri->flags |= ND_RA_PREF_HIGH;
+	}
+
+	ri->lifetime = htonl(r->lifetime);
+	ri->addr[0] = r->prefix.addr.s6_addr32[0];
+	ri->addr[1] = r->prefix.addr.s6_addr32[1];
+	ri->addr[2] = r->prefix.addr.s6_addr32[2];
+	ri->addr[3] = r->prefix.addr.s6_addr32[3];
+}
+
 /* Router Advert server mode */
 static int send_router_advert(struct interface *iface, const struct in6_addr *from)
 {
@@ -1005,54 +1028,65 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 *           WAN interface.
 	 */
 	if (valid_addr_cnt > 0) {
-		routes = alloca(valid_addr_cnt * sizeof(*routes));
-		memset(routes, 0, valid_addr_cnt * sizeof(*routes));
+		size_t route_info_cnt = valid_addr_cnt + iface->ra_static_routes_cnt;
+		routes = alloca(route_info_cnt * sizeof(*routes));
+		memset(routes, 0, route_info_cnt * sizeof(*routes));
+
+		for (size_t i = 0; i < valid_addr_cnt; ++i) {
+			struct odhcpd_ipaddr *addr = &addrs[i];
+			uint32_t valid_lt;
+
+			if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 ||
+			    addr->valid_lt <= (uint32_t)now) {
+				debug("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
+				      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+				      addr->dprefix_len, addr->valid_lt, iface->name);
+				continue;
+			}
+
+			if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
+				debug("Address %s filtered out as RA route on %s",
+				      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
+				      iface->name);
+				continue;
+			}
+
+			if (addr->dprefix_len > 32) {
+				addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix_len)) - 1));
+			} else if (addr->dprefix_len <= 32) {
+				addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix_len)) - 1));
+				addr->addr.in6.s6_addr32[1] = 0;
+			}
+
+			routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
+			routes[routes_cnt].len = sizeof(*routes) / 8;
+			routes[routes_cnt].prefix_len = addr->dprefix_len;
+			routes[routes_cnt].flags = 0;
+			if (iface->route_preference < 0)
+				routes[routes_cnt].flags |= ND_RA_PREF_LOW;
+			else if (iface->route_preference > 0)
+				routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
+
+			valid_lt = TIME_LEFT(addr->valid_lt, now);
+			if (iface->max_valid_lifetime && valid_lt > iface->max_valid_lifetime)
+				valid_lt = iface->max_valid_lifetime;
+			routes[routes_cnt].lifetime = htonl(valid_lt);
+			routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
+			routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
+			routes[routes_cnt].addr[2] = 0;
+			routes[routes_cnt].addr[3] = 0;
+
+			routes_cnt++;
+		}
+
+		/* Static RA routes */
+		for (size_t i = 0; i < iface->ra_static_routes_cnt; ++i) {
+			router_convert_ra_route_to_route_info(&iface->ra_static_routes[i],
+							      &routes[routes_cnt]);
+			routes_cnt++;
+		}
 	}
-	for (size_t i = 0; i < valid_addr_cnt; ++i) {
-		struct odhcpd_ipaddr *addr = &addrs[i];
-		uint32_t valid_lt;
 
-		if (addr->dprefix_len >= 64 || addr->dprefix_len == 0 || addr->valid_lt <= (uint32_t)now) {
-			debug("Address %s (dprefix %d, valid-lifetime %u) not suitable as RA route on %s",
-			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			      addr->dprefix_len, addr->valid_lt, iface->name);
-			continue;
-		}
-
-		if (ADDR_MATCH_PIO_FILTER(addr, iface)) {
-			debug("Address %s filtered out as RA route on %s",
-			      inet_ntop(AF_INET6, &addr->addr.in6, buf, sizeof(buf)),
-			      iface->name);
-			continue;
-		}
-
-		if (addr->dprefix_len > 32) {
-			addr->addr.in6.s6_addr32[1] &= htonl(~((1U << (64 - addr->dprefix_len)) - 1));
-		} else if (addr->dprefix_len <= 32) {
-			addr->addr.in6.s6_addr32[0] &= htonl(~((1U << (32 - addr->dprefix_len)) - 1));
-			addr->addr.in6.s6_addr32[1] = 0;
-		}
-
-		routes[routes_cnt].type = ND_OPT_ROUTE_INFO;
-		routes[routes_cnt].len = sizeof(*routes) / 8;
-		routes[routes_cnt].prefix_len = addr->dprefix_len;
-		routes[routes_cnt].flags = 0;
-		if (iface->route_preference < 0)
-			routes[routes_cnt].flags |= ND_RA_PREF_LOW;
-		else if (iface->route_preference > 0)
-			routes[routes_cnt].flags |= ND_RA_PREF_HIGH;
-
-		valid_lt = TIME_LEFT(addr->valid_lt, now);
-		if (iface->max_valid_lifetime && valid_lt > iface->max_valid_lifetime)
-			valid_lt = iface->max_valid_lifetime;
-		routes[routes_cnt].lifetime = htonl(valid_lt);
-		routes[routes_cnt].addr[0] = addr->addr.in6.s6_addr32[0];
-		routes[routes_cnt].addr[1] = addr->addr.in6.s6_addr32[1];
-		routes[routes_cnt].addr[2] = 0;
-		routes[routes_cnt].addr[3] = 0;
-
-		routes_cnt++;
-	}
 	iov[IOV_RA_ROUTES].iov_base = routes;
 	iov[IOV_RA_ROUTES].iov_len = routes_cnt * sizeof(*routes);
 

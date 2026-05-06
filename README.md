@@ -128,6 +128,15 @@ and may also receive information from ubus
 [//]: # "dhcpv6_raw - string - not documented, may change when generic DHCPv4/DHCPv6 options are added"
 
 
+### Sections of type ra_route
+| Option	| Type		| Default		| Description |
+| :------------ | :------------ | :-------------------- | :---------- |
+| prefix	| string	| (none)		| Target IPv6 route prefix, e.g. `2000:abc::/48`. |
+| interface	| list		| (none)		| List of interfaces to advertise this route on. If no interface is provided, the route is advertised on all interfaces. |
+| preference	| string	| `ra_preference`	| Route preference [medium\|high\|low]. By default interface-specific `ra_preference` value is used. |
+| lifetime	| string	| `ra_lifetime`	| Value to be placed in the Route Lifetime field of the Route Information. Implicitly clamped to the interval of sending unsolicited RA (`ra_maxinterval`) as a minimum value. Expected format follows `leasetime`, e.g. 60m, 2h, 3d, 1w. |
+
+
 ### Sections of type host (static leases)
 | Option		| Type	|Default| Description |
 | :-------------------- | :---- | :---- | :---------- |

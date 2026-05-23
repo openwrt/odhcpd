@@ -1026,6 +1026,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		if (!is_pd && !is_na)
 			continue;
 
+		/* RFC8415 §21.4 / §21.21: an IA_NA/IA_PD option carries at
+		 * least 12 bytes of fixed payload (iaid + t1 + t2) before any
+		 * sub-options. Without this guard, a crafted option with
+		 * olen < 12 lets us read ia->iaid/t1/t2 out of bounds (the
+		 * iterator only enforces odata + olen <= end). */
+		if (olen < sizeof(struct dhcpv6_ia_hdr) - DHCPV6_OPT_HDR_SIZE)
+			continue;
+
 		struct dhcpv6_ia_hdr *ia = (struct dhcpv6_ia_hdr*)&odata[-DHCPV6_OPT_HDR_SIZE];
 		size_t ia_response_len = 0;
 		uint8_t reqlen = (is_pd) ? 62 : 128;

@@ -753,7 +753,11 @@ static void dhcpv4_set_dest_addr(const struct interface *iface,
 
 			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
 			memcpy(&arp.arp_pa, dest, sizeof(arp.arp_pa));
-			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
+			/* arp_dev is a 16-byte fixed buffer; strdup'd ifname is
+			 * typically shorter than that, so memcpy()ing the full
+			 * field length reads past the allocation. Match the
+			 * strncpy pattern used elsewhere for ifr_name. */
+			strncpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev) - 1);
 
 			if (ioctl(iface->dhcpv4_event.uloop.fd, SIOCSARP, &arp) < 0)
 				error("ioctl(SIOCSARP): %m");

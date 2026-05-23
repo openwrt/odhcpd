@@ -191,7 +191,7 @@ enum {
 	IOV_TOTAL
 };
 
-static void handle_nested_message(uint8_t *data, size_t len,
+static void handle_nested_message(uint8_t *data, size_t len, unsigned depth,
 				  struct dhcpv6_client_header **c_hdr, uint8_t **opts,
 				  uint8_t **end, struct iovec iov[IOV_TOTAL])
 {
@@ -215,25 +215,36 @@ static void handle_nested_message(uint8_t *data, size_t len,
 		return;
 	}
 
+	/* Each nested Relay-Forward is one relay hop; RFC8415 bounds a relay
+	 * chain via HOP_COUNT_LIMIT (defined in §7.6, enforced in §19.1.2),
+	 * so refuse to recurse deeper and avoid stack exhaustion on crafted
+	 * relay loops. */
+	if (depth >= DHCPV6_HOP_COUNT_LIMIT)
+		return;
+
 	dhcpv6_for_each_option(r_hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
 			iov[IOV_RELAY_MSG].iov_base = odata + olen;
 			iov[IOV_RELAY_MSG].iov_len = (((uint8_t *)iov[IOV_NESTED].iov_base) +
 					iov[IOV_NESTED].iov_len) - (odata + olen);
-			handle_nested_message(odata, olen, c_hdr, opts, end, iov);
+			handle_nested_message(odata, olen, depth + 1, c_hdr, opts, end, iov);
 			return;
 		}
 	}
 }
 
 
-static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
+static void update_nested_message(uint8_t *data, size_t len, unsigned depth, ssize_t pdiff)
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
 	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW)
 		return;
 
 	hdr->msg_type = DHCPV6_MSG_RELAY_REPL;
+
+	/* Bound recursion to mirror handle_nested_message(). */
+	if (depth >= DHCPV6_HOP_COUNT_LIMIT)
+		return;
 
 	uint16_t otype, olen;
 	uint8_t *odata;
@@ -242,7 +253,7 @@ static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
 			olen += pdiff;
 			odata[-2] = (olen >> 8) & 0xff;
 			odata[-1] = olen & 0xff;
-			update_nested_message(odata, olen - pdiff, pdiff);
+			update_nested_message(odata, olen - pdiff, depth + 1, pdiff);
 			return;
 		}
 	}
@@ -656,7 +667,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
-		handle_nested_message(data, len, &hdr, &opts, &opts_end, iov);
+		handle_nested_message(data, len, 0, &hdr, &opts, &opts_end, iov);
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||
@@ -779,7 +790,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (iov[IOV_NESTED].iov_len > 0) /* Update length */
-		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
+		update_nested_message(data, len, 0, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
 				      iov[IOV_RAPID_COMMIT].iov_len + iov[IOV_DNS].iov_len +
 				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
 				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +

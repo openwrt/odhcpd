@@ -2048,7 +2048,10 @@ static int ipv6_pxe_from_uci(struct uci_section* s)
 	if (tb[IPV6_PXE_ARCH])
 		arch = blobmsg_get_u32(tb[IPV6_PXE_ARCH]);
 
-	return ipv6_pxe_entry_new(arch, url) ? -1 : 0;
+	/* ipv6_pxe_entry_new() returns the new entry on success and NULL on
+	 * allocation failure. Mirror that into the int return code the rest
+	 * of the module uses: success -> 0, failure -> -1. */
+	return ipv6_pxe_entry_new(arch, url) ? 0 : -1;
 }
 
 void odhcpd_reload(void)

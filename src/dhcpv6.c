@@ -744,8 +744,14 @@ static void handle_client_request(void *addr, void *data, size_t len,
 					break;
 				}
 			}
-		} else if (otype == DHCPV6_OPT_CLIENT_ARCH) {
-			uint16_t arch_code = ntohs(((uint16_t*)odata)[0]);
+		} else if (otype == DHCPV6_OPT_CLIENT_ARCH && olen >= sizeof(uint16_t)) {
+			uint16_t arch_code;
+
+			/* odata is not guaranteed to be uint16-aligned, and
+			 * RFC5970 §3.3 mandates olen be a multiple of 2 with
+			 * at least one architecture entry — read defensively. */
+			memcpy(&arch_code, odata, sizeof(arch_code));
+			arch_code = ntohs(arch_code);
 			ipv6_pxe_serve_boot_url(arch_code, &iov[IOV_BOOTFILE_URL]);
 		}
 	}

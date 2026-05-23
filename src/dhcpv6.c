@@ -716,10 +716,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		}
 	}
 
-	if (dest.serverid_length == clientid.len && 
-	    !memcmp(clientid.buf, dest.serverid_buf, dest.serverid_length)) {
+	if (dest.serverid_length == clientid.len &&
+	    !memcmp(clientid.buf, dest.serverid_buf, ntohs(dest.serverid_length))) {
 		/* Bail if we are in a network loop where we talk with ourself */
-		return;		
+		return;
 	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&

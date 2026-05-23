@@ -382,6 +382,15 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	if (len < sizeof(*ip6) + sizeof(*req))
 		return; // Invalid total length
 
+	/* RFC4861 §7.1.1: a Neighbor Solicitation MUST be silently discarded
+	 * if the IP Hop Limit field is not 255 or the ICMP Code is non-zero.
+	 * The hop-limit check is what protects against off-link attackers
+	 * forging NS / DAD messages, so it must not be skipped. Because the
+	 * NDP socket is AF_PACKET (not a kernel-managed ICMPv6 socket), we
+	 * have to enforce it ourselves. */
+	if (ip6->ip6_hlim != 255 || req->nd_ns_hdr.icmp6_code != 0)
+		return;
+
 	if (IN6_IS_ADDR_LINKLOCAL(&req->nd_ns_target) ||
 			IN6_IS_ADDR_LOOPBACK(&req->nd_ns_target) ||
 			IN6_IS_ADDR_MULTICAST(&req->nd_ns_target))

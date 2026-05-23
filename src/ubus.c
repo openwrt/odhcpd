@@ -52,7 +52,7 @@ static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_
 				buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
 				odhcpd_hexlify(buf, c->duid, c->duid_len);
 				blobmsg_add_string_buffer(&b);
-				blobmsg_add_u32(&b, "iaid", ntohl(c->iaid));
+				blobmsg_add_u32(&b, "iaid", c->iaid);
 			}
 
 			blobmsg_add_string(&b, "hostname", (c->hostname) ? c->hostname : "");

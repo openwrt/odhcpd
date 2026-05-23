@@ -317,6 +317,19 @@ static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
 		return -1;
 	}
 
+	/* dhcpv4_handle_msg() reads the full BOOTP fixed header (op, htype,
+	 * hlen, hops, xid, secs, flags, ciaddr, yiaddr, siaddr, giaddr,
+	 * chaddr, sname, file, cookie = offsetof(options) bytes) before
+	 * parsing options. The normal DHCPv4 socket path enforces this via a
+	 * BPF filter, but the DHCPv4-over-DHCPv6 path bypasses that filter,
+	 * so validate the length here to prevent an out-of-bounds read on a
+	 * truncated DHCPV4_MSG option. RFC7341 §7.1 defines the DHCPv4 Message
+	 * option but mandates no minimum length, so this floor is ours. */
+	if (msgv4_len < offsetof(struct dhcpv4_message, options)) {
+		error("4o6: encapsulated DHCPv4 message too short (%u)", msgv4_len);
+		return -1;
+	}
+
 	// Dummy IPv4 address
 	memset(&addrv4, 0, sizeof(addrv4));
 	addrv4.sin_family = AF_INET;

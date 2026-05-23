@@ -51,11 +51,13 @@ static FILE *statefiles_open_tmp_file(int dirfd)
 		return NULL;
 
 	fd = openat(dirfd, ODHCPD_TMP_FILE, O_CREAT | O_WRONLY | O_CLOEXEC, 0644);
-	if (fd < 0)
-		goto err;
+	if (fd < 0) {
+		error("Failed to create temporary file: %m");
+		return NULL;
+	}
 
 	if (lockf(fd, F_LOCK, 0) < 0)
-		goto err;
+		goto err_del;
 
 	if (ftruncate(fd, 0) < 0)
 		goto err_del;
@@ -67,10 +69,12 @@ static FILE *statefiles_open_tmp_file(int dirfd)
 	return fp;
 
 err_del:
-	unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
-err:
-	close(fd);
+	/* Log before unlinkat()/close() so they don't clobber errno. The
+	 * old code also called close(fd) on the openat-failure path, which
+	 * meant close(-1) overwrote errno with EBADF before %m printed it. */
 	error("Failed to create temporary file: %m");
+	unlinkat(dirfd, ODHCPD_TMP_FILE, 0);
+	close(fd);
 	return NULL;
 }
 

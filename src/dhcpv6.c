@@ -533,7 +533,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	uint16_t otype, olen;
 	uint8_t *odata;
-	uint16_t *reqopts = NULL;
+	/* OPTION_ORO payload is an array of uint16_t but the underlying buffer
+	 * isn't guaranteed to be 2-byte aligned (it's at an arbitrary offset
+	 * inside the packed wire packet), so keep it as a byte pointer and
+	 * memcpy each value out rather than casting to uint16_t *. */
+	uint8_t *reqopts = NULL;
 	size_t reqopts_cnt = 0;
 
 	/* FIXME: this should be merged with the second loop further down */
@@ -541,14 +545,17 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		/* Requested options, array of uint16_t, RFC 8415 §21.7 */
 		if (otype == DHCPV6_OPT_ORO) {
 			reqopts_cnt = olen / sizeof(uint16_t);
-			reqopts = (uint16_t *)odata;
+			reqopts = odata;
 			break;
 		}
 	}
 
 	/* Requested options */
 	for (size_t i = 0; i < reqopts_cnt; i++) {
-		uint16_t opt = ntohs(reqopts[i]);
+		uint16_t opt;
+
+		memcpy(&opt, &reqopts[i * sizeof(uint16_t)], sizeof(opt));
+		opt = ntohs(opt);
 
 		switch (opt) {
 		case DHCPV6_OPT_SNTP_SERVERS:
@@ -704,8 +711,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			iov[IOV_RAPID_COMMIT].iov_len = sizeof(rapid_commit);
 			o_rapid_commit = true;
 		} else if (otype == DHCPV6_OPT_ORO) {
-			for (int i=0; i < olen/2; i++) {
-				uint16_t option = ntohs(((uint16_t *)odata)[i]);
+			for (int i = 0; i < olen / 2; i++) {
+				uint16_t option;
+
+				/* odata is not guaranteed to be uint16-aligned. */
+				memcpy(&option, &odata[i * 2], sizeof(option));
+				option = ntohs(option);
 
 				switch (option) {
 #ifdef DHCPV4_SUPPORT

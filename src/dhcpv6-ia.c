@@ -346,8 +346,14 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	if (iface->addr6_len < 1)
 		return false;
 
-	/* Try honoring the hint first */
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
+	/* Try honoring the hint first.
+	 *
+	 * Subnet-id slots per delegated prefix = 2^(64 - length); the literal
+	 * 1 is plain int, so shifting it by 32-63 bits is undefined behaviour
+	 * for short prefix lengths (the user can drive this via
+	 * dhcpv6_pd_min_len). Compute the shift in uint64_t and truncate.
+	 */
+	uint32_t current = 1, asize = (uint32_t)((1ULL << (64 - assign->length)) - 1);
 	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->flags & OAF_DHCPV6_NA)
@@ -362,7 +368,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 				return true;
 			}
 
-			current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+			current = (uint32_t)(c->assigned_subnet_id + (1ULL << (64 - c->length)));
 		}
 	}
 
@@ -384,7 +390,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			return true;
 		}
 
-		current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+		current = (uint32_t)(c->assigned_subnet_id + (1ULL << (64 - c->length)));
 	}
 
 	return false;

@@ -129,7 +129,12 @@ static const char *dhcpv4_msg_to_string(uint8_t req_msg)
 		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
 	};
 
-	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names))
+	/* Designated initializers leave unspecified slots NULL (e.g. index 0,
+	 * which is not a valid DHCP message type but is a valid uint8_t). The
+	 * return value goes straight into %s format strings, so make sure we
+	 * never hand the caller a NULL pointer.
+	 */
+	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names) || !dhcpv4_msg_names[req_msg])
 		return "UNKNOWN";
 	return dhcpv4_msg_names[req_msg];
 }

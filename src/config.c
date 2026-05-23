@@ -1331,8 +1331,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_CAPTIVE_PORTAL_URI])) {
-		iface->captive_portal_uri = strdup(blobmsg_get_string(c));
-		iface->captive_portal_uri_len = strlen(iface->captive_portal_uri);
+		char *uri = strdup(blobmsg_get_string(c));
+
+		if (!uri) {
+			error("Out of memory parsing %s for interface '%s'",
+			      iface_attrs[IFACE_ATTR_CAPTIVE_PORTAL_URI].name,
+			      iface->name);
+			goto err;
+		}
+
+		iface->captive_portal_uri = uri;
+		iface->captive_portal_uri_len = strlen(uri);
 		if (iface->captive_portal_uri_len > UINT8_MAX) {
 			warn("RFC8910 captive portal URI > %d characters for interface '%s': option via DHCPv4 not possible",
 				UINT8_MAX,

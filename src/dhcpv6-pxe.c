@@ -32,6 +32,11 @@ const struct ipv6_pxe_entry* ipv6_pxe_entry_new(uint32_t arch, const char* url) 
 	ipe->bootfile_url.type = htons(DHCPV6_OPT_BOOTFILE_URL);
 
 	if (arch == 0xFFFFFFFF) {
+		/* The "default" entry lives outside ipv6_pxe_list; if config
+		 * already supplied one (e.g. two boot6 sections without an
+		 * arch), free the previous one before replacing it, otherwise
+		 * it would leak until ipv6_pxe_clear() runs. */
+		free(ipv6_pxe_default);
 		ipv6_pxe_default = ipe;
 	}
 	else {

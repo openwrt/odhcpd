@@ -974,6 +974,14 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	struct odhcpd_ipaddr *ip;
 	struct sockaddr_in6 s;
 
+	/* A bare UDP socket can deliver a zero/short payload; the relay-reply
+	 * path (relay_server_response) checks this but the client-side relay
+	 * did not. relay_client_request() reads h->msg_type, plus h->hop_count
+	 * for a RELAY_FORW, out of the relay header and forwards the rest
+	 * verbatim, so require at least those two leading header bytes. */
+	if (len < offsetof(struct dhcpv6_relay_header, link_address))
+		return;
+
 	switch (h->msg_type) {
 	/* Valid message types from clients */
 	case DHCPV6_MSG_SOLICIT:

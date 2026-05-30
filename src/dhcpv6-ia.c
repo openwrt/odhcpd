@@ -813,7 +813,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					};
 
 					if (buflen < ia_len + sizeof(o_ia_a))
-						continue;
+						return 0;
 
 					memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
 					ia_len += sizeof(o_ia_a);

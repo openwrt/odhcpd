@@ -251,10 +251,19 @@ static void update_nested_message(uint8_t *data, size_t len, unsigned depth, ssi
 	uint8_t *odata;
 	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
-			olen += pdiff;
-			odata[-2] = (olen >> 8) & 0xff;
-			odata[-1] = olen & 0xff;
-			update_nested_message(odata, olen - pdiff, depth + 1, pdiff);
+			ssize_t newlen = (ssize_t)olen + pdiff;
+
+			/* olen was validated to lie within the buffer by the option
+			 * iterator. Reject a pdiff that would make the rewritten
+			 * RELAY_MSG length wrap the 16-bit field, which would also feed
+			 * a bogus length into the recursion below and walk options past
+			 * the end of the (untrusted) packet buffer. */
+			if (newlen < 0 || newlen > UINT16_MAX)
+				return;
+
+			odata[-2] = (newlen >> 8) & 0xff;
+			odata[-1] = newlen & 0xff;
+			update_nested_message(odata, olen, depth + 1, pdiff);
 			return;
 		}
 	}

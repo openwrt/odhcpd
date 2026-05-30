@@ -1174,7 +1174,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	/* Rewrite options */
 	uint8_t *end = data + len;
 	uint8_t *mac_ptr = NULL;
-	struct in6_addr *dns_addrs6 = NULL;
+	struct in6_addr *dns_addrs6 = NULL, *dns_addrs6_orig = NULL;
 	size_t dns_addrs6_cnt = 0;
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
@@ -1247,9 +1247,24 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	all_nodes.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ALL_IPV6_NODES, &all_nodes.sin6_addr);
 
+	/* Preserve the upstream DNS addresses: they are rewritten in place in the
+	 * single shared packet buffer, so without restoring them a later slave
+	 * would inherit a previous slave's rewritten values. */
+	if (dns_addrs6 && dns_addrs6_cnt > 0) {
+		dns_addrs6_orig = alloca(dns_addrs6_cnt * sizeof(*dns_addrs6_orig));
+		memcpy(dns_addrs6_orig, dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6_orig));
+	}
+
 	avl_for_each_element(&interfaces, c, avl) {
 		if (c->ra != MODE_RELAY || c->master)
 			continue;
+
+		/* Restore the upstream DNS addresses and MTU value that a previous
+		 * slave may have rewritten in the shared buffer. */
+		if (dns_addrs6_orig)
+			memcpy(dns_addrs6, dns_addrs6_orig, dns_addrs6_cnt * sizeof(*dns_addrs6));
+		if (mtu_opt)
+			mtu_opt->nd_opt_mtu_mtu = htonl(ingress_mtu_val);
 
 		/* Fixup source hardware address option */
 		if (mac_ptr)

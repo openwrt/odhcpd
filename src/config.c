@@ -953,6 +953,11 @@ static int parse_dnr_str(char *str, struct interface *iface)
 					goto err;
 				}
 
+				if (svc_val_len >= DNR_SVC_MAX) {
+					error("Too many keys for SvcParam 'mandatory'");
+					goto err;
+				}
+
 				mkeys[svc_val_len++] = ntohs(mkey);
 			}
 

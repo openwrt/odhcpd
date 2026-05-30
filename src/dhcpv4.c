@@ -285,13 +285,13 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 
 		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
-		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &dest.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	} else {
 		char ipv4_str[INET_ADDRSTRLEN];
 
 		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
-		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &dest.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	}
 }
 

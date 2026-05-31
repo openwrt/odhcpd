@@ -192,7 +192,7 @@ enum {
 	IOV_TOTAL
 };
 
-static void handle_nested_message(uint8_t *data, size_t len,
+static void handle_nested_message(uint8_t *data, size_t len, unsigned depth,
 				  struct dhcpv6_client_header **c_hdr, uint8_t **opts,
 				  uint8_t **end, struct iovec iov[IOV_TOTAL])
 {
@@ -216,19 +216,26 @@ static void handle_nested_message(uint8_t *data, size_t len,
 		return;
 	}
 
+	/* Each nested Relay-Forward is one relay hop; RFC8415 bounds a relay
+	 * chain via HOP_COUNT_LIMIT (defined in §7.6, enforced in §19.1.2),
+	 * so refuse to recurse deeper and avoid stack exhaustion on crafted
+	 * relay loops. */
+	if (depth >= DHCPV6_HOP_COUNT_LIMIT)
+		return;
+
 	dhcpv6_for_each_option(r_hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
 			iov[IOV_RELAY_MSG].iov_base = odata + olen;
 			iov[IOV_RELAY_MSG].iov_len = (((uint8_t *)iov[IOV_NESTED].iov_base) +
 					iov[IOV_NESTED].iov_len) - (odata + olen);
-			handle_nested_message(odata, olen, c_hdr, opts, end, iov);
+			handle_nested_message(odata, olen, depth + 1, c_hdr, opts, end, iov);
 			return;
 		}
 	}
 }
 
 
-static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
+static void update_nested_message(uint8_t *data, size_t len, unsigned depth, ssize_t pdiff)
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
 	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW)
@@ -236,14 +243,27 @@ static void update_nested_message(uint8_t *data, size_t len, ssize_t pdiff)
 
 	hdr->msg_type = DHCPV6_MSG_RELAY_REPL;
 
+	/* Bound recursion to mirror handle_nested_message(). */
+	if (depth >= DHCPV6_HOP_COUNT_LIMIT)
+		return;
+
 	uint16_t otype, olen;
 	uint8_t *odata;
 	dhcpv6_for_each_option(hdr->options, data + len, otype, olen, odata) {
 		if (otype == DHCPV6_OPT_RELAY_MSG) {
-			olen += pdiff;
-			odata[-2] = (olen >> 8) & 0xff;
-			odata[-1] = olen & 0xff;
-			update_nested_message(odata, olen - pdiff, pdiff);
+			ssize_t newlen = (ssize_t)olen + pdiff;
+
+			/* olen was validated to lie within the buffer by the option
+			 * iterator. Reject a pdiff that would make the rewritten
+			 * RELAY_MSG length wrap the 16-bit field, which would also feed
+			 * a bogus length into the recursion below and walk options past
+			 * the end of the (untrusted) packet buffer. */
+			if (newlen < 0 || newlen > UINT16_MAX)
+				return;
+
+			odata[-2] = (newlen >> 8) & 0xff;
+			odata[-1] = newlen & 0xff;
+			update_nested_message(odata, olen, depth + 1, pdiff);
 			return;
 		}
 	}
@@ -304,6 +324,19 @@ static ssize_t dhcpv6_4o6_query(uint8_t *buf, size_t buflen,
 
 	if (!msgv4_data || msgv4_len == 0) {
 		error("4o6: missing DHCPv4 message option (%d)", DHCPV6_OPT_DHCPV4_MSG);
+		return -1;
+	}
+
+	/* dhcpv4_handle_msg() reads the full BOOTP fixed header (op, htype,
+	 * hlen, hops, xid, secs, flags, ciaddr, yiaddr, siaddr, giaddr,
+	 * chaddr, sname, file, cookie = offsetof(options) bytes) before
+	 * parsing options. The normal DHCPv4 socket path enforces this via a
+	 * BPF filter, but the DHCPv4-over-DHCPv6 path bypasses that filter,
+	 * so validate the length here to prevent an out-of-bounds read on a
+	 * truncated DHCPV4_MSG option. RFC7341 §7.1 defines the DHCPv4 Message
+	 * option but mandates no minimum length, so this floor is ours. */
+	if (msgv4_len < offsetof(struct dhcpv4_message, options)) {
+		error("4o6: encapsulated DHCPv4 message too short (%u)", msgv4_len);
 		return -1;
 	}
 
@@ -509,7 +542,11 @@ static void handle_client_request(void *addr, void *data, size_t len,
 
 	uint16_t otype, olen;
 	uint8_t *odata;
-	uint16_t *reqopts = NULL;
+	/* OPTION_ORO payload is an array of uint16_t but the underlying buffer
+	 * isn't guaranteed to be 2-byte aligned (it's at an arbitrary offset
+	 * inside the packed wire packet), so keep it as a byte pointer and
+	 * memcpy each value out rather than casting to uint16_t *. */
+	uint8_t *reqopts = NULL;
 	size_t reqopts_cnt = 0;
 
 	/* FIXME: this should be merged with the second loop further down */
@@ -517,14 +554,17 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		/* Requested options, array of uint16_t, RFC 8415 §21.7 */
 		if (otype == DHCPV6_OPT_ORO) {
 			reqopts_cnt = olen / sizeof(uint16_t);
-			reqopts = (uint16_t *)odata;
+			reqopts = odata;
 			break;
 		}
 	}
 
 	/* Requested options */
 	for (size_t i = 0; i < reqopts_cnt; i++) {
-		uint16_t opt = ntohs(reqopts[i]);
+		uint16_t opt;
+
+		memcpy(&opt, &reqopts[i * sizeof(uint16_t)], sizeof(opt));
+		opt = ntohs(opt);
 
 		switch (opt) {
 		case DHCPV6_OPT_SNTP_SERVERS:
@@ -657,7 +697,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
-		handle_nested_message(data, len, &hdr, &opts, &opts_end, iov);
+		handle_nested_message(data, len, 0, &hdr, &opts, &opts_end, iov);
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||
@@ -680,8 +720,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 			iov[IOV_RAPID_COMMIT].iov_len = sizeof(rapid_commit);
 			o_rapid_commit = true;
 		} else if (otype == DHCPV6_OPT_ORO) {
-			for (int i=0; i < olen/2; i++) {
-				uint16_t option = ntohs(((uint16_t *)odata)[i]);
+			for (int i = 0; i < olen / 2; i++) {
+				uint16_t option;
+
+				/* odata is not guaranteed to be uint16-aligned. */
+				memcpy(&option, &odata[i * 2], sizeof(option));
+				option = ntohs(option);
 
 				switch (option) {
 #ifdef DHCPV4_SUPPORT
@@ -710,16 +754,22 @@ static void handle_client_request(void *addr, void *data, size_t len,
 					break;
 				}
 			}
-		} else if (otype == DHCPV6_OPT_CLIENT_ARCH) {
-			uint16_t arch_code = ntohs(((uint16_t*)odata)[0]);
+		} else if (otype == DHCPV6_OPT_CLIENT_ARCH && olen >= sizeof(uint16_t)) {
+			uint16_t arch_code;
+
+			/* odata is not guaranteed to be uint16-aligned, and
+			 * RFC5970 §3.3 mandates olen be a multiple of 2 with
+			 * at least one architecture entry — read defensively. */
+			memcpy(&arch_code, odata, sizeof(arch_code));
+			arch_code = ntohs(arch_code);
 			ipv6_pxe_serve_boot_url(arch_code, &iov[IOV_BOOTFILE_URL]);
 		}
 	}
 
-	if (dest.serverid_length == clientid.len && 
-	    !memcmp(clientid.buf, dest.serverid_buf, dest.serverid_length)) {
+	if (dest.serverid_length == clientid.len &&
+	    !memcmp(clientid.buf, dest.serverid_buf, ntohs(dest.serverid_length))) {
 		/* Bail if we are in a network loop where we talk with ourself */
-		return;		
+		return;
 	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
@@ -780,7 +830,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	}
 
 	if (iov[IOV_NESTED].iov_len > 0) /* Update length */
-		update_nested_message(data, len, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
+		update_nested_message(data, len, 0, iov[IOV_DEST].iov_len + iov[IOV_MAXRT].iov_len +
 				      iov[IOV_RAPID_COMMIT].iov_len + iov[IOV_DNS].iov_len +
 				      iov[IOV_DNS_ADDR].iov_len + iov[IOV_SEARCH].iov_len +
 				      iov[IOV_SEARCH_DOMAIN].iov_len + iov[IOV_PDBUF].iov_len +
@@ -949,6 +999,14 @@ static void relay_client_request(struct sockaddr_in6 *source,
 	struct interface *c;
 	struct odhcpd_ipaddr *ip;
 	struct sockaddr_in6 s;
+
+	/* A bare UDP socket can deliver a zero/short payload; the relay-reply
+	 * path (relay_server_response) checks this but the client-side relay
+	 * did not. relay_client_request() reads h->msg_type, plus h->hop_count
+	 * for a RELAY_FORW, out of the relay header and forwards the rest
+	 * verbatim, so require at least those two leading header bytes. */
+	if (len < offsetof(struct dhcpv6_relay_header, link_address))
+		return;
 
 	switch (h->msg_type) {
 	/* Valid message types from clients */

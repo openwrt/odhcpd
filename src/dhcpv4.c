@@ -129,7 +129,12 @@ static const char *dhcpv4_msg_to_string(uint8_t req_msg)
 		[DHCPV4_MSG_TLS]		= "DHCPV4_MSG_TLS",
 	};
 
-	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names))
+	/* Designated initializers leave unspecified slots NULL (e.g. index 0,
+	 * which is not a valid DHCP message type but is a valid uint8_t). The
+	 * return value goes straight into %s format strings, so make sure we
+	 * never hand the caller a NULL pointer.
+	 */
+	if (req_msg >= ARRAY_SIZE(dhcpv4_msg_names) || !dhcpv4_msg_names[req_msg])
 		return "UNKNOWN";
 	return dhcpv4_msg_names[req_msg];
 }
@@ -280,13 +285,13 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 
 		error("Failed to send %s to %s - %s: %m", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
-		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &dest.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	} else {
 		char ipv4_str[INET_ADDRSTRLEN];
 
 		debug("Sent %s to %s - %s", dhcpv4_msg_to_string(fr_msg.data),
 		      odhcpd_print_mac(lease->hwaddr, sizeof(lease->hwaddr)),
-		      inet_ntop(AF_INET, &dest, ipv4_str, sizeof(ipv4_str)));
+		      inet_ntop(AF_INET, &dest.sin_addr, ipv4_str, sizeof(ipv4_str)));
 	}
 }
 
@@ -748,7 +753,11 @@ static void dhcpv4_set_dest_addr(const struct interface *iface,
 
 			memcpy(arp.arp_ha.sa_data, req->chaddr, 6);
 			memcpy(&arp.arp_pa, dest, sizeof(arp.arp_pa));
-			memcpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev));
+			/* arp_dev is a 16-byte fixed buffer; strdup'd ifname is
+			 * typically shorter than that, so memcpy()ing the full
+			 * field length reads past the allocation. Match the
+			 * strncpy pattern used elsewhere for ifr_name. */
+			strncpy(arp.arp_dev, iface->ifname, sizeof(arp.arp_dev) - 1);
 
 			if (ioctl(iface->dhcpv4_event.uloop.fd, SIOCSARP, &arp) < 0)
 				error("ioctl(SIOCSARP): %m");

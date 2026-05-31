@@ -346,8 +346,14 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 	if (iface->addr6_len < 1)
 		return false;
 
-	/* Try honoring the hint first */
-	uint32_t current = 1, asize = (1 << (64 - assign->length)) - 1;
+	/* Try honoring the hint first.
+	 *
+	 * Subnet-id slots per delegated prefix = 2^(64 - length); the literal
+	 * 1 is plain int, so shifting it by 32-63 bits is undefined behaviour
+	 * for short prefix lengths (the user can drive this via
+	 * dhcpv6_pd_min_len). Compute the shift in uint64_t and truncate.
+	 */
+	uint32_t current = 1, asize = (uint32_t)((1ULL << (64 - assign->length)) - 1);
 	if (assign->assigned_subnet_id) {
 		list_for_each_entry(c, &iface->ia_assignments, head) {
 			if (c->flags & OAF_DHCPV6_NA)
@@ -362,7 +368,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 				return true;
 			}
 
-			current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+			current = (uint32_t)(c->assigned_subnet_id + (1ULL << (64 - c->length)));
 		}
 	}
 
@@ -384,7 +390,7 @@ static bool assign_pd(struct interface *iface, struct dhcpv6_lease *assign)
 			return true;
 		}
 
-		current = (c->assigned_subnet_id + (1 << (64 - c->length)));
+		current = (uint32_t)(c->assigned_subnet_id + (1ULL << (64 - c->length)));
 	}
 
 	return false;
@@ -807,7 +813,7 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 					};
 
 					if (buflen < ia_len + sizeof(o_ia_a))
-						continue;
+						return 0;
 
 					memcpy(buf + ia_len, &o_ia_a, sizeof(o_ia_a));
 					ia_len += sizeof(o_ia_a);
@@ -1018,6 +1024,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		bool is_na = (otype == DHCPV6_OPT_IA_NA);
 		bool ia_addr_present = false;
 		if (!is_pd && !is_na)
+			continue;
+
+		/* RFC8415 §21.4 / §21.21: an IA_NA/IA_PD option carries at
+		 * least 12 bytes of fixed payload (iaid + t1 + t2) before any
+		 * sub-options. Without this guard, a crafted option with
+		 * olen < 12 lets us read ia->iaid/t1/t2 out of bounds (the
+		 * iterator only enforces odata + olen <= end). */
+		if (olen < sizeof(struct dhcpv6_ia_hdr) - DHCPV6_OPT_HDR_SIZE)
 			continue;
 
 		struct dhcpv6_ia_hdr *ia = (struct dhcpv6_ia_hdr*)&odata[-DHCPV6_OPT_HDR_SIZE];

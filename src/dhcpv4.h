@@ -182,10 +182,19 @@ struct dhcpv4_dnr {
 };
 
 
+/* RFC2132 §3.1/§3.2 (orig. RFC1497): the Pad (0) and End (255) options are
+ * 1 octet long and have no length byte. Every other DHCPv4 option is
+ * { code, len, data[len] }. Treat Pad as a 1-byte no-op, End as loop
+ * termination, and reject any other option whose declared length runs past
+ * the buffer.
+ */
 #define dhcpv4_for_each_option(start, end, opt)\
-	for (opt = (struct dhcpv4_option*)(start); \
-		&opt[1] <= (struct dhcpv4_option*)(end) && \
-			&opt->data[opt->len] <= (end); \
-		opt = (struct dhcpv4_option*)&opt->data[opt->len])
+	for (uint8_t *_o = (uint8_t *)(start); \
+		_o < (uint8_t *)(end) && \
+		(opt = (struct dhcpv4_option *)_o)->code != DHCPV4_OPT_END && \
+		(opt->code == DHCPV4_OPT_PAD || \
+		 (_o + 2 <= (uint8_t *)(end) && \
+		  _o + 2 + opt->len <= (uint8_t *)(end))); \
+		_o += (opt->code == DHCPV4_OPT_PAD) ? 1 : 2 + opt->len)
 
 #endif /* _DHCPV4_H_ */

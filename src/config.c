@@ -956,6 +956,11 @@ static int parse_dnr_str(char *str, struct interface *iface)
 					goto err;
 				}
 
+				if (svc_val_len >= DNR_SVC_MAX) {
+					error("Too many keys for SvcParam 'mandatory'");
+					goto err;
+				}
+
 				mkeys[svc_val_len++] = ntohs(mkey);
 			}
 
@@ -1331,8 +1336,17 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	}
 
 	if ((c = tb[IFACE_ATTR_CAPTIVE_PORTAL_URI])) {
-		iface->captive_portal_uri = strdup(blobmsg_get_string(c));
-		iface->captive_portal_uri_len = strlen(iface->captive_portal_uri);
+		char *uri = strdup(blobmsg_get_string(c));
+
+		if (!uri) {
+			error("Out of memory parsing %s for interface '%s'",
+			      iface_attrs[IFACE_ATTR_CAPTIVE_PORTAL_URI].name,
+			      iface->name);
+			goto err;
+		}
+
+		iface->captive_portal_uri = uri;
+		iface->captive_portal_uri_len = strlen(uri);
 		if (iface->captive_portal_uri_len > UINT8_MAX) {
 			warn("RFC8910 captive portal URI > %d characters for interface '%s': option via DHCPv4 not possible",
 				UINT8_MAX,
@@ -2039,7 +2053,10 @@ static int ipv6_pxe_from_uci(struct uci_section* s)
 	if (tb[IPV6_PXE_ARCH])
 		arch = blobmsg_get_u32(tb[IPV6_PXE_ARCH]);
 
-	return ipv6_pxe_entry_new(arch, url) ? -1 : 0;
+	/* ipv6_pxe_entry_new() returns the new entry on success and NULL on
+	 * allocation failure. Mirror that into the int return code the rest
+	 * of the module uses: success -> 0, failure -> -1. */
+	return ipv6_pxe_entry_new(arch, url) ? 0 : -1;
 }
 
 void odhcpd_reload(void)

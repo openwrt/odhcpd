@@ -902,6 +902,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			dns_addrs6_cnt = 1;
 		}
 
+		/* The RDNSS len field is a uint8_t counting 8-byte units, so it
+		 * holds at most 127 addresses (1 + 2*127 == 255); drop any extra
+		 * so the on-wire length stays consistent with the bytes sent. */
+		if (dns_addrs6_cnt > 127)
+			dns_addrs6_cnt = 127;
+
 		if (dns_addrs6_cnt) {
 			dns_sz = sizeof(*dns) + dns_addrs6_cnt * sizeof(*dns_addrs6);
 
@@ -917,7 +923,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	iov[IOV_RA_DNS].iov_len = dns_sz;
 
 	/* DNS Search List aka DNSSL; RFC8106, §5.2 */
-	if (iface->ra_dns && iface->dns_search_len > 0) {
+	/* The DNSSL len field is a uint8_t counting 8-byte units, so the whole
+	 * option must fit in UINT8_MAX*8 bytes; skip it otherwise rather than
+	 * emit an option whose length field does not match its real size. */
+	if (iface->ra_dns && iface->dns_search_len > 0 &&
+	    sizeof(*search) + ((iface->dns_search_len + 7) & ~7) <= UINT8_MAX * 8) {
 		search_sz = sizeof(*search) + ((iface->dns_search_len + 7) & ~7);
 		search = alloca(search_sz);
 		memset(search, 0, search_sz);
@@ -1174,7 +1184,7 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	/* Rewrite options */
 	uint8_t *end = data + len;
 	uint8_t *mac_ptr = NULL;
-	struct in6_addr *dns_addrs6 = NULL;
+	struct in6_addr *dns_addrs6 = NULL, *dns_addrs6_orig = NULL;
 	size_t dns_addrs6_cnt = 0;
 	// MTU option
 	struct nd_opt_mtu *mtu_opt = NULL;
@@ -1247,9 +1257,24 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	all_nodes.sin6_family = AF_INET6;
 	inet_pton(AF_INET6, ALL_IPV6_NODES, &all_nodes.sin6_addr);
 
+	/* Preserve the upstream DNS addresses: they are rewritten in place in the
+	 * single shared packet buffer, so without restoring them a later slave
+	 * would inherit a previous slave's rewritten values. */
+	if (dns_addrs6 && dns_addrs6_cnt > 0) {
+		dns_addrs6_orig = alloca(dns_addrs6_cnt * sizeof(*dns_addrs6_orig));
+		memcpy(dns_addrs6_orig, dns_addrs6, dns_addrs6_cnt * sizeof(*dns_addrs6_orig));
+	}
+
 	avl_for_each_element(&interfaces, c, avl) {
 		if (c->ra != MODE_RELAY || c->master)
 			continue;
+
+		/* Restore the upstream DNS addresses and MTU value that a previous
+		 * slave may have rewritten in the shared buffer. */
+		if (dns_addrs6_orig)
+			memcpy(dns_addrs6, dns_addrs6_orig, dns_addrs6_cnt * sizeof(*dns_addrs6));
+		if (mtu_opt)
+			mtu_opt->nd_opt_mtu_mtu = htonl(ingress_mtu_val);
 
 		/* Fixup source hardware address option */
 		if (mac_ptr)

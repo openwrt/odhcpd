@@ -587,8 +587,14 @@ static int cb_addr_valid(struct nl_msg *msg, void *arg)
 	memset(&oaddrs[ctxt->ret], 0, sizeof(oaddrs[ctxt->ret]));
 	oaddrs[ctxt->ret].prefix_len = ifa->ifa_prefixlen;
 
-	if (ifa->ifa_family == AF_INET)
-		oaddrs[ctxt->ret].netmask = htonl(~((1U << (32 - ifa->ifa_prefixlen)) - 1));
+	if (ifa->ifa_family == AF_INET) {
+		/* ifa_prefixlen is 0..32. A /0 prefix turns "32 - prefix" into a
+		 * 32-bit shift on a 32-bit type, which is undefined behaviour;
+		 * compute the host mask in 64-bit and truncate so /0 yields a
+		 * zero netmask as expected. */
+		uint32_t host_bits = (uint32_t)((1ULL << (32 - ifa->ifa_prefixlen)) - 1);
+		oaddrs[ctxt->ret].netmask = htonl(~host_bits);
+	}
 
 	nla_memcpy(&oaddrs[ctxt->ret].addr, nla_addr, sizeof(oaddrs[ctxt->ret].addr));
 

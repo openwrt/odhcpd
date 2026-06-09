@@ -597,6 +597,9 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			.val = htons(status),
 		};
 
+		if (buflen < ia_len + sizeof(o_status))
+			return 0;
+
 		memcpy(buf + ia_len, &o_status, sizeof(o_status));
 		ia_len += sizeof(o_status);
 

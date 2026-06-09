@@ -1280,6 +1280,9 @@ proceed:
 					handshake_len += sizeof(auth);
 				}
 
+				if (handshake_len > buflen)
+					handshake_len = buflen;
+
 				buf += handshake_len;
 				buflen -= handshake_len;
 				response_len += handshake_len;
@@ -1398,6 +1401,9 @@ proceed:
 			a->bound = true;
 			apply_lease(a, true);
 		}
+
+		if (ia_response_len > buflen)
+			ia_response_len = buflen;
 
 		buf += ia_response_len;
 		buflen -= ia_response_len;

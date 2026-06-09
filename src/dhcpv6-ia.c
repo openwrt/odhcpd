@@ -1256,10 +1256,13 @@ proceed:
 			}
 
 			/* Reconfigure Accept */
-			if (accept_reconf && assigned && !first &&
-				hdr->msg_type != DHCPV6_MSG_REBIND) {
+			size_t handshake_len = 4;
+			if (hdr->msg_type == DHCPV6_MSG_REQUEST)
+				handshake_len += sizeof(struct dhcpv6_auth_reconfigure);
 
-				size_t handshake_len = 4;
+			if (accept_reconf && assigned && !first &&
+				hdr->msg_type != DHCPV6_MSG_REBIND &&
+				buflen >= handshake_len) {
 				buf[0] = 0;
 				buf[1] = DHCPV6_OPT_RECONF_ACCEPT;
 				buf[2] = 0;

@@ -1280,12 +1280,8 @@ proceed:
 					};
 
 					memcpy(auth.key, a->key, sizeof(a->key));
-					memcpy(buf + handshake_len, &auth, sizeof(auth));
-					handshake_len += sizeof(auth);
+					memcpy(buf + 4, &auth, sizeof(auth));
 				}
-
-				if (handshake_len > buflen)
-					handshake_len = buflen;
 
 				buf += handshake_len;
 				buflen -= handshake_len;

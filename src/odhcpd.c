@@ -460,10 +460,11 @@ static void odhcpd_receive_packets(struct uloop_fd *u, _o_unused unsigned int ev
 
 		ssize_t len = recvmsg(u->fd, &msg, MSG_DONTWAIT);
 		if (len < 0) {
-			if (errno == EAGAIN)
-				break;
-			else
+			if (errno == EINTR)
 				continue;
+			else if (errno != EAGAIN)
+				error("Failed to recvmsg %d (%m)", u->fd);
+			break;
 		}
 
 

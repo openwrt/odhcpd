@@ -487,9 +487,49 @@ static void statefiles_write_state6_addr(struct dhcpv6_lease *lease, struct in6_
 	fprintf(ctxt->fp, " %s/%" PRIu8, ipbuf, prefix_len);
 }
 
+/*
+ * Escape a client-supplied hostname so it is safe to write as a single field
+ * into the space-delimited, line-based state file: every byte that is not a
+ * bare LDH character (the RFC 1035 section 2.3.1 "preferred name syntax" set
+ * accepted by odhcpd_hostname_valid()) is encoded as \xNN. A DHCP client
+ * controls its requested hostname (DHCPv4 option 12, DHCPv6 FQDN option) and,
+ * since DNS labels may carry any octet (RFC 2181 section 11), dn_expand()/the
+ * option parser copy the bytes verbatim - so without escaping a hostname could
+ * embed a newline (forging an extra '#'-prefixed lease record) or a space
+ * (forging additional fields). Valid hostnames are pure LDH and are copied
+ * unchanged. The result is written into dst (always NUL-terminated, truncated
+ * if it would not fit) and returned.
+ */
+static const char *statefiles_escape_hostname(char *dst, size_t dstlen, const char *src)
+{
+	size_t pos = 0;
+
+	if (dstlen == 0)
+		return dst;
+
+	for (const unsigned char *c = (const unsigned char *)src; *c; c++) {
+		if ((*c >= '0' && *c <= '9') ||
+		    (*c >= 'A' && *c <= 'Z') ||
+		    (*c >= 'a' && *c <= 'z') ||
+		    *c == '-' || *c == '_' || *c == '.') {
+			if (pos + 1 >= dstlen)
+				break;
+			dst[pos++] = *c;
+		} else {
+			if (pos + 4 >= dstlen)
+				break;
+			pos += sprintf(&dst[pos], "\\x%02x", *c);
+		}
+	}
+
+	dst[pos] = '\0';
+	return dst;
+}
+
 static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease *lease)
 {
 	char duidbuf[DUID_HEXSTRLEN];
+	char hostbuf[DNS_MAX_NAME_LEN * 4];
 
 	if (ctxt->fp) {
 		odhcpd_hexlify(duidbuf, lease->duid, lease->duid_len);
@@ -499,7 +539,8 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 			"# %s %s %x %s%s %" PRId64 " %" PRIx64 " %" PRIu8,
 			ctxt->iface->ifname, duidbuf, ntohl(lease->iaid),
 			lease->hostname && !lease->hostname_valid ? "broken\\x20": "",
-			lease->hostname ? lease->hostname : "-",
+			statefiles_escape_hostname(hostbuf, sizeof(hostbuf),
+						   lease->hostname ? lease->hostname : "-"),
 			(lease->valid_until > ctxt->now ?
 			 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 			 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),
@@ -518,6 +559,7 @@ static void statefiles_write_state6(struct write_ctxt *ctxt, struct dhcpv6_lease
 static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease *lease)
 {
 	char ipbuf[INET6_ADDRSTRLEN];
+	char hostbuf[DNS_MAX_NAME_LEN * 4];
 
 	if (lease->hostname && lease->hostname_valid) {
 		md5_hash(&lease->ipv4, sizeof(lease->ipv4), &ctxt->md5);
@@ -535,7 +577,8 @@ static void statefiles_write_state4(struct write_ctxt *ctxt, struct dhcpv4_lease
 		ctxt->iface->ifname,
 		ether_ntoa((struct ether_addr *)lease->hwaddr),
 		lease->hostname && !lease->hostname_valid ? "broken\\x20" : "",
-		lease->hostname ? lease->hostname : "-",
+		statefiles_escape_hostname(hostbuf, sizeof(hostbuf),
+					   lease->hostname ? lease->hostname : "-"),
 		(lease->valid_until > ctxt->now ?
 		 (int64_t)(lease->valid_until - ctxt->now + ctxt->wall_time) :
 		 (INFINITE_VALID(lease->valid_until) ? -1 : 0)),

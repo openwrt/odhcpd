@@ -562,8 +562,10 @@ static void valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now) {
+				ubus_bcast_dhcpv6_event("dhcp.expire6", iface->ifname, a);
 				dhcpv6_free_lease(a);
+			}
 		}
 	}
 	uloop_timeout_set(event, 1000);
@@ -1322,6 +1324,7 @@ proceed:
 					a->accept_fr_nonce = accept_reconf;
 					a->bound = true;
 					apply_lease(a, true);
+					ubus_bcast_dhcpv6_event("dhcp.lease6", iface->ifname, a);
 					break;
 
 				default:
@@ -1352,6 +1355,7 @@ proceed:
 
 				a->bound = true;
 				apply_lease(a, true);
+				ubus_bcast_dhcpv6_event("dhcp.lease6", iface->ifname, a);
 				break;
 
 			case DHCPV6_MSG_RELEASE:

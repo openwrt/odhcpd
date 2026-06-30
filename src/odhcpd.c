@@ -752,6 +752,15 @@ int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *p
 		return -1;
 	}
 
+	/* Ensure the address is properly masked */
+	uint8_t mask_bits_rem = *prefix;
+	for (uint8_t i = 0; i < sizeof(addr->s6_addr); i++) {
+		uint8_t b = (mask_bits_rem > 8) ? 8 : mask_bits_rem;
+		uint8_t mask_part = (uint8_t)(0xFF << (8 - b));
+		addr->s6_addr[i] = addr->s6_addr[i] & mask_part;
+		mask_bits_rem -= b;
+	}
+
 	return 0;
 }
 

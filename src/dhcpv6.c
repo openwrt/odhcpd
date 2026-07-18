@@ -21,6 +21,7 @@
 #include <libubox/utils.h>
 
 #include "odhcpd.h"
+#include "dns_rewrite.h"
 #include "dhcpv6.h"
 #include "dhcpv6-pxe.h"
 #ifdef DHCPV4_SUPPORT
@@ -910,6 +911,7 @@ static void relay_server_response(uint8_t *data, size_t len)
 	bool is_authenticated = false;
 	struct in6_addr *dns_addrs6 = NULL;
 	size_t dns_addrs6_cnt = 0;
+	uint8_t *rewritten_payload = NULL;
 
 	/* If the payload is relay-reply we have to send to the server port */
 	if (payload_data[0] == DHCPV6_MSG_RELAY_REPL) {
@@ -928,10 +930,18 @@ static void relay_server_response(uint8_t *data, size_t len)
 		}
 	}
 
+	bool rewrite_dns = iface->always_rewrite_dns && dns_addrs6 && dns_addrs6_cnt > 0;
+	bool rewrite_domain = iface->dns_search_len > 0 &&
+			payload_data[0] != DHCPV6_MSG_RELAY_REPL;
+
+	if (is_authenticated && (rewrite_dns || rewrite_domain)) {
+		warn("Dropping authenticated DHCPv6 reply on %s: configured DNS rewrite cannot preserve authentication",
+		     iface->name);
+		return;
+	}
+
 	/* Rewrite DNS servers if requested */
-	if (iface->always_rewrite_dns && dns_addrs6 && dns_addrs6_cnt > 0) {
-		if (is_authenticated)
-			return; /* Impossible to rewrite */
+	if (rewrite_dns) {
 
 		const struct in6_addr *rewrite = iface->dns_addrs6;
 		struct in6_addr addr;
@@ -952,11 +962,26 @@ static void relay_server_response(uint8_t *data, size_t len)
 		}
 	}
 
+	if (rewrite_domain) {
+		int ret = odhcpd_rewrite_dhcpv6_domain(payload_data, payload_len,
+				iface->dns_search, iface->dns_search_len, is_authenticated,
+				&rewritten_payload, &payload_len);
+
+		if (ret) {
+			error("Unable to rewrite DHCPv6 domain search option on %s: %s",
+			      iface->name, strerror(-ret));
+			return;
+		}
+
+		payload_data = rewritten_payload;
+	}
+
 	struct iovec iov = {payload_data, payload_len};
 
 	debug("Sending a DHCPv6-reply on %s", iface->name);
 
 	odhcpd_send(iface->dhcpv6_event.uloop.fd, &target, &iov, 1, iface);
+	free(rewritten_payload);
 }
 
 static struct odhcpd_ipaddr *relay_link_address(struct interface *iface)

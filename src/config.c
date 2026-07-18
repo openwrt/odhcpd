@@ -18,6 +18,7 @@
 #include <libubox/vlist.h>
 
 #include "odhcpd.h"
+#include "dns_rewrite.h"
 #include "router.h"
 #include "dhcpv6-pxe.h"
 #include "dhcpv4.h"
@@ -1432,6 +1433,14 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			if (ds_len <= 0) {
 				error("Invalid %s value configured for interface '%s'",
 				      iface_attrs[IFACE_ATTR_DNS_DOMAIN_SEARCH].name, iface->name);
+				continue;
+			}
+
+			if (iface->dns_search_len > RA_DNSSL_MAX_SEARCH_LEN ||
+			    (size_t)ds_len > RA_DNSSL_MAX_SEARCH_LEN - iface->dns_search_len) {
+				warn("Ignoring %s value for interface '%s': encoded search list exceeds %u bytes",
+				     iface_attrs[IFACE_ATTR_DNS_DOMAIN_SEARCH].name, iface->name,
+				     RA_DNSSL_MAX_SEARCH_LEN);
 				continue;
 			}
 

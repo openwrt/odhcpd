@@ -969,7 +969,7 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
-	uint8_t first_key[16];
+	uint8_t first_key[16] = {0};
 	bool first_key_valid = false;
 	const struct dhcpv6_client_header *hdr = data;
 	time_t now = odhcpd_time();

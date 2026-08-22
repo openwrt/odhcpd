@@ -572,7 +572,8 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 bool odhcpd_hostname_valid(const char *name);
 
-int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
+int config_parse_interface(void *data, size_t len, const char *iname,
+			   bool overwrite, bool ephemeral);
 struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
@@ -585,6 +586,7 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba);
 int ubus_init(void);
 const char* ubus_get_ifname(const char *name);
 void ubus_apply_network(void);
+void ubus_apply_service_data(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 			     const struct dhcpv4_lease *lease);
@@ -600,6 +602,11 @@ static inline const char *ubus_get_ifname(const char *name)
 }
 
 static inline void ubus_apply_network(void)
+{
+	return;
+}
+
+static inline void ubus_apply_service_data(void)
 {
 	return;
 }

@@ -298,6 +298,9 @@ static void __apply_lease(struct dhcpv6_lease *a,
 		if (ADDR_MATCH_PIO_FILTER(&addrs[i], a->iface))
 			continue;
 
+		if (!valid_prefix_length(a, addrs[i].prefix_len))
+			continue;
+
 		prefix = addrs[i].addr.in6;
 		prefix.s6_addr32[1] |= htonl(a->assigned_subnet_id);
 		prefix.s6_addr32[2] = prefix.s6_addr32[3] = 0;

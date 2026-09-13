@@ -151,11 +151,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (getuid() != 0) {
-		error("Must be run as root!");
-		return 2;
-	}
-
 	if (config.log_syslog) {
 		openlog("odhcpd", LOG_PERROR | LOG_PID, LOG_DAEMON);
 		setlogmask(LOG_UPTO(config.log_level));

@@ -2020,13 +2020,20 @@ void reload_services(struct interface *iface)
 {
 	if (iface->ifflags & IFF_RUNNING) {
 		debug("Enabling services with %s running", iface->ifname);
+		/* A snapshot taken while the device was down can be empty even
+		 * though the addresses are still configured. Re-read before
+		 * resuming so the next RA matches the interface. */
+		if (iface->ifindex > 0)
+			netlink_refresh_interface_addr6(iface->ifindex);
 		router_setup_interface(iface, iface->ra != MODE_DISABLED);
 		dhcpv6_setup_interface(iface, iface->dhcpv6 != MODE_DISABLED);
 		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
 		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
 	} else {
-		debug("Disabling services with %s not running", iface->ifname);
-		router_setup_interface(iface, false);
+		debug("Pausing services with %s not running", iface->ifname);
+		/* Carrier loss. router_setup_interface(false) would send a
+		 * final RA with no addresses and mark every prefix stale. */
+		router_pause_interface(iface);
 		dhcpv6_setup_interface(iface, false);
 		ndp_setup_interface(iface, false);
 		dhcpv4_setup_interface(iface, false);

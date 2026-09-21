@@ -664,6 +664,7 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 #endif /* DHCPV4_SUPPORT */
 
 int router_setup_interface(struct interface *iface, bool enable);
+void router_pause_interface(struct interface *iface);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 int ndp_setup_interface(struct interface *iface, bool enable);
 void reload_services(struct interface *iface);

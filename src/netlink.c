@@ -194,7 +194,7 @@ static void refresh_iface_addr4(int ifindex)
 	free(oaddrs4);
 }
 
-void netlink_refresh_interface_addr6(int ifindex)
+static void refresh_iface_addr6(int ifindex)
 {
 	struct odhcpd_ipaddr *oaddrs6 = NULL;
 	struct interface *iface;
@@ -382,7 +382,7 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 							&event_info);
 		}
 
-		netlink_refresh_interface_addr6(ifa->ifa_index);
+		refresh_iface_addr6(ifa->ifa_index);
 	} else {
 		if (!nla[IFA_LOCAL])
 			return NL_SKIP;

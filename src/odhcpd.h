@@ -626,7 +626,6 @@ void dhcpv6_free_lease(struct dhcpv6_lease *lease);
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
 				    struct odhcpd_ipaddr **oaddrs);
-void netlink_refresh_interface_addr6(int ifindex);
 ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **oaddrs);
 int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr);
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,

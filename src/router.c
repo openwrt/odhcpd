@@ -252,7 +252,6 @@ void router_pause_interface(struct interface *iface)
 	iface->router_event.uloop.fd = -1;
 }
 
-
 static void router_netevent_cb(unsigned long event, struct netevent_handler_info *info)
 {
 	struct interface *iface;

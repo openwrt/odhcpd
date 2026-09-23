@@ -161,6 +161,57 @@ of the following options:
 | zonename    |string| no  | e.g. `Europe/Zurich` |
 
 
+### Ephemeral sections from procd service data
+
+A service that brings interfaces up at runtime, such as a container manager,
+can have DHCP, RA and NDP served on them for as long as its procd instance
+lives, without writing to `/etc/config/dhcp`. Publish the same options a `dhcp`
+section takes as procd service data of type `dhcp`:
+
+    procd_open_data
+    json_add_array "dhcp"
+    json_add_object ""
+    json_add_string type "dhcp"
+    json_add_string interface "ct0"
+    json_add_string dhcpv4 "server"
+    json_add_string ra "server"
+    json_add_string dhcpv6 "server"
+    json_close_object
+    json_close_array
+    procd_close_data
+
+odhcpd collects these on every reload via `ubus call service get_data`, so a
+section disappears with the instance that published it, which stops the RAs and
+drops its leases. The interface must be known to netifd; the device it is served
+on is whatever netifd reports for it.
+
+Two restrictions keep an ephemeral section from taking over a link it does not
+own, both of which cause the section to be ignored with a warning in the log:
+
+  * A section is ignored if `/etc/config/dhcp` already has a `dhcp` section for
+    the same interface, which always wins.
+  * A section is ignored if the device it resolves to is already served for
+    another section. A container bridged into the existing LAN therefore cannot
+    drag `br-lan` in, whether it names `lan` directly or a second logical
+    interface sitting on the same bridge.
+
+Unlike UCI sections, an ephemeral section serves DHCPv4 regardless of the
+`maindhcp` option, and logs a warning when it does so while `maindhcp` is
+disabled. This is sound because dnsmasq builds its DHCP ranges only from the
+`dhcp` sections in `/etc/config/dhcp`, and the second restriction above keeps
+ephemeral sections off every device named there. Setting `maindhcp` is not
+required, and does not remove the need for that restriction.
+
+Serving DHCPv4 alongside dnsmasq does rely on dnsmasq tolerating a second
+listener on port 67. Its DHCP socket is bound to the wildcard address, not to a
+device, and it only sets `SO_REUSEADDR`/`SO_REUSEPORT` under `--bind-interfaces`
+or `--bind-dynamic`. OpenWrt passes `--bind-dynamic` by default, so the two
+coexist and each filters by device. Under `option nonwildcard '0'` they cannot
+share the port on any device: odhcpd logs a failed `bind()` and leaves DHCPv4
+off that interface, and a dnsmasq started afterwards exits outright. Set
+`maindhcp` and let odhcpd serve DHCPv4 everywhere if you run dnsmasq that way.
+
+
 ## ubus Interface
 
 odhcpd currently exposes the following methods under the `dhcp` object path:

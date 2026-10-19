@@ -2202,7 +2202,15 @@ void odhcpd_reload(void)
 
 
 	avl_for_each_element_safe(&interfaces, i, avl, tmp) {
-		if (i->inuse && i->ifflags & IFF_RUNNING) {
+		/*
+		 * Keep a configured interface even while its link is not
+		 * running: reload_services() leaves its services disabled, and
+		 * the netlink link handler enables them once IFF_RUNNING is set.
+		 * Freeing it here would leave nothing for that event to match,
+		 * e.g. a bridge that gets its carrier after netifd reports the
+		 * interface up would never send a Router Advertisement.
+		 */
+		if (i->inuse) {
 			/* Resolve hybrid mode */
 			if (i->dhcpv6 == MODE_HYBRID)
 				i->dhcpv6 = (master && master->dhcpv6 == MODE_RELAY) ?

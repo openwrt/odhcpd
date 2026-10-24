@@ -753,8 +753,9 @@ static size_t build_ia(uint8_t *buf, size_t buflen, uint16_t status,
 			struct dhcpv6_ia_addr *ia_a = (struct dhcpv6_ia_addr *)&odata[-DHCPV6_OPT_HDR_SIZE];
 			bool found = false;
 
-			if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*ia_p) - DHCPV6_OPT_HDR_SIZE) &&
-					(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*ia_a) - DHCPV6_OPT_HDR_SIZE))
+			if (ia->type == htons(DHCPV6_OPT_IA_PD) ?
+			    (otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*ia_p) - DHCPV6_OPT_HDR_SIZE) :
+			    (otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*ia_a) - DHCPV6_OPT_HDR_SIZE))
 				continue;
 
 			if (a) {
@@ -934,8 +935,9 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 		struct dhcpv6_ia_prefix *p = (struct dhcpv6_ia_prefix *)&odata[-DHCPV6_OPT_HDR_SIZE];
 		struct dhcpv6_ia_addr *n = (struct dhcpv6_ia_addr *)&odata[-DHCPV6_OPT_HDR_SIZE];
 
-		if ((otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - DHCPV6_OPT_HDR_SIZE) &&
-				(otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - DHCPV6_OPT_HDR_SIZE))
+		if (ia->type == htons(DHCPV6_OPT_IA_PD) ?
+		    (otype != DHCPV6_OPT_IA_PREFIX || olen < sizeof(*p) - DHCPV6_OPT_HDR_SIZE) :
+		    (otype != DHCPV6_OPT_IA_ADDR || olen < sizeof(*n) - DHCPV6_OPT_HDR_SIZE))
 			continue;
 
 		onlink = false;

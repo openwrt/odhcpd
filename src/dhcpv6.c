@@ -238,7 +238,7 @@ static void handle_nested_message(uint8_t *data, size_t len, unsigned depth,
 static void update_nested_message(uint8_t *data, size_t len, unsigned depth, ssize_t pdiff)
 {
 	struct dhcpv6_relay_header *hdr = (struct dhcpv6_relay_header*)data;
-	if (hdr->msg_type != DHCPV6_MSG_RELAY_FORW)
+	if (len < sizeof(*hdr) || hdr->msg_type != DHCPV6_MSG_RELAY_FORW)
 		return;
 
 	hdr->msg_type = DHCPV6_MSG_RELAY_REPL;
@@ -696,8 +696,14 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_BOOTFILE_URL] = {NULL, 0}
 	};
 
-	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
+	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW) {
 		handle_nested_message(data, len, 0, &hdr, &opts, &opts_end, iov);
+
+		/* No client message found inside the relay chain (truncated
+		 * RELAY_MSG or hop limit reached) */
+		if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
+			return;
+	}
 
 	if (!IN6_IS_ADDR_MULTICAST((struct in6_addr *)dest_addr) && iov[IOV_NESTED].iov_len == 0 &&
 	    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_CONFIRM ||

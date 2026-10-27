@@ -473,6 +473,32 @@ static void handle_event(_o_unused struct ubus_context *ctx,
 static struct ubus_event_handler event_handler = { .cb = handle_event };
 
 
+static void reconnect_cb(struct uloop_timeout *t)
+{
+	if (ubus_reconnect(ubus, NULL)) {
+		uloop_timeout_set(t, 1000);
+		return;
+	}
+
+	info("reconnected to ubus");
+
+	/* Objects are re-added by ubus_reconnect(), the event pattern and the
+	 * subscription are not */
+	ubus_add_uloop(ubus);
+	ubus_register_event_handler(ubus, &event_handler, "ubus.object.add");
+	if (!ubus_lookup_id(ubus, "network.interface", &objid))
+		update_netifd(true);
+}
+
+static struct uloop_timeout reconnect_timer = { .cb = reconnect_cb };
+
+static void handle_connection_lost(_o_unused struct ubus_context *ctx)
+{
+	notice("ubus connection lost, reconnecting");
+	uloop_timeout_set(&reconnect_timer, 1000);
+}
+
+
 const char* ubus_get_ifname(const char *name)
 {
 	struct blob_attr *c;
@@ -538,6 +564,8 @@ int ubus_init(void)
 		error("Unable to connect to ubus: %m");
 		return -1;
 	}
+
+	ubus->connection_lost = handle_connection_lost;
 
 	netifd.cb = handle_update;
 	ubus_register_subscriber(ubus, &netifd);

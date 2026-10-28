@@ -379,13 +379,148 @@ void ubus_apply_network(void)
 
 			if (!c->ignore)
 				config_parse_interface(blobmsg_data(tb[IFACE_ATTR_DATA]),
-						blobmsg_data_len(tb[IFACE_ATTR_DATA]), c->name, false);
+						blobmsg_data_len(tb[IFACE_ATTR_DATA]),
+						c->name, false, false);
 		}
 
 		if (!matched)
 			config_parse_interface(blobmsg_data(tb[IFACE_ATTR_DATA]),
-					blobmsg_data_len(tb[IFACE_ATTR_DATA]), interface, false);
+					blobmsg_data_len(tb[IFACE_ATTR_DATA]),
+					interface, false, false);
 	}
+}
+
+
+enum {
+	SERVICE_ATTR_TYPE,
+	SERVICE_ATTR_INTERFACE,
+	SERVICE_ATTR_MAX
+};
+
+static const struct blobmsg_policy service_attrs[SERVICE_ATTR_MAX] = {
+	[SERVICE_ATTR_TYPE] = { .name = "type", .type = BLOBMSG_TYPE_STRING },
+	[SERVICE_ATTR_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_STRING },
+};
+
+/* Interfaces are only in use here if UCI named them, or if an ephemeral section
+ * earlier in this pass already claimed them; their device is whatever netifd
+ * answered for them when they were parsed. */
+static struct interface *ifname_user(const char *ifname)
+{
+	struct interface *iface;
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->inuse && iface->ifname &&
+		    !strcmp(iface->ifname, ifname))
+			return iface;
+	}
+
+	return NULL;
+}
+
+static void apply_service_section(struct blob_attr *sec)
+{
+	struct blob_attr *tb[SERVICE_ATTR_MAX];
+	struct interface *iface;
+	const char *name, *ifname;
+
+	if (blobmsg_type(sec) != BLOBMSG_TYPE_TABLE ||
+	    !blobmsg_check_attr(sec, false))
+		return;
+
+	blobmsg_parse(service_attrs, SERVICE_ATTR_MAX, tb,
+		      blobmsg_data(sec), blobmsg_data_len(sec));
+
+	if (!tb[SERVICE_ATTR_TYPE] ||
+	    strcmp(blobmsg_get_string(tb[SERVICE_ATTR_TYPE]), "dhcp"))
+		return;
+
+	if (!tb[SERVICE_ATTR_INTERFACE]) {
+		warn("Ignoring ephemeral dhcp section without interface");
+		return;
+	}
+
+	name = blobmsg_get_string(tb[SERVICE_ATTR_INTERFACE]);
+	iface = avl_find_element(&interfaces, name, iface, avl);
+	if (iface && iface->inuse) {
+		warn("Ignoring ephemeral dhcp section for '%s': already configured",
+		     name);
+		return;
+	}
+
+	/* Ask netifd for the device the section lands on: ubus being up is what
+	 * got us here, so config_parse_interface() will take netifd's answer too. */
+	ifname = ubus_get_ifname(name);
+	if (!ifname) {
+		warn("Ignoring ephemeral dhcp section for '%s': unknown to netifd",
+		     name);
+		return;
+	}
+
+	/* An ephemeral section serves DHCPv4 regardless of maindhcp, so it must not
+	 * land on a device another section already holds: dnsmasq keeps serving the
+	 * interfaces named in /etc/config/dhcp and would answer the same
+	 * broadcasts. */
+	iface = ifname_user(ifname);
+	if (iface) {
+		warn("Ignoring ephemeral dhcp section for '%s': device '%s' already served for '%s'",
+		     name, ifname, iface->name);
+		return;
+	}
+
+	config_parse_interface(blobmsg_data(sec), blobmsg_data_len(sec), NULL,
+			       true, true);
+}
+
+static void apply_instance_data(struct blob_attr *ins)
+{
+	struct blob_attr *cur, *sec;
+	unsigned rem, srem;
+
+	blobmsg_for_each_attr(cur, ins, rem) {
+		if (strcmp(blobmsg_name(cur), "dhcp") ||
+		    blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
+			continue;
+
+		blobmsg_for_each_attr(sec, cur, srem)
+			apply_service_section(sec);
+	}
+}
+
+static void handle_service_data(_o_unused struct ubus_request *req,
+				_o_unused int type, struct blob_attr *msg)
+{
+	struct blob_attr *svc, *ins;
+	unsigned rem, irem;
+
+	if (!msg)
+		return;
+
+	blobmsg_for_each_attr(svc, msg, rem) {
+		if (blobmsg_type(svc) != BLOBMSG_TYPE_TABLE)
+			continue;
+
+		blobmsg_for_each_attr(ins, svc, irem) {
+			if (blobmsg_type(ins) == BLOBMSG_TYPE_TABLE)
+				apply_instance_data(ins);
+		}
+	}
+}
+
+
+void ubus_apply_service_data(void)
+{
+	uint32_t id;
+
+	if (!ubus)
+		return;
+
+	if (ubus_lookup_id(ubus, "service", &id))
+		return;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "type", "dhcp");
+	ubus_invoke(ubus, id, "get_data", b.head, handle_service_data, NULL, 3000);
 }
 
 

@@ -2025,8 +2025,10 @@ void reload_services(struct interface *iface)
 		ndp_setup_interface(iface, iface->ndp != MODE_DISABLED);
 		dhcpv4_setup_interface(iface, iface->dhcpv4 != MODE_DISABLED);
 	} else {
-		debug("Disabling services with %s not running", iface->ifname);
-		router_setup_interface(iface, false);
+		debug("Pausing services with %s not running", iface->ifname);
+		/* Carrier loss. router_setup_interface(false) would send a
+		 * final RA with no addresses and mark every prefix stale. */
+		router_pause_interface(iface);
 		dhcpv6_setup_interface(iface, false);
 		ndp_setup_interface(iface, false);
 		dhcpv4_setup_interface(iface, false);

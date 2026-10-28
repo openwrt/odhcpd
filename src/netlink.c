@@ -373,7 +373,8 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 				iface->cached_linklocal_valid = false;
 
 			if (add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr)) {
-				iface->have_link_local = true;
+				if (!(ifa->ifa_flags & IFA_F_TENTATIVE))
+					iface->have_link_local = true;
 				continue;
 			}
 

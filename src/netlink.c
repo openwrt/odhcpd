@@ -371,7 +371,7 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 
 			if (add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr)) {
 				iface->have_link_local = true;
-				return NL_SKIP;
+				continue;
 			}
 
 			debug("Netlink %s %s on %s", add ? "newaddr" : "deladdr",
@@ -381,6 +381,9 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 			call_netevent_handler_list(add ? NETEV_ADDR6_ADD : NETEV_ADDR6_DEL,
 							&event_info);
 		}
+
+		if (add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr))
+			return NL_SKIP;
 
 		refresh_iface_addr6(ifa->ifa_index);
 	} else {

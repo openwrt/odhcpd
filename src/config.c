@@ -1102,7 +1102,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 {
 	struct interface *iface;
 	struct blob_attr *tb[IFACE_ATTR_MAX], *c;
-	struct odhcpd_ipaddr *oaddrs = NULL;
 	ssize_t oaddrs_cnt;
 	bool get_addrs = false;
 	int mode;
@@ -1183,16 +1182,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			iface->oaddrs4_cnt = oaddrs_cnt;
 	}
 
-	oaddrs_cnt = netlink_get_interface_linklocal(iface->ifindex, &oaddrs);
-	if (oaddrs_cnt > 0) {
-		for (ssize_t i = 0; i < oaddrs_cnt; i++) {
-			if (!oaddrs[i].tentative) {
-				iface->have_link_local = true;
-				break;
-			}
-		}
-		free(oaddrs);
-	}
+	iface->have_link_local = netlink_has_linklocal(iface->ifindex);
 
 	iface->inuse = true;
 

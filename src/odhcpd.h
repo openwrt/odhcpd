@@ -627,6 +627,7 @@ int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
 				    struct odhcpd_ipaddr **oaddrs);
 ssize_t netlink_get_interface_linklocal(int ifindex, struct odhcpd_ipaddr **oaddrs);
+bool netlink_has_linklocal(int ifindex);
 int netlink_get_interface_proxy_neigh(int ifindex, const struct in6_addr *addr);
 int netlink_setup_route(const struct in6_addr *addr, const int prefixlen,
 			const int ifindex, const struct in6_addr *gw,

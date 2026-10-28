@@ -2202,7 +2202,7 @@ void odhcpd_reload(void)
 
 
 	avl_for_each_element_safe(&interfaces, i, avl, tmp) {
-		if (i->inuse && i->ifflags & IFF_RUNNING) {
+		if (i->inuse) {
 			/* Resolve hybrid mode */
 			if (i->dhcpv6 == MODE_HYBRID)
 				i->dhcpv6 = (master && master->dhcpv6 == MODE_RELAY) ?

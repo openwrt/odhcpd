@@ -344,6 +344,7 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 	struct interface *iface;
 	struct netevent_handler_info event_info;
 	char buf[INET6_ADDRSTRLEN];
+	bool linklocal_left = false;
 
 	if (!nlmsg_valid_hdr(hdr, sizeof(*ifa)) ||
 			(ifa->ifa_family != AF_INET6 &&
@@ -365,12 +366,19 @@ static int handle_rtm_addr(struct nlmsghdr *hdr, bool add)
 
 		inet_ntop(AF_INET6, &event_info.addr, buf, sizeof(buf));
 
+		/* Another link-local address of the device can still be in place */
+		if (!add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr))
+			linklocal_left = netlink_has_linklocal(ifa->ifa_index);
+
 		avl_for_each_element(&interfaces, iface, avl) {
 			if (iface->ifindex != (int)ifa->ifa_index)
 				continue;
 
 			if (IN6_IS_ADDR_LINKLOCAL(&event_info.addr))
 				iface->cached_linklocal_valid = false;
+
+			if (!add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr))
+				iface->have_link_local = linklocal_left;
 
 			if (add && IN6_IS_ADDR_LINKLOCAL(&event_info.addr)) {
 				if (!(ifa->ifa_flags & IFA_F_TENTATIVE))
@@ -878,6 +886,20 @@ out:
 	nl_cb_put(cb);
 
 	return ctxt.ret;
+}
+
+bool netlink_has_linklocal(int ifindex)
+{
+	struct odhcpd_ipaddr *oaddrs = NULL;
+	ssize_t oaddrs_cnt = netlink_get_interface_linklocal(ifindex, &oaddrs);
+	bool found = false;
+
+	for (ssize_t i = 0; i < oaddrs_cnt && !found; i++)
+		found = !oaddrs[i].tentative;
+
+	free(oaddrs);
+
+	return found;
 }
 
 

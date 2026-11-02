@@ -124,6 +124,7 @@ enum {
 	IFACE_ATTR_RA_MININTERVAL,
 	IFACE_ATTR_RA_MAXINTERVAL,
 	IFACE_ATTR_RA_LIFETIME,
+	IFACE_ATTR_RA_INTERVAL_AUTO,
 	IFACE_ATTR_RA_REACHABLETIME,
 	IFACE_ATTR_RA_RETRANSTIME,
 	IFACE_ATTR_RA_HOPLIMIT,
@@ -179,6 +180,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_RA_MININTERVAL] = { .name = "ra_mininterval", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_MAXINTERVAL] = { .name = "ra_maxinterval", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_LIFETIME] = { .name = "ra_lifetime", .type = BLOBMSG_TYPE_INT32 },
+	[IFACE_ATTR_RA_INTERVAL_AUTO] = { .name = "ra_interval_auto", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_RA_REACHABLETIME] = { .name = "ra_reachabletime", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_RETRANSTIME] = { .name = "ra_retranstime", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_RA_HOPLIMIT] = { .name = "ra_hoplimit", .type = BLOBMSG_TYPE_INT32 },
@@ -1613,6 +1615,9 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		}
 		iface->ra_lifetime = ra_lifetime;
 	}
+
+	if ((c = tb[IFACE_ATTR_RA_INTERVAL_AUTO]))
+		iface->ra_interval_auto = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_RA_DNS]))
 		iface->ra_dns = blobmsg_get_bool(c);

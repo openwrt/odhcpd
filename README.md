@@ -95,7 +95,7 @@ and may also receive information from ubus
 | dns			|list	|`<local address>`| DNS servers to announce, accepts IPv4 and IPv6 |
 | dnr			|list	|disabled| Encrypted DNS servers to announce, `<priority> <domain name> [<comma separated IP addresses> <SvcParams (key=value)>...]` |
 | dns_service		|bool	| 1	| Announce the address of interface as DNS service if the list of dns is empty |
-| domain		|list	|`<local search domain>`| Search domains to announce |
+| domain		|list	|`<local search domain>`| Search domains to announce. On RA and DHCPv6 relay interfaces, a non-empty local list replaces all upstream DNSSL / DHCPv6 Domain Search options; if upstream omits the option, the local list is added. An empty list keeps upstream options unchanged. |
 | leasetime		|string	| 12h	| DHCPv4 address leasetime |
 | start			|integer| 100	| DHCPv4 pool start |
 | limit			|integer| 150	| DHCPv4 pool size |

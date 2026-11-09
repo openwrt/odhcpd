@@ -26,6 +26,7 @@
 #include <libubox/utils.h>
 
 #include "router.h"
+#include "dns_rewrite.h"
 #include "odhcpd.h"
 #include "statefiles.h"
 
@@ -1266,6 +1267,9 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 	}
 
 	avl_for_each_element(&interfaces, c, avl) {
+		uint8_t *rewritten_ra = NULL;
+		size_t rewritten_ra_len = 0;
+
 		if (c->ra != MODE_RELAY || c->master)
 			continue;
 
@@ -1345,6 +1349,25 @@ static void forward_router_advertisement(const struct interface *iface, uint8_t 
 		}
 
 		info("Forward a RA on %s", c->name);
+		if (c->dns_search_len > 0) {
+			int ret = odhcpd_rewrite_ra_dnssl(data, len, c->dns_search,
+					c->dns_search_len, c->ra_lifetime,
+					&rewritten_ra, &rewritten_ra_len);
+
+			if (ret) {
+				error("Unable to rewrite RA DNSSL on %s: %s", c->name,
+				      strerror(-ret));
+				continue;
+			}
+
+			iov.iov_base = rewritten_ra;
+			iov.iov_len = rewritten_ra_len;
+		} else {
+			iov.iov_base = data;
+			iov.iov_len = len;
+		}
+
 		odhcpd_send(c->router_event.uloop.fd, &all_nodes, &iov, 1, c);
+		free(rewritten_ra);
 	}
 }

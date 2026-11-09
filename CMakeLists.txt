@@ -8,6 +8,7 @@ add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE
 	src/odhcpd.c
 	src/config.c
+	src/dns_rewrite.c
 	src/dhcpv6.c
 	src/dhcpv6-ia.c
 	src/dhcpv6-pxe.c
@@ -16,6 +17,23 @@ target_sources(${PROJECT_NAME} PRIVATE
 	src/statefiles.c
 	src/router.c
 )
+
+option(BUILD_TESTING "Build odhcpd tests" OFF)
+include(CTest)
+
+if(BUILD_TESTING)
+	add_executable(test_dns_rewrite
+		tests/test_dns_rewrite.c
+		src/dns_rewrite.c
+	)
+	target_include_directories(test_dns_rewrite PRIVATE src)
+	set_target_properties(test_dns_rewrite PROPERTIES C_STANDARD 11)
+	target_compile_definitions(test_dns_rewrite PRIVATE _GNU_SOURCE)
+	target_compile_options(test_dns_rewrite PRIVATE
+		-Wall -Werror -Wextra -Wformat -Werror=format-security
+	)
+	add_test(NAME dns_rewrite COMMAND test_dns_rewrite)
+endif()
 
 
 # Compiler Options

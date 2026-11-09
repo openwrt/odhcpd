@@ -430,6 +430,7 @@ struct interface {
 	uint32_t ra_maxinterval;
 	uint32_t ra_mininterval;
 	uint32_t ra_lifetime;
+	bool ra_interval_auto;
 	uint32_t ra_reachabletime;
 	uint32_t ra_retranstime;
 	uint32_t ra_hoplimit;

@@ -352,15 +352,38 @@ static int calc_adv_interval(struct interface *iface, uint32_t lowest_found_life
 				uint32_t *maxival)
 {
 	uint32_t minival = iface->ra_mininterval;
+	uint32_t cfg_maxival = iface->ra_maxinterval;
 	int msecs;
 
-	*maxival = iface->ra_maxinterval;
+	*maxival = cfg_maxival;
 
-	if (*maxival > lowest_found_lifetime)
+	/* Cap maxival to lowest prefix lifetime */
+	if (*maxival > lowest_found_lifetime && lowest_found_lifetime > 0)
 		*maxival = lowest_found_lifetime;
 
+	/* Auto-adjust mode: scale intervals based on prefix lifetime */
+	if (iface->ra_interval_auto && lowest_found_lifetime > 0 &&
+	    lowest_found_lifetime < cfg_maxival) {
+		/* Use 40% of prefix lifetime for max, 15% for min */
+		*maxival = (lowest_found_lifetime * 40) / 100;
+		minival = (lowest_found_lifetime * 15) / 100;
+
+		/* Apply sane bounds */
+		if (*maxival < 30)
+			*maxival = 30;
+		if (minival < 10)
+			minival = 10;
+
+		/* Ensure minival <= maxival */
+		if (minival > *maxival)
+			minival = *maxival > 10 ? *maxival - 10 : *maxival;
+
+		syslog(LOG_INFO, "RA auto-interval on %s: prefix_lt=%u min=%u max=%u",
+			iface->name, lowest_found_lifetime, minival, *maxival);
+	}
+
 	odhcpd_urandom(&msecs, sizeof(msecs));
-	msecs = (labs(msecs) % ((*maxival != minival) ? (*maxival - minival)*1000 : 500)) +
+	msecs = (labs(msecs) % ((*maxival > minival) ? (*maxival - minival)*1000 : 500)) +
 			minival*1000;
 
 	/* RFC 2461 6.2.4 For the first MAX_INITIAL_RTR_ADVERTISEMENTS advertisements

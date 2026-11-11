@@ -233,6 +233,24 @@ out:
 	return ret;
 }
 
+/* Stop RA without withdrawing prefixes. Carrier loss is not a prefix
+ * change: the addresses stay configured. router_setup_interface(false)
+ * clears the timer callback and then sends an RA, and that RA forces
+ * valid_addr_cnt to 0, which marks every PIO stale. */
+void router_pause_interface(struct interface *iface)
+{
+	if (iface->router_event.uloop.fd < 0)
+		return;
+
+	if (!iface->master) {
+		uloop_timeout_cancel(&iface->timer_rs);
+		iface->timer_rs.cb = NULL;
+	}
+
+	uloop_fd_delete(&iface->router_event.uloop);
+	close(iface->router_event.uloop.fd);
+	iface->router_event.uloop.fd = -1;
+}
 
 static void router_netevent_cb(unsigned long event, struct netevent_handler_info *info)
 {

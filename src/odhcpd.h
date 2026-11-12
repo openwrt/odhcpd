@@ -300,6 +300,7 @@ struct dhcpv6_lease {
 
 	unsigned int flags;
 	bool bound;				// the lease has been accepted by the client
+	bool released;				// the client has released the lease
 	uint32_t leasetime;
 	char *hostname;
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?
@@ -588,6 +589,7 @@ void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 			     const struct dhcpv4_lease *lease);
+void ubus_bcast_dhcpv6_event(const char *type, struct dhcpv6_lease *lease);
 void ubus_bcast_hosts_update(void);
 #else
 static inline int ubus_init(void)
@@ -613,6 +615,12 @@ static inline bool ubus_has_prefix(const char *name, const char *ifname)
 static inline
 void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 			     const struct dhcpv4_lease *lease)
+{
+	return;
+}
+
+static inline
+void ubus_bcast_dhcpv6_event(const char *type, struct dhcpv6_lease *lease)
 {
 	return;
 }

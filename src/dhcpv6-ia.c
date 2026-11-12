@@ -565,8 +565,12 @@ static void valid_until_cb(struct uloop_timeout *event)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now) {
+				if (a->bound && !a->released)
+					ubus_bcast_dhcpv6_event("dhcp.expire6", a);
+
 				dhcpv6_free_lease(a);
+			}
 		}
 	}
 	uloop_timeout_set(event, 1000);
@@ -1360,7 +1364,11 @@ proceed:
 				break;
 
 			case DHCPV6_MSG_RELEASE:
+				if (a->bound && !a->released)
+					ubus_bcast_dhcpv6_event("dhcp.release6", a);
+
 				/* Immediately expire the lease */
+				a->released = true;
 				a->valid_until = now - 1;
 				break;
 
@@ -1406,6 +1414,14 @@ proceed:
 			ia_response_len = build_ia(buf, buflen, status, ia, a, iface, false);
 			a->bound = true;
 			apply_lease(a, true);
+		}
+
+		if (a && a->bound &&
+		    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST ||
+		     hdr->msg_type == DHCPV6_MSG_RENEW || hdr->msg_type == DHCPV6_MSG_REBIND)) {
+			/* The client might use the binding again right after a RELEASE */
+			a->released = false;
+			ubus_bcast_dhcpv6_event("dhcp.lease6", a);
 		}
 
 		if (ia_response_len > buflen)

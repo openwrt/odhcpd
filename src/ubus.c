@@ -425,6 +425,49 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }
 
+static void dhcpv6_event_addr(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr,
+			      uint8_t prefix_len, _o_unused uint32_t pref_lt,
+			      _o_unused uint32_t valid_lt, _o_unused void *arg)
+{
+	void *a = blobmsg_open_table(&b, NULL);
+	char *buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
+
+	inet_ntop(AF_INET6, addr, buf, INET6_ADDRSTRLEN);
+	blobmsg_add_string_buffer(&b);
+
+	if (prefix_len != 128)
+		blobmsg_add_u32(&b, "prefix-length", prefix_len);
+
+	blobmsg_close_table(&b, a);
+}
+
+void ubus_bcast_dhcpv6_event(const char *type, struct dhcpv6_lease *lease)
+{
+	char *buf;
+	void *m;
+
+	if (!ubus || !main_object.has_subscribers || !lease->iface)
+		return;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "interface", lease->iface->ifname);
+
+	buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
+	odhcpd_hexlify(buf, lease->duid, lease->duid_len);
+	blobmsg_add_string_buffer(&b);
+	blobmsg_add_u32(&b, "iaid", ntohl(lease->iaid));
+
+	if (lease->hostname)
+		blobmsg_add_string(&b, "hostname", lease->hostname);
+
+	/* Only the addresses, the lifetimes are meaningless for expired leases */
+	m = blobmsg_open_array(&b, lease->flags & OAF_DHCPV6_NA ? "ipv6-addr" : "ipv6-prefix");
+	odhcpd_enum_addr6(lease->iface, lease, odhcpd_time(), dhcpv6_event_addr, NULL);
+	blobmsg_close_array(&b, m);
+
+	ubus_notify(ubus, &main_object, type, b.head, -1);
+}
+
 /*
  * Announce that the hostname/address data of the leases has changed, i.e. that
  * the hosts files have been rewritten.

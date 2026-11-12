@@ -458,6 +458,16 @@ struct nd_opt_capt_portal {
 };
 
 /* IPv6 RA PIOs */
+
+/* The prefix announced in the PIO for an interface address */
+static void
+router_pio_prefix(const struct odhcpd_ipaddr *addr, struct in6_addr *prefix, uint8_t *prefix_len)
+{
+	memset(prefix, 0, sizeof(*prefix));
+	odhcpd_bmemcpy(prefix, &addr->addr.in6, addr->prefix_len);
+	*prefix_len = max(64, addr->prefix_len);
+}
+
 inline static int
 router_compare_pio_addr(const struct ra_pio *pio, const struct in6_addr *addr, uint8_t prefix_len)
 {
@@ -629,6 +639,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct odhcpd_ipaddr *addrs = NULL;
 	struct adv_msg adv;
 	struct nd_opt_prefix_info *pfxs = NULL;
+	struct in6_addr *pfx_prefixes = NULL;
 	struct nd_opt_dns_server *dns = NULL;
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
@@ -722,9 +733,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			bool pio_found = false;
 
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
-				struct odhcpd_ipaddr *cur_addr = &addrs[j];
+				struct in6_addr prefix;
+				uint8_t prefix_len;
 
-				if (!router_compare_pio_addr(cur_pio, &cur_addr->addr.in6, cur_addr->prefix_len)) {
+				router_pio_prefix(&addrs[j], &prefix, &prefix_len);
+				if (!router_compare_pio_addr(cur_pio, &prefix, prefix_len)) {
 					pio_found = true;
 					break;
 				}
@@ -746,10 +759,13 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (total_addr_cnt > 0) {
 		pfxs = alloca(total_addr_cnt * sizeof(*pfxs));
 		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
+		pfx_prefixes = alloca(total_addr_cnt * sizeof(*pfx_prefixes));
 	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
+		struct in6_addr prefix;
+		uint8_t prefix_len;
 		uint32_t preferred_lt = 0;
 		uint32_t valid_lt = 0;
 
@@ -767,15 +783,20 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue; /* PIO filtered out of this RA */
 		}
 
+		/* Addresses in the same prefix share one PIO */
+		router_pio_prefix(addr, &prefix, &prefix_len);
 		for (size_t j = 0; j < pfxs_cnt; ++j) {
-			if (addr->prefix_len == pfxs[j].nd_opt_pi_prefix_len &&
-			    !odhcpd_bmemcmp(&pfxs[j].nd_opt_pi_prefix,
-					    &addr->addr.in6, addr->prefix_len))
+			if (pfxs[j].nd_opt_pi_prefix_len == prefix_len &&
+			    IN6_ARE_ADDR_EQUAL(&pfx_prefixes[j], &prefix)) {
 				p = &pfxs[j];
+				break;
+			}
 		}
 
-		if (!p)
+		if (!p) {
+			pfx_prefixes[pfxs_cnt] = prefix;
 			p = &pfxs[pfxs_cnt++];
+		}
 
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
@@ -816,7 +837,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				(iface->ra_advrouter) ? 128 : addr->prefix_len);
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
-		p->nd_opt_pi_prefix_len = (addr->prefix_len < 64) ? 64 : addr->prefix_len;
+		p->nd_opt_pi_prefix_len = prefix_len;
 		/* RFC9762 DHCPv6-PD Preferred Flag § 6:
 		 * Routers SHOULD set the P flag to zero by default...
 		 */
@@ -850,12 +871,12 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			p->nd_opt_pi_preferred_time = 0;
 			p->nd_opt_pi_valid_time = 0;
 
-			router_stale_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len, now);
+			router_stale_ra_pio(iface, &prefix, prefix_len, now);
 		} else {
 			p->nd_opt_pi_preferred_time = htonl(preferred_lt);
 			p->nd_opt_pi_valid_time = htonl(valid_lt);
 
-			router_add_ra_pio(iface, &p->nd_opt_pi_prefix, p->nd_opt_pi_prefix_len);
+			router_add_ra_pio(iface, &prefix, prefix_len);
 		}
 	}
 

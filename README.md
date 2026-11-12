@@ -175,12 +175,33 @@ odhcpd currently exposes the following methods under the `dhcp` object path:
 These can be called by running e.g. `ubus call dhcp ipv6leases` on your OpenWrt
 device.
 
-odhcpd currently broadcasts the following events via ubus:
+odhcpd sends the following notifications to the subscribers of the `dhcp`
+object:
 
 | Name		| Parameters			| Description	|
 | :------------ | :----------------------------	| :------------ |
-| `dhcp.lease4`	| `mac,ip,name,interface`	| A new DHCPv4 lease has been created |
-| `dhcp.release4`| `mac,ip,name,interface`	| A DHCPv4 lease has been released by a client |
-| `dhcp.expire4`| `mac,ip,name,interface`	| A DHCPv4 lease has expired |
+| `dhcp.lease4`	| `interface,ipv4,mac,hostname,duid,iaid` | A DHCPv4 lease has been assigned or renewed |
+| `dhcp.release4`| `interface,ipv4,mac,hostname,duid,iaid` | A DHCPv4 lease has been released by a client |
+| `dhcp.expire4`| `interface,ipv4,mac,hostname,duid,iaid` | A DHCPv4 lease has expired |
+| `dhcp.lease6`	| `interface,duid,iaid,hostname,ipv6-addr/ipv6-prefix` | A DHCPv6 lease has been assigned or renewed |
+| `dhcp.release6`| `interface,duid,iaid,hostname,ipv6-addr/ipv6-prefix` | A DHCPv6 lease has been released by a client |
+| `dhcp.expire6`| `interface,duid,iaid,hostname,ipv6-addr/ipv6-prefix` | A DHCPv6 lease has expired |
 
-These can be observed by running e.g. `ubus listen dhcp` on your OpenWrt device.
+`hostname` is only included if known, `duid` and `iaid` of DHCPv4 leases only if
+the client used a DUID-based client identifier. `ipv6-addr` (IA_NA) or
+`ipv6-prefix` (IA_PD) is a list of `address` (and `prefix-length` for prefixes).
+
+These can be observed by running e.g. `ubus subscribe dhcp` on your OpenWrt
+device.
+
+In addition, odhcpd broadcasts the following ubus event:
+
+| Name			| Parameters	| Description	|
+| :-------------------- | :------------ | :------------ |
+| `dhcp.hosts.update`	| none		| The hostnames/addresses of the leases (i.e. the hosts files) have changed |
+
+It is also submitted to procd (via `service event`), so it can be used as a
+service trigger, e.g. `procd_add_raw_trigger "dhcp.hosts.update" 1000
+/etc/init.d/foo reload`, and it can be observed by running e.g.
+`ubus listen dhcp.hosts.update` on your OpenWrt device. Consumers should fetch
+the current leases via `ipv4leases`/`ipv6leases`.

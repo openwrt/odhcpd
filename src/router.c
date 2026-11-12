@@ -640,6 +640,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct adv_msg adv;
 	struct nd_opt_prefix_info *pfxs = NULL;
 	struct in6_addr *pfx_prefixes = NULL;
+	bool *pfx_valid = NULL;
 	struct nd_opt_dns_server *dns = NULL;
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
@@ -760,6 +761,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		pfxs = alloca(total_addr_cnt * sizeof(*pfxs));
 		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
 		pfx_prefixes = alloca(total_addr_cnt * sizeof(*pfx_prefixes));
+		pfx_valid = alloca(total_addr_cnt * sizeof(*pfx_valid));
 	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
@@ -768,6 +770,9 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		uint8_t prefix_len;
 		uint32_t preferred_lt = 0;
 		uint32_t valid_lt = 0;
+		bool new_pfx = false;
+		bool stale;
+		size_t idx;
 
 		if (addr->prefix_len > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
 			info("Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
@@ -793,9 +798,14 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			}
 		}
 
-		if (!p) {
-			pfx_prefixes[pfxs_cnt] = prefix;
-			p = &pfxs[pfxs_cnt++];
+		if (p) {
+			idx = p - pfxs;
+		} else {
+			idx = pfxs_cnt++;
+			p = &pfxs[idx];
+			pfx_prefixes[idx] = prefix;
+			pfx_valid[idx] = false;
+			new_pfx = true;
 		}
 
 		if (addr->preferred_lt > (uint32_t)now) {
@@ -833,8 +843,15 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				highest_found_lifetime = valid_lt;
 		}
 
-		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
-				(iface->ra_advrouter) ? 128 : addr->prefix_len);
+		stale = (i >= valid_addr_cnt || !preferred_lt);
+
+		if (new_pfx || (!stale && !pfx_valid[idx])) {
+			/* With ra_advrouter, announce an address which is still valid */
+			memset(&p->nd_opt_pi_prefix, 0, sizeof(p->nd_opt_pi_prefix));
+			odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
+				       (iface->ra_advrouter) ? 128 : addr->prefix_len);
+		}
+
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
 		p->nd_opt_pi_prefix_len = prefix_len;
@@ -858,26 +875,34 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (iface->ra_advrouter)
 			// RFC6275, §7.2
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
-		if (i >= valid_addr_cnt || !preferred_lt) {
-			/*
-			 * RFC9096 § 3.5
-			 *
-			 * - Any prefixes that were previously advertised by the CE router
-			 *   via PIOs in RA messages, but that have now become stale, MUST
-			 *   be advertised with PIOs that have the "Valid Lifetime" and the
-			 *   "Preferred Lifetime" set to 0 and the "A" and "L" bits
-			 *   unchanged.
-			 */
-			p->nd_opt_pi_preferred_time = 0;
-			p->nd_opt_pi_valid_time = 0;
+		/*
+		 * RFC9096 § 3.5
+		 *
+		 * - Any prefixes that were previously advertised by the CE router
+		 *   via PIOs in RA messages, but that have now become stale, MUST
+		 *   be advertised with PIOs that have the "Valid Lifetime" and the
+		 *   "Preferred Lifetime" set to 0 and the "A" and "L" bits
+		 *   unchanged.
+		 *
+		 * A prefix is only stale if none of its addresses is still valid
+		 * (e.g. an old, deprecated address shouldn't deprecate the prefix
+		 * if the interface has a new address in the same prefix), so the
+		 * lifetimes stay 0 unless a valid address sets them.
+		 */
+		if (stale)
+			continue;
 
-			router_stale_ra_pio(iface, &prefix, prefix_len, now);
-		} else {
-			p->nd_opt_pi_preferred_time = htonl(preferred_lt);
-			p->nd_opt_pi_valid_time = htonl(valid_lt);
+		p->nd_opt_pi_preferred_time = htonl(max(ntohl(p->nd_opt_pi_preferred_time), preferred_lt));
+		p->nd_opt_pi_valid_time = htonl(max(ntohl(p->nd_opt_pi_valid_time), valid_lt));
+		pfx_valid[idx] = true;
+	}
 
-			router_add_ra_pio(iface, &prefix, prefix_len);
-		}
+	/* Update the stored PIOs now that the state of each prefix is known */
+	for (size_t i = 0; i < pfxs_cnt; i++) {
+		if (pfx_valid[i])
+			router_add_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len);
+		else
+			router_stale_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len, now);
 	}
 
 	router_clear_duplicated_ra_pio(iface);

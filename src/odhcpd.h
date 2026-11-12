@@ -588,6 +588,8 @@ void ubus_apply_network(void);
 bool ubus_has_prefix(const char *name, const char *ifname);
 void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 			     const struct dhcpv4_lease *lease);
+void ubus_bcast_dhcpv6_event(const char *type, const char *iface,
+			     struct dhcpv6_lease *lease);
 #else
 static inline int ubus_init(void)
 {
@@ -612,6 +614,13 @@ static inline bool ubus_has_prefix(const char *name, const char *ifname)
 static inline
 void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 			     const struct dhcpv4_lease *lease)
+{
+	return;
+}
+
+static inline
+void ubus_bcast_dhcpv6_event(const char *type, const char *iface,
+			     struct dhcpv6_lease *lease)
 {
 	return;
 }

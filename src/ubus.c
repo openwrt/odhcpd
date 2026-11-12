@@ -109,6 +109,21 @@ static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct 
 	blobmsg_close_table(&b, a);
 }
 
+static void dhcpv6_blobmsg_ia_addr_short(_o_unused struct dhcpv6_lease *lease, struct in6_addr *addr, uint8_t prefix_len,
+					 _o_unused uint32_t pref_lt, _o_unused uint32_t valid_lt, _o_unused void *arg)
+{
+	void *a	= blobmsg_open_table(&b, NULL);
+	char *buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
+
+	inet_ntop(AF_INET6, addr, buf, INET6_ADDRSTRLEN);
+	blobmsg_add_string_buffer(&b);
+
+	if (prefix_len != 128)
+		blobmsg_add_u32(&b, "prefix-length", prefix_len);
+
+	blobmsg_close_table(&b, a);
+}
+
 static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
 		_o_unused struct ubus_request_data *req, _o_unused const char *method,
 		_o_unused struct blob_attr *msg)
@@ -420,6 +435,36 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 		blobmsg_add_string_buffer(&b);
 		blobmsg_add_u32(&b, "iaid", lease->iaid);
 	}
+
+	ubus_notify(ubus, &main_object, type, b.head, -1);
+}
+
+void ubus_bcast_dhcpv6_event(const char *type, const char *iface,
+			     struct dhcpv6_lease *lease)
+{
+	time_t now = odhcpd_time();
+	char *buf;
+	void *m;
+
+	if (!ubus || !main_object.has_subscribers || !iface)
+		return;
+
+	blob_buf_init(&b, 0);
+
+	blobmsg_add_string(&b, "interface", iface);
+
+	m = blobmsg_open_array(&b, lease->flags & OAF_DHCPV6_NA ? "ipv6-addr": "ipv6-prefix");
+	odhcpd_enum_addr6(lease->iface, lease, now, dhcpv6_blobmsg_ia_addr_short, m);
+	blobmsg_close_array(&b, m);
+
+	if (lease->hostname)
+		blobmsg_add_string(&b, "hostname", lease->hostname);
+
+	buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
+	odhcpd_hexlify(buf, lease->duid, lease->duid_len);
+	blobmsg_add_string_buffer(&b);
+
+	blobmsg_add_u32(&b, "iaid", ntohl(lease->iaid));
 
 	ubus_notify(ubus, &main_object, type, b.head, -1);
 }

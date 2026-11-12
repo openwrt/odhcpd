@@ -184,3 +184,13 @@ odhcpd currently broadcasts the following events via ubus:
 | `dhcp.expire4`| `mac,ip,name,interface`	| A DHCPv4 lease has expired |
 
 These can be observed by running e.g. `ubus listen dhcp` on your OpenWrt device.
+
+Whenever the hostnames/addresses of the leases change (i.e. when the hosts
+files are rewritten), odhcpd also sends a `dhcp.hosts.update` event without
+parameters. It is sent as a regular ubus event (observable with
+`ubus listen dhcp.hosts.update`) and also submitted to procd (via
+`service event`), so it can be used as a procd service trigger, e.g.:
+
+```
+procd_add_raw_trigger "dhcp.hosts.update" 1000 /etc/init.d/foo reload
+```

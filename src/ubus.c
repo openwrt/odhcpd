@@ -17,6 +17,7 @@ static struct blob_buf b;
 static struct blob_attr *dump = NULL;
 static uint32_t objid = 0;
 static struct ubus_request req_dump = { .list = LIST_HEAD_INIT(req_dump.list) };
+static struct ubus_request req_service_event = { .list = LIST_HEAD_INIT(req_service_event.list) };
 
 #ifdef DHCPV4_SUPPORT
 static int handle_dhcpv4_leases(struct ubus_context *ctx, _o_unused struct ubus_object *obj,
@@ -422,6 +423,34 @@ void ubus_bcast_dhcpv4_event(const char *type, const char *iface,
 	}
 
 	ubus_notify(ubus, &main_object, type, b.head, -1);
+}
+
+/*
+ * Announce that the hostname/address data of the leases has changed, i.e. that
+ * the hosts files have been rewritten.
+ */
+void ubus_bcast_hosts_update(void)
+{
+	uint32_t id;
+	void *t;
+
+	if (!ubus)
+		return;
+
+	blob_buf_init(&b, 0);
+	ubus_send_event(ubus, "dhcp.hosts.update", b.head);
+
+	if (ubus_lookup_id(ubus, "service", &id))
+		return;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "type", "dhcp.hosts.update");
+	t = blobmsg_open_table(&b, "data");
+	blobmsg_close_table(&b, t);
+
+	ubus_abort_request(ubus, &req_service_event);
+	if (!ubus_invoke_async(ubus, id, "event", b.head, &req_service_event))
+		ubus_complete_request_async(ubus, &req_service_event);
 }
 
 static void handle_event(_o_unused struct ubus_context *ctx,

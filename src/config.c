@@ -320,8 +320,8 @@ static void set_interface_defaults(struct interface *iface)
 	iface->max_preferred_lifetime = ND_PREFERRED_LIMIT;
 	iface->max_valid_lifetime = ND_VALID_LIMIT;
 	iface->captive_portal_uri = NULL;
-	iface->dhcpv4_pool_start = 0;
-	iface->dhcpv4_pool_end = 0;
+	iface->dhcpv4_pool_start = 100;
+	iface->dhcpv4_pool_end = 249;
 	iface->dhcpv6_assignall = true;
 	iface->dhcpv6_pd = true;
 	iface->dhcpv6_pd_preferred = false;

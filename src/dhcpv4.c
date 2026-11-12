@@ -1028,6 +1028,15 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
+	/*
+	 * RFC2131, §4.3.2: in RENEWING/REBINDING state the client puts its address
+	 * in ciaddr and MUST NOT send option 50 (req_addr unset). Treat ciaddr as
+	 * the requested address, so that a client whose lease we lost (e.g. odhcpd
+	 * restart) keeps its address if it is still free, instead of a NAK.
+	 */
+	if (req_msg == DHCPV4_MSG_REQUEST && !req_addr.s_addr && req->ciaddr.s_addr)
+		req_addr = req->ciaddr;
+
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 

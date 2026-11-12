@@ -557,6 +557,7 @@ static void valid_until_cb(struct uloop_timeout *event)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
+	bool update_statefile = false;
 
 	avl_for_each_element(&interfaces, iface, avl) {
 		struct dhcpv6_lease *a, *n;
@@ -569,10 +570,18 @@ static void valid_until_cb(struct uloop_timeout *event)
 				if (a->bound && !a->released)
 					ubus_bcast_dhcpv6_event("dhcp.expire6", a);
 
+				/* Only bound leases are in the state/hosts files */
+				if (a->bound)
+					update_statefile = true;
+
 				dhcpv6_free_lease(a);
 			}
 		}
 	}
+
+	if (update_statefile)
+		statefiles_write();
+
 	uloop_timeout_set(event, 1000);
 }
 

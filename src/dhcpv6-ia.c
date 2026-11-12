@@ -520,7 +520,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			dhcpv6_free_lease(c);
 	}
 
-	statefiles_write();
+	iface->update_statefile = true;
 }
 
 static void reconf_timeout_cb(struct uloop_timeout *event)
@@ -561,6 +561,11 @@ static void valid_until_cb(struct uloop_timeout *event)
 
 	avl_for_each_element(&interfaces, iface, avl) {
 		struct dhcpv6_lease *a, *n;
+
+		if (iface->update_statefile) {
+			update_statefile = true;
+			iface->update_statefile = false;
+		}
 
 		if (iface->dhcpv6 != MODE_SERVER)
 			continue;
@@ -1461,7 +1466,7 @@ proceed:
 		break;
 	}
 
-	statefiles_write();
+	iface->update_statefile = true;
 
 out:
 	return response_len;

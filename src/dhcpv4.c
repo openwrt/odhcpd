@@ -1028,6 +1028,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		}
 	}
 
+	/* Use a renewing client's ciaddr as its requested address (RFC 2131 § 4.3.2) */
+	if (req_msg == DHCPV4_MSG_REQUEST && !req_addr.s_addr && req->ciaddr.s_addr)
+		req_addr = req->ciaddr;
+
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 

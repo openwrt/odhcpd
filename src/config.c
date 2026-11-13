@@ -2239,5 +2239,14 @@ int odhcpd_run(void)
 
 	uloop_run();
 
+	/* Write out any pending lease changes before exiting */
+	struct interface *iface;
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->update_statefile) {
+			statefiles_write();
+			break;
+		}
+	}
+
 	return EXIT_SUCCESS;
 }

@@ -520,7 +520,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			dhcpv6_free_lease(c);
 	}
 
-	statefiles_write();
+	iface->update_statefile = true;
 }
 
 static void reconf_timeout_cb(struct uloop_timeout *event)
@@ -557,18 +557,36 @@ static void valid_until_cb(struct uloop_timeout *event)
 {
 	struct interface *iface;
 	time_t now = odhcpd_time();
+	bool update_statefile = false;
 
 	avl_for_each_element(&interfaces, iface, avl) {
 		struct dhcpv6_lease *a, *n;
+
+		if (iface->update_statefile) {
+			update_statefile = true;
+			iface->update_statefile = false;
+		}
 
 		if (iface->dhcpv6 != MODE_SERVER)
 			continue;
 
 		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
-			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now)
+			if (a->duid_len > 0 && !INFINITE_VALID(a->valid_until) && a->valid_until < now) {
+				if (a->bound && !a->released)
+					ubus_bcast_dhcpv6_event("dhcp.expire6", a);
+
+				/* Only bound leases are in the state/hosts files */
+				if (a->bound)
+					update_statefile = true;
+
 				dhcpv6_free_lease(a);
+			}
 		}
 	}
+
+	if (update_statefile)
+		statefiles_write();
+
 	uloop_timeout_set(event, 1000);
 }
 
@@ -1360,7 +1378,11 @@ proceed:
 				break;
 
 			case DHCPV6_MSG_RELEASE:
+				if (a->bound && !a->released)
+					ubus_bcast_dhcpv6_event("dhcp.release6", a);
+
 				/* Immediately expire the lease */
+				a->released = true;
 				a->valid_until = now - 1;
 				break;
 
@@ -1408,6 +1430,14 @@ proceed:
 			apply_lease(a, true);
 		}
 
+		if (a && a->bound &&
+		    (hdr->msg_type == DHCPV6_MSG_SOLICIT || hdr->msg_type == DHCPV6_MSG_REQUEST ||
+		     hdr->msg_type == DHCPV6_MSG_RENEW || hdr->msg_type == DHCPV6_MSG_REBIND)) {
+			/* The client might use the binding again right after a RELEASE */
+			a->released = false;
+			ubus_bcast_dhcpv6_event("dhcp.lease6", a);
+		}
+
 		if (ia_response_len > buflen)
 			ia_response_len = buflen;
 
@@ -1436,7 +1466,7 @@ proceed:
 		break;
 	}
 
-	statefiles_write();
+	iface->update_statefile = true;
 
 out:
 	return response_len;

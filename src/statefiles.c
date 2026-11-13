@@ -648,6 +648,7 @@ bool statefiles_write()
 		return false;
 
 	statefiles_write_hosts(now);
+	ubus_bcast_hosts_update();
 
 	if (config.dhcp_cb) {
 		char *argv[2] = { config.dhcp_cb, NULL };

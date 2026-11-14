@@ -445,7 +445,7 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
 	avl_for_each_element(&interfaces, c, avl) {
-		if (iface == c || c->ndp != MODE_RELAY)
+		if (iface == c || c->ndp != MODE_RELAY || !c->master)
 			continue;
 
 		if (netlink_setup_proxy_neigh(addr, c->ifindex, add)) {

@@ -456,7 +456,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 		if (is_reserved_ipv6_iid(try))
 			continue;
 
-		if (config_find_lease_cfg_by_hostid(try))
+		if (config_find_lease_cfg_by_hostid(iface, try))
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {
@@ -1049,9 +1049,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		uint32_t reqhint = 0;
 		struct lease_cfg *lease_cfg;
 
-		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, ntohl(ia->iaid));
+		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(iface, duid, duid_len,
+								   ntohl(ia->iaid));
 		if (!lease_cfg)
-			lease_cfg = config_find_lease_cfg_by_mac(mac);
+			lease_cfg = config_find_lease_cfg_by_mac(iface, mac);
 
 		if (lease_cfg && lease_cfg->ignore6)
 			return -1;

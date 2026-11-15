@@ -320,6 +320,8 @@ struct lease_cfg {
 	struct ether_addr *macs;
 	size_t duid_count;
 	struct duid *duids;
+	size_t iface_count;		// 0 = any interface
+	char **ifaces;			// sorted interface names
 	uint32_t leasetime;		// duration of granted leases, UINT32_MAX = inf
 	char *hostname;
 	bool ignore4;
@@ -508,6 +510,7 @@ enum {
 	LEASE_CFG_ATTR_HOSTID,
 	LEASE_CFG_ATTR_LEASETIME,
 	LEASE_CFG_ATTR_NAME,
+	LEASE_CFG_ATTR_INTERFACE,
 	LEASE_CFG_ATTR_MAX
 };
 extern const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX];
@@ -573,12 +576,15 @@ int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *p
 bool odhcpd_hostname_valid(const char *name);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
-struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
+struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const struct interface *iface,
+							 const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
-struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
-struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
-struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);
+struct lease_cfg *config_find_lease_cfg_by_mac(const struct interface *iface, const uint8_t *mac);
+struct lease_cfg *config_find_lease_cfg_by_hostid(const struct interface *iface,
+						  const uint64_t hostid);
+struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct interface *iface,
+						const struct in_addr ipv4);
 int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba);
 
 #ifdef WITH_UBUS

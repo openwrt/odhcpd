@@ -381,8 +381,6 @@ static uint32_t calc_ra_lifetime(struct interface *iface, uint32_t maxival)
 	/* RFC4861 §6.2.1: zero, or at least MaxRtrAdvInterval */
 	if (lifetime > 0 && lifetime < maxival)
 		lifetime = maxival;
-	else if (lifetime > RouterLifetime)
-		lifetime = RouterLifetime;
 
 	return lifetime;
 }

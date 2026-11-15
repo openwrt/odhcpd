@@ -337,7 +337,7 @@ static void set_interface_defaults(struct interface *iface)
 	 * MaxRtrAdvInterval >= 9 seconds; otherwise, the Default is MaxRtrAdvInterval.
 	 */
 	iface->ra_mininterval = iface->ra_maxinterval/3;
-	iface->ra_lifetime = 3 * iface->ra_maxinterval; /* RFC4861: AdvDefaultLifetime: Default: 3 * MaxRtrAdvInterval */
+	iface->ra_lifetime = ND_PREFERRED_LIMIT; /* RFC9096 §3.4 */
 	iface->ra_dns = true;
 	iface->pio_update = false;
 	iface->update_statefile = true;
@@ -1600,8 +1600,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	/*
 	 * RFC4861: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 9000 seconds.
 	 * RFC8319: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 65535 seconds.
-	 * Default: 3 * MaxRtrAdvInterval
-	 * i.e. 3 * 65535 => 65535 seconds.
+	 * RFC9096: CE routers SHOULD set the Router Lifetime to ND_PREFERRED_LIMIT (the default).
 	 */
 	if ((c = tb[IFACE_ATTR_RA_LIFETIME])){
 		uint32_t ra_lifetime = blobmsg_get_u32(c);

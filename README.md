@@ -109,7 +109,7 @@ and may also receive information from ubus
 | ra_preference		|string	| medium| Route(r) preference [medium\|high\|low] |
 | ra_maxinterval	|integer| 600	| Maximum time allowed between sending unsolicited RA |
 | ra_mininterval	|integer| 200	| Minimum time allowed between sending unsolicited RA |
-| ra_lifetime		|integer| 2700	| Value to be placed in Router Lifetime field of RA. Not recommended to be more than 2700 (RFC9096). |
+| ra_lifetime		|integer| 2700	| Value to be placed in Router Lifetime field of RA (0: not a default router, otherwise `ra_maxinterval`-65535). Not recommended to be more than 2700 (RFC9096); some old hosts might not accept more than 9000 (RFC8319) |
 | ra_reachabletime	|integer| 0	| Reachable Time in milliseconds to be advertised in RA messages |
 | ra_retranstime	|integer| 0	| Retransmit Time in milliseconds to be advertised in RA messages |
 | ra_hoplimit		|integer| 0	| Current hoplimit to be advertised in RA messages |

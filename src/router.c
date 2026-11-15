@@ -647,7 +647,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	 * necessary to find longest adv interval necessary
 	 * for shortest lived prefix
 	 */
-	uint32_t lowest_found_lifetime = UINT32_MAX, highest_found_lifetime = 0, maxival, ra_lifetime;
+	uint32_t lowest_found_lifetime = UINT32_MAX, highest_found_lifetime = 0, maxival, ra_lifetime, opt_lifetime;
 	int msecs, hlim = iface->ra_hoplimit;
 	bool default_route = false;
 	bool valid_prefix = false;
@@ -867,8 +867,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	/* Calculate periodic transmit */
 	msecs = calc_adv_interval(iface, lowest_found_lifetime, &maxival);
 	ra_lifetime = calc_ra_lifetime(iface, maxival);
+
+	/* Not a default router: use the RFC8106/RFC8781 default for the options */
+	opt_lifetime = ra_lifetime ? ra_lifetime : 3 * maxival;
 	if (!highest_found_lifetime)
-		highest_found_lifetime = ra_lifetime;
+		highest_found_lifetime = opt_lifetime;
 
 	if (!iface->have_link_local) {
 		notice("Skip sending a RA on %s as no link local address is available", iface->name);
@@ -944,7 +947,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	if (iface->pref64_length) {
 		/* RFC 8781 § 4.1 rounding up lifetime to multiple of 8 */
-		uint16_t pref64_lifetime = ra_lifetime < (UINT16_MAX - 7) ? ra_lifetime + 7 : (UINT16_MAX - 7);
+		uint16_t pref64_lifetime = opt_lifetime < (UINT16_MAX - 7) ? opt_lifetime + 7 : (UINT16_MAX - 7);
 
 		pref64_sz = sizeof(*pref64);
 		pref64 = alloca(pref64_sz);

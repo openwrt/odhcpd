@@ -41,6 +41,27 @@ static void handle_solicit(void *addr, void *data, size_t len,
 
 static struct netevent_handler ndp_netevent_handler = { .cb = ndp_netevent_cb, };
 
+/* Is ifindex the device of a master interface in NDP relay mode, or with
+ * ifindex 0, is there any such master? The same device can carry several
+ * logical interfaces (e.g. wan and wan6). */
+static bool ndp_is_master_dev(int ifindex)
+{
+	struct interface *c;
+
+	avl_for_each_element(&interfaces, c, avl) {
+		if ((!ifindex || c->ifindex == ifindex) &&
+		    c->master && c->ndp == MODE_RELAY)
+			return true;
+	}
+
+	return false;
+}
+
+static bool ndp_have_master(void)
+{
+	return ndp_is_master_dev(0);
+}
+
 /* Initialize NDP-proxy */
 int ndp_init(void)
 {
@@ -441,11 +462,15 @@ static void setup_addr_for_relaying(struct in6_addr *addr, struct interface *ifa
 {
 	struct interface *c;
 	char ipbuf[INET6_ADDRSTRLEN];
+	bool have_master = ndp_have_master();
 
 	inet_ntop(AF_INET6, addr, ipbuf, sizeof(ipbuf));
 
+	/* With a master, addresses are only proxied there (downstream hosts
+	 * reach everything else via the router); without one, between all
+	 * relay interfaces as before */
 	avl_for_each_element(&interfaces, c, avl) {
-		if (iface == c || c->ndp != MODE_RELAY || !c->master)
+		if (iface == c || c->ndp != MODE_RELAY || (have_master && !c->master))
 			continue;
 
 		if (netlink_setup_proxy_neigh(addr, c->ifindex, add)) {

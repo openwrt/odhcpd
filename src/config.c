@@ -1945,6 +1945,13 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 			if (cmp)
 				return cmp;
 		}
+
+		if (lease_cfg1->duids[i].iaid_set != lease_cfg2->duids[i].iaid_set)
+			return lease_cfg1->duids[i].iaid_set - lease_cfg2->duids[i].iaid_set;
+
+		if (lease_cfg1->duids[i].iaid_set &&
+		    lease_cfg1->duids[i].iaid != lease_cfg2->duids[i].iaid)
+			return lease_cfg1->duids[i].iaid < lease_cfg2->duids[i].iaid ? -1 : 1;
 	}
 
 	if (lease_cfg1->mac_count != lease_cfg2->mac_count)

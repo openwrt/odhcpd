@@ -436,8 +436,10 @@ static void handle_solicit(void *addr, void *data, size_t len,
 	if (is_self_sent && !iface->master)
 		return; /* Looped back */
 
+	/* Look for the target downstream. Probing the master would only
+	 * teach us about upstream neighbours, which are not relayed. */
 	avl_for_each_element(&interfaces, c, avl) {
-		if (iface != c && c->ndp == MODE_RELAY &&
+		if (iface != c && c->ndp == MODE_RELAY && !c->master &&
 				(ns_is_dad || !c->external))
 			ping6(&req->nd_ns_target, c);
 	}

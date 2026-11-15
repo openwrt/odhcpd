@@ -299,6 +299,10 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 		netlink_dump_neigh_table(false);
 		_o_fallthrough;
 	case NETEV_ADDR6_ADD:
+		/* Only addresses downstream are relayed to the master */
+		if (ndp_is_master_dev(iface->ifindex))
+			break;
+
 		setup_addr_for_relaying(&info->addr.in6, iface, add);
 		break;
 	case NETEV_NEIGH6_DEL:
@@ -313,6 +317,13 @@ static void ndp_netevent_cb(unsigned long event, struct netevent_handler_info *i
 			}
 			break;
 		}
+
+		/* Neighbours on the master are reached via its on-link prefix.
+		 * Learning them would add a /128 route via the master for an
+		 * address that lives downstream whenever something upstream
+		 * answers a solicitation for it (e.g. an upstream ND proxy). */
+		if (ndp_is_master_dev(iface->ifindex))
+			break;
 
 		if (add &&
 		    !(info->neigh.state &

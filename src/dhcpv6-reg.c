@@ -272,9 +272,9 @@ void dhcpv6_reg_handle_inform(struct interface *iface, struct sockaddr_in6 *src,
 	}
 
 	/* Ignore hosts ignored for DHCPv6 */
-	lease_cfg = config_find_lease_cfg_by_duid(duid, duid_len);
+	lease_cfg = config_find_lease_cfg_by_duid(iface, duid, duid_len);
 	if (!lease_cfg && dhcpv6_duid_to_mac(duid, duid_len, mac))
-		lease_cfg = config_find_lease_cfg_by_mac(mac);
+		lease_cfg = config_find_lease_cfg_by_mac(iface, mac);
 
 	if (lease_cfg && lease_cfg->ignore6) {
 		debug("Ignoring ADDR-REG-INFORM for %s from ignored host %s on %s",

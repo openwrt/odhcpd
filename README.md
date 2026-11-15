@@ -132,12 +132,16 @@ and may also receive information from ubus
 ### Sections of type host (static leases)
 | Option		| Type	|Default| Description |
 | :-------------------- | :---- | :---- | :---------- |
+| interface		|list	|(none) | Logical OpenWrt interface(s) this static lease applies to; all interfaces if not set |
 | ip			|string	|(none) | IPv4 host address or `ignore` to ignore any DHCPv4 request from this host |
-| mac			|list\|string|(none) | HexadecimalMACaddress(es) |
-| duid			|list\|string|(none) | Hexadecimal DUID(s), or DUID%IAID(s) |
+| mac			|list	|(none) | Hexadecimal MAC address(es) |
+| duid			|list	|(none) | Hexadecimal DUID(s), or DUID%IAID(s) |
 | hostid		|string	|(none)	| IPv6 tokenised IID or `ignore` to ignore any DHCPv6 request from this host |
 | name			|string	|(none) | Hostname |
-| leasetime		|string	|(none) | DHCPv4/v6leasetime |
+| leasetime		|string	|(none) | DHCPv4/v6 lease time |
+
+A host can have several sections with the same `mac`/`duid`, e.g. one per VLAN with a
+different `ip` on each. If you do that, give each of them an `interface` list.
 
 
 ### Sections of type boot6

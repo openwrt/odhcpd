@@ -425,7 +425,7 @@ static bool dhcpv4_assign_random(struct interface *iface,
 
 		in_try.s_addr = htonl(try);
 
-		if (config_find_lease_cfg_by_ipv4(in_try))
+		if (config_find_lease_cfg_by_ipv4(iface, in_try))
 			continue;
 
 		if (dhcpv4_insert_lease(&iface->dhcpv4_leases, lease, in_try))
@@ -467,7 +467,7 @@ static bool dhcpv4_assign(struct interface *iface, struct dhcpv4_lease *lease,
 			debug("The requested IP address %s is outside the pool on %s",
 			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
 			      iface->ifname);
-		} else if (config_find_lease_cfg_by_ipv4(req_addr)) {
+		} else if (config_find_lease_cfg_by_ipv4(iface, req_addr)) {
 			debug("The requested IP address %s is statically assigned on %s",
 			      inet_ntop(AF_INET, &req_addr, ipv4_str, sizeof(ipv4_str)),
 			      iface->ifname);
@@ -547,14 +547,14 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		duid_len = clid_len - (1 + sizeof(iaid));
 
 		lease = find_lease_by_duid_iaid(iface, duid, duid_len, iaid);
-		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(duid, duid_len, iaid);
+		lease_cfg = config_find_lease_cfg_by_duid_and_iaid(iface, duid, duid_len, iaid);
 	}
 
 	if (!lease)
 		lease = dhcpv4_find_lease_by_hwaddr(iface, req_mac);
 
 	if (!lease_cfg)
-		lease_cfg = config_find_lease_cfg_by_mac(req_mac);
+		lease_cfg = config_find_lease_cfg_by_mac(iface, req_mac);
 
 	if (lease_cfg && lease_cfg->ignore4)
 		return NULL;

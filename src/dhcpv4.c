@@ -1361,8 +1361,9 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 
 static bool dhcpv4_setup_addresses(struct interface *iface)
 {
-	uint32_t pool_start = iface->dhcpv4_pool_start;
-	uint32_t pool_end = iface->dhcpv4_pool_end;
+	bool clamped = false;
+	char pool_start_str[INET_ADDRSTRLEN];
+	char pool_end_str[INET_ADDRSTRLEN];
 
 	iface->dhcpv4_start_ip.s_addr = INADDR_ANY;
 	iface->dhcpv4_end_ip.s_addr = INADDR_ANY;
@@ -1380,8 +1381,9 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 	for (size_t i = 0; i < iface->oaddrs4_cnt; i++) {
 		struct odhcpd_ipaddr *oaddr = &iface->oaddrs4[i];
 		uint32_t hostmask = ntohl(~oaddr->netmask);
-		char pool_start_str[INET_ADDRSTRLEN];
-		char pool_end_str[INET_ADDRSTRLEN];
+		uint32_t pool_start = iface->dhcpv4_pool_start;
+		uint32_t pool_limit = iface->dhcpv4_pool_limit;
+		uint32_t pool_end;
 
 		if (oaddr->prefix_len > DHCPV4_MAX_PREFIX_LEN)
 			continue;
@@ -1389,52 +1391,79 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 		if (addr_is_fr_ip(iface, &oaddr->addr.in))
 			continue;
 
-		/* pool_start outside range? */
-		if (pool_start && ((pool_start & hostmask) != pool_start))
-			continue;
+		/*
+		 * When 'start' is unset (or zero), pick the start from the subnet
+		 * size and apply 'limit' to it, if configured.
+		 */
+		if (!pool_start) {
+			uint32_t auto_end;
 
-		/* pool_end outside range? */
-		if (pool_end && ((pool_end & hostmask) != pool_end))
-			continue;
-
-		/* pool_end == broadcast? */
-		if (pool_end && (pool_end == hostmask))
-			continue;
-
-		if (!pool_start || !pool_end) {
 			switch (oaddr->prefix_len) {
 			case 28:
 				pool_start = 3;
-				pool_end = 12;
+				auto_end = 12;
 				break;
 			case 27:
 				pool_start = 10;
-				pool_end = 29;
+				auto_end = 29;
 				break;
 			case 26:
 				pool_start = 10;
-				pool_end = 59;
+				auto_end = 59;
 				break;
 			case 25:
 				pool_start = 20;
-				pool_end = 119;
+				auto_end = 119;
 				break;
 			default: /* <= 24 */
 				pool_start = 100;
-				pool_end = 249;
+				auto_end = 249;
 				break;
 			}
+
+			pool_end = pool_limit ? pool_start + pool_limit - 1 : auto_end;
+		} else {
+			pool_end = pool_start +
+				   (pool_limit ? pool_limit : DHCPV4_POOL_LIMIT_DEFAULT) - 1;
+		}
+
+		/* pool_start outside range or == broadcast? */
+		if (pool_start >= hostmask)
+			continue;
+
+		/*
+		 * A pool that doesn't fit the subnet is only a fallback: keep
+		 * the first one, and keep looking for an address it fits in.
+		 */
+		if (pool_end >= hostmask) {
+			if (clamped)
+				continue;
+
+			pool_end = hostmask - 1;
+			clamped = true;
+		} else {
+			clamped = false;
 		}
 
 		iface->dhcpv4_start_ip.s_addr = (oaddr->addr.in.s_addr & oaddr->netmask) | htonl(pool_start);
 		iface->dhcpv4_end_ip.s_addr = (oaddr->addr.in.s_addr & oaddr->netmask) | htonl(pool_end);
 		iface->dhcpv4_own_ip = *oaddr;
 
-		info("DHCPv4: providing dynamic/static leases on interface '%s', pool: %s - %s", iface->name,
-		     inet_ntop(AF_INET, &iface->dhcpv4_start_ip, pool_start_str, sizeof(pool_start_str)),
-		     inet_ntop(AF_INET, &iface->dhcpv4_end_ip, pool_end_str, sizeof(pool_end_str)));
-		return true;
+		if (!clamped)
+			break;
 	}
+
+	if (iface->dhcpv4_end_ip.s_addr == INADDR_ANY)
+		goto error;
+
+	if (clamped)
+		warn("DHCPv4: pool does not fit the subnet on interface '%s', limiting it to the last usable address",
+		     iface->name);
+
+	info("DHCPv4: providing dynamic/static leases on interface '%s', pool: %s - %s", iface->name,
+	     inet_ntop(AF_INET, &iface->dhcpv4_start_ip, pool_start_str, sizeof(pool_start_str)),
+	     inet_ntop(AF_INET, &iface->dhcpv4_end_ip, pool_end_str, sizeof(pool_end_str)));
+	return true;
 
 error:
 	warn("DHCPv4: no suitable networks on interface '%s'", iface->name);

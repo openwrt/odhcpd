@@ -80,6 +80,8 @@
 #define NTP_SUBOPTION_SRV_FQDN 3
 #define IPV6_ADDR_LEN 16
 
+#define DHCPV4_POOL_LIMIT_DEFAULT	150
+
 #define IN6_IS_ADDR_ULA(a) (((a)->s6_addr32[0] & htonl(0xfe000000)) == htonl(0xfc000000))
 
 #define ADDR_MATCH_PIO_FILTER(_addr, iface) (odhcpd_bmemcmp(&(_addr)->addr, \
@@ -442,7 +444,7 @@ struct interface {
 
 	// DHCPv4
 	uint32_t dhcpv4_pool_start;	// Offset to first dynamic address
-	uint32_t dhcpv4_pool_end;	// Offset to last dynamic address
+	uint32_t dhcpv4_pool_limit;	// Number of dynamic addresses, 0 if unset
 	struct in_addr dhcpv4_start_ip;
 	struct in_addr dhcpv4_end_ip;
 	struct odhcpd_ipaddr dhcpv4_own_ip;

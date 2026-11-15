@@ -97,8 +97,8 @@ and may also receive information from ubus
 | dns_service		|bool	| 1	| Announce the address of interface as DNS service if the list of dns is empty |
 | domain		|list	|`<local search domain>`| Search domains to announce |
 | leasetime		|string	| 12h	| DHCPv4 address leasetime |
-| start			|integer| 100	| DHCPv4 pool start |
-| limit			|integer| 150	| DHCPv4 pool size |
+| start			|integer| auto	| First pool address, as an offset from the network address. Default: 100 (less on /25 to /28) |
+| limit			|integer| auto	| Number of addresses in the pool, cut off at the end of the subnet. Default: 150 (less on /25 to /28 if `start` isn't set) |
 | max_preferred_lifetime|string	| 45m	| Upper limit for the preferred lifetime for a prefix |
 | max_valid_lifetime	|string	| 90m	| Upper limit for the valid lifetime for a prefix |
 | ra_default		|integer| 0	| Override default route - 0: default, 1: ignore no public address, 2: ignore all |

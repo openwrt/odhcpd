@@ -1601,6 +1601,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 	 * RFC4861: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 9000 seconds.
 	 * RFC8319: AdvDefaultLifetime: MUST be either zero or between MaxRtrAdvInterval and 65535 seconds.
 	 * RFC9096: CE routers SHOULD set the Router Lifetime to ND_PREFERRED_LIMIT (the default).
+	 * RFC4861 §6.2.1: A value of zero indicates that the router is not to be used as a default router.
 	 */
 	if ((c = tb[IFACE_ATTR_RA_LIFETIME])){
 		uint32_t ra_lifetime = blobmsg_get_u32(c);

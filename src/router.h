@@ -56,18 +56,6 @@ struct icmpv6_opt {
  *
  * Note: this is 16 bit Router Lifetime field in RA packets
  */
-/* RFC9096 defines recommended option lifetimes configuration values
- * ND_PREFERRED_LIMIT 2700
- * ND_VALID_LIMIT 5400
- *
- * RFC9096 §3.4
- * CE routers SHOULD set the "Router Lifetime" of Router Advertisement
- * (RA) messages to ND_PREFERRED_LIMIT.
- *
- * Note: while the RFC recommends SHOULD of ND_PREFERRED_LIMIT, this
- * define is used to cap values to a sane ceiling, i.e. ND_VALID_LIMIT.
- */
-#define RouterLifetime					5400
 /* RFC4861 §6.2.1 : AdvReachableTime :
  * MUST be no greater than 3,600,000 msec
  */

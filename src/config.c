@@ -106,7 +106,6 @@ enum {
 	IFACE_ATTR_DNR,
 	IFACE_ATTR_DNS_SERVICE,
 	IFACE_ATTR_DNS_DOMAIN_SEARCH,
-	IFACE_ATTR_DHCPV4_FORCERECONF,
 	IFACE_ATTR_DHCPV6_RAW,
 	IFACE_ATTR_DHCPV6_ASSIGNALL,
 	IFACE_ATTR_DHCPV6_PD_PREFERRED,
@@ -161,7 +160,6 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_DNR] = { .name = "dnr", .type = BLOBMSG_TYPE_ARRAY },
 	[IFACE_ATTR_DNS_SERVICE] = { .name = "dns_service", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DNS_DOMAIN_SEARCH] = { .name = "domain", .type = BLOBMSG_TYPE_ARRAY },
-	[IFACE_ATTR_DHCPV4_FORCERECONF] = { .name = "dhcpv4_forcereconf", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_RAW] = { .name = "dhcpv6_raw", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_DHCPV6_ASSIGNALL] = { .name ="dhcpv6_assignall", .type = BLOBMSG_TYPE_BOOL },
 	[IFACE_ATTR_DHCPV6_PD_PREFERRED] = { .name = "dhcpv6_pd_preferred", .type = BLOBMSG_TYPE_BOOL },
@@ -1482,9 +1480,6 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 			iface->dns_search_len += ds_len;
 		}
 	}
-
-	if ((c = tb[IFACE_ATTR_DHCPV4_FORCERECONF]))
-		iface->dhcpv4_forcereconf = blobmsg_get_bool(c);
 
 	if ((c = tb[IFACE_ATTR_DHCPV6_RAW])) {
 		void *tmp;

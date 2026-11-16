@@ -84,7 +84,6 @@ and may also receive information from ubus
 | dhcpv4		|string	|disabled| DHCPv4 service [disabled\|server] |
 | ndp			|string	|disabled| Neighbor Discovery Proxy [disabled\|relay\|hybrid] |
 | dynamicdhcp		|bool	| 1	| Dynamically create leases for DHCPv4 and DHCPv6 |
-| dhcpv4_forcereconf	|bool	| 0	| Force reconfiguration by sending force renew message even if the client did not include the force renew nonce capability option (RFC6704) |
 | dhcpv6_assignall	|bool	| 1	| Assign all viable DHCPv6 addresses in statefull mode; if disabled only the DHCPv6 address having the longest preferred lifetime is assigned |
 | dhcpv6_hostidlength	|integer| 12	| Host ID length of dynamically created leases, allowed values: 12 - 64 (bits). |
 | dhcpv6_na		|bool	| 1	| DHCPv6 stateful addressing hands out IA_NA - Internet Address - Network Address |

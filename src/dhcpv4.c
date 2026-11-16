@@ -83,7 +83,7 @@ static bool leases_require_fr(struct interface *iface, struct odhcpd_ipaddr *oad
 	struct odhcpd_ref_ip *fr_ip = NULL;
 
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
-		if (!lease->accept_fr_nonce && !iface->dhcpv4_forcereconf)
+		if (!lease->accept_fr_nonce)
 			continue;
 
 		if (lease->fr_ip)
@@ -1631,7 +1631,7 @@ static void dhcpv4_addrlist_change(struct interface *iface)
 
 	avl_for_each_element(&iface->dhcpv4_leases, lease, iface_avl) {
 		if (lease->bound && lease->fr_ip && !lease->fr_cnt) {
-			if (lease->accept_fr_nonce || iface->dhcpv4_forcereconf)
+			if (lease->accept_fr_nonce)
 				dhcpv4_fr_rand_delay(lease);
 			else
 				dhcpv4_fr_stop(lease);

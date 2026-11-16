@@ -1362,6 +1362,7 @@ static void dhcpv4_handle_dgram(void *addr, void *data, size_t len,
 static bool dhcpv4_setup_addresses(struct interface *iface)
 {
 	bool clamped = false;
+	uint32_t clamped_size = 0;
 	char pool_start_str[INET_ADDRSTRLEN];
 	char pool_end_str[INET_ADDRSTRLEN];
 
@@ -1432,14 +1433,15 @@ static bool dhcpv4_setup_addresses(struct interface *iface)
 			continue;
 
 		/*
-		 * A pool that doesn't fit the subnet is only a fallback: keep
-		 * the first one, and keep looking for an address it fits in.
+		 * Prefer a subnet that fits the whole pool. Otherwise, keep the
+		 * fallback that gives the biggest pool while looking for a fit.
 		 */
 		if (pool_end >= hostmask) {
-			if (clamped)
+			if (clamped && hostmask - pool_start <= clamped_size)
 				continue;
 
 			pool_end = hostmask - 1;
+			clamped_size = hostmask - pool_start;
 			clamped = true;
 		} else {
 			clamped = false;

@@ -280,10 +280,17 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	}
 }
 
+/* Return true if a FORCERENEW is scheduled, or the lease is marked for one */
+static bool dhcpv4_fr_pending(const struct dhcpv4_lease *lease)
+{
+	return lease->fr_timer.cb || lease->fr_ip;
+}
+
 static void dhcpv4_fr_stop(struct dhcpv4_lease *lease)
 {
 	uloop_timeout_cancel(&lease->fr_timer);
-	decr_ref_cnt_ip(&lease->fr_ip, lease->iface);
+	if (lease->fr_ip)
+		decr_ref_cnt_ip(&lease->fr_ip, lease->iface);
 	lease->fr_cnt = 0;
 	lease->fr_timer.cb = NULL;
 }
@@ -336,7 +343,7 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 	if (!lease)
 		return;
 
-	if (lease->fr_ip)
+	if (dhcpv4_fr_pending(lease))
 		dhcpv4_fr_stop(lease);
 
 	if (avl_find(&lease->iface->dhcpv4_leases, &lease->ipv4) == &lease->iface_avl) {
@@ -557,8 +564,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		lease = NULL;
 	}
 
-	if (lease && lease->bound && lease->fr_ip) {
-		*fr_serverid = lease->fr_ip->addr.addr.in.s_addr;
+	/* Stop a pending FORCERENEW, the client is already renewing */
+	if (lease && lease->bound && dhcpv4_fr_pending(lease)) {
+		if (lease->fr_ip)
+			*fr_serverid = lease->fr_ip->addr.addr.in.s_addr;
 		dhcpv4_fr_stop(lease);
 	}
 

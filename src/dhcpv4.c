@@ -178,7 +178,6 @@ enum {
 	IOV_FR_MESSAGE,
 	IOV_FR_AUTH,
 	IOV_FR_AUTH_BODY,
-	IOV_FR_SERVERID,
 	IOV_FR_END,
 	IOV_FR_PADDING,
 	IOV_FR_TOTAL
@@ -219,19 +218,15 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 		.code = DHCPV4_OPT_AUTHENTICATION,
 		.len = sizeof(fr_auth_body),
 	};
-	struct dhcpv4_option_u32 fr_serverid = {
-		.code = DHCPV4_OPT_SERVERID,
-		.len = sizeof(struct in_addr),
-		.data = lease->fr_ip->addr.addr.in.s_addr,
-	};
 	uint8_t fr_end = DHCPV4_OPT_END;
+	uint8_t secretbytes[64] = { 0 };
+	md5_ctx_t md5;
 
 	struct iovec iov[IOV_FR_TOTAL] = {
 		[IOV_FR_HEADER]		= { &fr, sizeof(fr) },
 		[IOV_FR_MESSAGE]	= { &fr_msg, sizeof(fr_msg) },
-		[IOV_FR_AUTH]		= { &fr_auth, 0 },
-		[IOV_FR_AUTH_BODY]	= { &fr_auth_body, 0 },
-		[IOV_FR_SERVERID]	= { &fr_serverid, 0 },
+		[IOV_FR_AUTH]		= { &fr_auth, sizeof(fr_auth) },
+		[IOV_FR_AUTH_BODY]	= { &fr_auth_body, sizeof(fr_auth_body) },
 		[IOV_FR_END]		= { &fr_end, sizeof(fr_end) },
 		[IOV_FR_PADDING]	= { NULL, 0 },
 	};
@@ -245,39 +240,29 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	odhcpd_urandom(&fr.xid, sizeof(fr.xid));
 	memcpy(fr.chaddr, lease->hwaddr, fr.hlen);
 
-	if (lease->accept_fr_nonce) {
-		uint8_t secretbytes[64] = { 0 };
-		md5_ctx_t md5;
+	fr_auth_body.replay[0] = htonl(time(NULL));
+	fr_auth_body.replay[1] = htonl(++serial);
+	dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
 
-		fr_auth_body.replay[0] = htonl(time(NULL));
-		fr_auth_body.replay[1] = htonl(++serial);
-		iov[IOV_FR_AUTH].iov_len = sizeof(fr_auth);
-		iov[IOV_FR_AUTH_BODY].iov_len = sizeof(fr_auth_body);
-		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
+	memcpy(secretbytes, lease->key, sizeof(lease->key));
+	for (size_t i = 0; i < sizeof(secretbytes); ++i)
+		secretbytes[i] ^= 0x36;
 
-		memcpy(secretbytes, lease->key, sizeof(lease->key));
-		for (size_t i = 0; i < sizeof(secretbytes); ++i)
-			secretbytes[i] ^= 0x36;
+	md5_begin(&md5);
+	md5_hash(secretbytes, sizeof(secretbytes), &md5);
+	for (size_t i = 0; i < ARRAY_SIZE(iov); i++)
+		md5_hash(iov[i].iov_base, iov[i].iov_len, &md5);
+	md5_end(fr_auth_body.key, &md5);
 
-		md5_begin(&md5);
-		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		for (size_t i = 0; i < ARRAY_SIZE(iov); i++)
-			md5_hash(iov[i].iov_base, iov[i].iov_len, &md5);
-		md5_end(fr_auth_body.key, &md5);
-
-		for (size_t i = 0; i < sizeof(secretbytes); ++i) {
-			secretbytes[i] ^= 0x36;
-			secretbytes[i] ^= 0x5c;
-		}
-
-		md5_begin(&md5);
-		md5_hash(secretbytes, sizeof(secretbytes), &md5);
-		md5_hash(fr_auth_body.key, sizeof(fr_auth_body.key), &md5);
-		md5_end(fr_auth_body.key, &md5);
-	} else {
-		iov[IOV_FR_SERVERID].iov_len = sizeof(fr_serverid);
-		dhcpv4_add_padding(iov, ARRAY_SIZE(iov));
+	for (size_t i = 0; i < sizeof(secretbytes); ++i) {
+		secretbytes[i] ^= 0x36;
+		secretbytes[i] ^= 0x5c;
 	}
+
+	md5_begin(&md5);
+	md5_hash(secretbytes, sizeof(secretbytes), &md5);
+	md5_hash(fr_auth_body.key, sizeof(fr_auth_body.key), &md5);
+	md5_end(fr_auth_body.key, &md5);
 
 	if (dhcpv4_send_reply(iov, ARRAY_SIZE(iov), (struct sockaddr *)&dest, sizeof(dest),
 			      &lease->iface->dhcpv4_event.uloop.fd) < 0) {

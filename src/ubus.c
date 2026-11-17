@@ -369,8 +369,8 @@ void ubus_apply_network(void)
 		bool matched = false;
 		struct interface *c, *tmp;
 		avl_for_each_element_safe(&interfaces, c, avl, tmp) {
-			char *f = memmem(c->upstream, c->upstream_len,
-					interface, strlen(interface) + 1);
+			char *f = c->upstream_len ? memmem(c->upstream, c->upstream_len,
+							   interface, strlen(interface) + 1) : NULL;
 			bool cmatched = !strcmp(interface, c->name);
 			matched |= cmatched;
 

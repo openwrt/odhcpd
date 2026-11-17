@@ -207,6 +207,7 @@ const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX] = {
 	[LEASE_CFG_ATTR_HOSTID] = { .name = "hostid", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_CFG_ATTR_LEASETIME] = { .name = "leasetime", .type = BLOBMSG_TYPE_STRING },
 	[LEASE_CFG_ATTR_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[LEASE_CFG_ATTR_INTERFACE] = { .name = "interface", .type = BLOBMSG_TYPE_ARRAY },
 };
 
 const struct uci_blob_param_list lease_cfg_attr_list = {
@@ -627,6 +628,11 @@ static bool parse_duid(struct duid *duid, struct blob_attr *c)
 	return true;
 }
 
+static int cmp_ifname(const void *a, const void *b)
+{
+	return strcmp(*(char * const *)a, *(char * const *)b);
+}
+
 int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 {
 	struct blob_attr *tb[LEASE_CFG_ATTR_MAX], *c;
@@ -635,6 +641,10 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 	struct ether_addr *macs;
 	int duid_count = 0;
 	struct duid *duids;
+	int iface_count = 0;
+	size_t ifnames_len = 0;
+	char **ifaces;
+	char *ifnames;
 
 	blobmsg_parse(lease_cfg_attrs, LEASE_CFG_ATTR_MAX, tb, blob_data(ba), blob_len(ba));
 
@@ -650,9 +660,27 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 			goto err;
 	}
 
+	if ((c = tb[LEASE_CFG_ATTR_INTERFACE])) {
+		struct blob_attr *cur;
+		size_t rem;
+
+		iface_count = blobmsg_check_array_len(c, BLOBMSG_TYPE_STRING, blob_raw_len(c));
+		if (iface_count < 0)
+			goto err;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			if (!*blobmsg_get_string(cur))
+				goto err;
+
+			ifnames_len += strlen(blobmsg_get_string(cur)) + 1;
+		}
+	}
+
 	lease_cfg = calloc_a(sizeof(*lease_cfg),
 			     &macs, mac_count * sizeof(*macs),
-			     &duids, duid_count * sizeof(*duids));
+			     &duids, duid_count * sizeof(*duids),
+			     &ifaces, iface_count * sizeof(*ifaces),
+			     &ifnames, ifnames_len);
 	if (!lease_cfg)
 		goto err;
 
@@ -680,6 +708,23 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 		blobmsg_for_each_attr(cur, c, rem)
 			if (!parse_duid(&duids[i++], cur))
 				goto err;
+	}
+
+	if ((c = tb[LEASE_CFG_ATTR_INTERFACE])) {
+		struct blob_attr *cur;
+		size_t rem;
+		int i = 0;
+
+		lease_cfg->iface_count = iface_count;
+		lease_cfg->ifaces = ifaces;
+
+		blobmsg_for_each_attr(cur, c, rem) {
+			ifaces[i++] = strcpy(ifnames, blobmsg_get_string(cur));
+			ifnames += strlen(ifnames) + 1;
+		}
+
+		/* Sorted, so that the order in the config doesn't change the key */
+		qsort(ifaces, iface_count, sizeof(*ifaces), cmp_ifname);
 	}
 
 	if ((c = tb[LEASE_CFG_ATTR_NAME])) {
@@ -1865,6 +1910,13 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 			if (cmp)
 				return cmp;
 		}
+
+		if (lease_cfg1->duids[i].iaid_set != lease_cfg2->duids[i].iaid_set)
+			return lease_cfg1->duids[i].iaid_set - lease_cfg2->duids[i].iaid_set;
+
+		if (lease_cfg1->duids[i].iaid_set &&
+		    lease_cfg1->duids[i].iaid != lease_cfg2->duids[i].iaid)
+			return lease_cfg1->duids[i].iaid < lease_cfg2->duids[i].iaid ? -1 : 1;
 	}
 
 	if (lease_cfg1->mac_count != lease_cfg2->mac_count)
@@ -1874,6 +1926,15 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 		cmp = memcmp(lease_cfg1->macs[i].ether_addr_octet,
 			     lease_cfg2->macs[i].ether_addr_octet,
 			     sizeof(lease_cfg1->macs[i].ether_addr_octet));
+		if (cmp)
+			return cmp;
+	}
+
+	if (lease_cfg1->iface_count != lease_cfg2->iface_count)
+		return lease_cfg1->iface_count - lease_cfg2->iface_count;
+
+	for (size_t i = 0; i < lease_cfg1->iface_count; i++) {
+		cmp = strcmp(lease_cfg1->ifaces[i], lease_cfg2->ifaces[i]);
 		if (cmp)
 			return cmp;
 	}
@@ -1936,70 +1997,122 @@ static void lease_cfg_update(_o_unused struct vlist_tree *tree, struct vlist_nod
 		lease_cfg_delete(lease_cfg_old);
 }
 
+enum lease_cfg_iface_match {
+	LEASE_CFG_IFACE_NONE,		/* lease cfg doesn't apply to the interface */
+	LEASE_CFG_IFACE_ANY,		/* lease cfg applies to any interface */
+	LEASE_CFG_IFACE_LISTED,		/* lease cfg lists the interface */
+};
+
+static enum lease_cfg_iface_match
+lease_cfg_iface_match(const struct lease_cfg *lease_cfg, const struct interface *iface)
+{
+	if (!lease_cfg->iface_count)
+		return LEASE_CFG_IFACE_ANY;
+
+	for (size_t i = 0; i < lease_cfg->iface_count; i++)
+		if (!strcmp(lease_cfg->ifaces[i], iface->name))
+			return LEASE_CFG_IFACE_LISTED;
+
+	return LEASE_CFG_IFACE_NONE;
+}
+
 /*
- * Either find:
- *  a) a lease cfg with an exact DUID/IAID match; or
- *  b) a lease cfg with a matching DUID and no IAID set
+ * Find the lease cfg for a DUID/IAID on an interface. In order of preference:
+ *  a) a lease cfg listing the interface, with an exact DUID/IAID match
+ *  b) a lease cfg listing the interface, with a matching DUID and no IAID set
+ *  c) a lease cfg for any interface, with an exact DUID/IAID match
+ *  d) a lease cfg for any interface, with a matching DUID and no IAID set
  */
 struct lease_cfg *
-config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, const uint32_t iaid)
+config_find_lease_cfg_by_duid_and_iaid(const struct interface *iface, const uint8_t *duid,
+				       const uint16_t len, const uint32_t iaid)
 {
 	struct lease_cfg *lease_cfg, *candidate = NULL;
+	unsigned candidate_rank = 0;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		enum lease_cfg_iface_match match = lease_cfg_iface_match(lease_cfg, iface);
+
+		if (match == LEASE_CFG_IFACE_NONE)
+			continue;
+
 		for (size_t i = 0; i < lease_cfg->duid_count; i++) {
+			unsigned rank;
+
 			if (lease_cfg->duids[i].len != len)
 				continue;
 
 			if (memcmp(lease_cfg->duids[i].id, duid, len))
 				continue;
 
-			if (!lease_cfg->duids[i].iaid_set) {
-				candidate = lease_cfg;
+			if (lease_cfg->duids[i].iaid_set && lease_cfg->duids[i].iaid != iaid)
 				continue;
-			}
 
-			if (lease_cfg->duids[i].iaid == iaid)
+			rank = (match == LEASE_CFG_IFACE_LISTED ? 2 : 0) +
+			       (lease_cfg->duids[i].iaid_set ? 1 : 0);
+			if (rank == 3)
 				return lease_cfg;
+
+			if (!candidate || rank > candidate_rank) {
+				candidate = lease_cfg;
+				candidate_rank = rank;
+			}
 		}
 	}
 
 	return candidate;
 }
 
-struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac)
+/* Find the lease cfg for a MAC on an interface, preferring one that lists the interface */
+struct lease_cfg *config_find_lease_cfg_by_mac(const struct interface *iface, const uint8_t *mac)
 {
-	struct lease_cfg *lease_cfg;
+	struct lease_cfg *lease_cfg, *candidate = NULL;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		enum lease_cfg_iface_match match = lease_cfg_iface_match(lease_cfg, iface);
+
+		if (match == LEASE_CFG_IFACE_NONE)
+			continue;
+
 		for (size_t i = 0; i < lease_cfg->mac_count; i++) {
-			if (!memcmp(lease_cfg->macs[i].ether_addr_octet, mac,
-				    sizeof(lease_cfg->macs[i].ether_addr_octet)))
+			if (memcmp(lease_cfg->macs[i].ether_addr_octet, mac,
+				   sizeof(lease_cfg->macs[i].ether_addr_octet)))
+				continue;
+
+			if (match == LEASE_CFG_IFACE_LISTED)
 				return lease_cfg;
+
+			if (!candidate)
+				candidate = lease_cfg;
+			break;
 		}
 	}
 
-	return NULL;
+	return candidate;
 }
 
-struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid)
+struct lease_cfg *config_find_lease_cfg_by_hostid(const struct interface *iface,
+						  const uint64_t hostid)
 {
 	struct lease_cfg *lease_cfg;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
-		if (lease_cfg->hostid == hostid)
+		if (lease_cfg->hostid == hostid &&
+		    lease_cfg_iface_match(lease_cfg, iface) != LEASE_CFG_IFACE_NONE)
 			return lease_cfg;
 	}
 
 	return NULL;
 }
 
-struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4)
+struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct interface *iface,
+						const struct in_addr ipv4)
 {
 	struct lease_cfg *lease_cfg;
 
 	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
-		if (lease_cfg->ipv4.s_addr == ipv4.s_addr)
+		if (lease_cfg->ipv4.s_addr == ipv4.s_addr &&
+		    lease_cfg_iface_match(lease_cfg, iface) != LEASE_CFG_IFACE_NONE)
 			return lease_cfg;
 	}
 

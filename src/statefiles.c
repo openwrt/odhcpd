@@ -9,6 +9,7 @@
  * SPDX-License-Identifier: GPL2.0-only
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -33,6 +34,9 @@
 #include "statefiles.h"
 
 static uint8_t statemd5[16];
+
+/* Set when a hosts file was moved or removed, to rewrite them without a lease change */
+static bool hosts_changed;
 
 struct write_ctxt {
 	FILE *fp;
@@ -478,21 +482,77 @@ static void statefiles_write_host_regs(struct write_ctxt *ctxt, bool hash)
 	}
 }
 
+/* The directory an interface's hosts file belongs in, NULL if it shouldn't have one */
+static const char *statefiles_hosts_dir(struct interface *iface)
+{
+	if (iface->ignore)
+		return NULL;
+
+	if (iface->dhcpv4 != MODE_SERVER && iface->dhcpv6 != MODE_SERVER)
+		return NULL;
+
+	return config.dhcp_hostsdir;
+}
+
+static void statefiles_remove_hosts(struct interface *iface)
+{
+	char *filename;
+
+	if (!iface->hosts_dir)
+		return;
+
+	if (iface->hosts_dirfd >= 0) {
+		filename = alloca(strlen(ODHCPD_HOSTS_FILE_PREFIX) + strlen(".") + strlen(iface->name) + 1);
+		sprintf(filename, "%s.%s", ODHCPD_HOSTS_FILE_PREFIX, iface->name);
+
+		if (unlinkat(iface->hosts_dirfd, filename, 0) < 0 && errno != ENOENT)
+			error("Failed to remove %s/%s: %m", iface->hosts_dir, filename);
+
+		close(iface->hosts_dirfd);
+		iface->hosts_dirfd = -1;
+	}
+
+	free(iface->hosts_dir);
+	iface->hosts_dir = NULL;
+	hosts_changed = true;
+}
+
+/* Move the hosts file to the directory it belongs in; with retry, reopen a failed directory */
+static void statefiles_place_hosts(struct interface *iface, bool retry)
+{
+	const char *dir = statefiles_hosts_dir(iface);
+
+	if (dir && iface->hosts_dir && !strcmp(dir, iface->hosts_dir) &&
+	    (iface->hosts_dirfd >= 0 || !retry))
+		return;
+
+	if (!dir && !iface->hosts_dir)
+		return;
+
+	statefiles_remove_hosts(iface);
+
+	if (!dir)
+		return;
+
+	iface->hosts_dir = strdup(dir);
+	if (!iface->hosts_dir)
+		return;
+
+	statefiles_setup_dirfd(dir, &iface->hosts_dirfd);
+	hosts_changed = true;
+}
+
 static void statefiles_write_hosts(time_t now)
 {
 	struct write_ctxt ctxt = { .now = now };
 
-	if (config.dhcp_hostsdir_fd < 0)
-		return;
-
 	avl_for_each_element(&interfaces, ctxt.iface, avl) {
-		if (ctxt.iface->ignore)
+		statefiles_place_hosts(ctxt.iface, false);
+
+		if (!ctxt.iface->hosts_dir || ctxt.iface->hosts_dirfd < 0)
 			continue;
 
-		if (ctxt.iface->dhcpv4 != MODE_SERVER && ctxt.iface->dhcpv6 != MODE_SERVER)
-			continue;
-
-		ctxt.fp = statefiles_open_tmp_file(config.dhcp_hostsdir_fd);
+		ctxt.fp = statefiles_open_tmp_file(ctxt.iface->hosts_dirfd);
 		if (!ctxt.fp)
 			continue;
 
@@ -527,7 +587,7 @@ static void statefiles_write_hosts(time_t now)
 			}
 		}
 
-		statefiles_finish_tmp_file(config.dhcp_hostsdir_fd, &ctxt.fp,
+		statefiles_finish_tmp_file(ctxt.iface->hosts_dirfd, &ctxt.fp,
 					   ODHCPD_HOSTS_FILE_PREFIX, ctxt.iface->name);
 	}
 }
@@ -709,11 +769,12 @@ bool statefiles_write()
 {
 	time_t now = odhcpd_time();
 
-	if (!statefiles_write_state(now))
+	if (!statefiles_write_state(now) && !hosts_changed)
 		return false;
 
 	statefiles_write_hosts(now);
 	ubus_bcast_hosts_update();
+	hosts_changed = false;
 
 	if (config.dhcp_cb) {
 		char *argv[2] = { config.dhcp_cb, NULL };
@@ -723,6 +784,24 @@ bool statefiles_write()
 	}
 
 	return true;
+}
+
+/* After a configuration reload: move hosts files whose directory changed, remove stale ones */
+void statefiles_reload(void)
+{
+	struct interface *iface;
+
+	avl_for_each_element(&interfaces, iface, avl)
+		statefiles_place_hosts(iface, true);
+
+	if (hosts_changed)
+		statefiles_write();
+}
+
+/* The interface goes away: so does its hosts file */
+void statefiles_close_interface(struct interface *iface)
+{
+	statefiles_remove_hosts(iface);
 }
 
 void statefiles_setup_dirfd(const char *path, int *dirfd)

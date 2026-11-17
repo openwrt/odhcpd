@@ -18,6 +18,10 @@ void statefiles_write_prefix_information(struct interface *iface);
 
 bool statefiles_write(void);
 
+void statefiles_reload(void);
+
+void statefiles_close_interface(struct interface *iface);
+
 void statefiles_setup_dirfd(const char *path, int *dirfdp);
 
 #endif /* _STATEFILES_H_ */

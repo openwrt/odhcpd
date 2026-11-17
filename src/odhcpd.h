@@ -220,7 +220,6 @@ struct config {
 	char *dhcp_statefile;
 	int dhcp_statedir_fd;
 	char *dhcp_hostsdir;
-	int dhcp_hostsdir_fd;
 
 	char *ra_piodir;
 	int ra_piodir_fd;
@@ -420,6 +419,10 @@ struct interface {
 	struct odhcpd_event dhcpv4_event;
 	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
+
+	// Hosts file runtime data
+	char *hosts_dir;			// Directory holding this interface's hosts file, if any
+	int hosts_dirfd;			// Directory fd for hosts_dir, -1 if it couldn't be opened
 
 	/* NOTE: everything from this point is zeroed on odhcpd_reload() */
 

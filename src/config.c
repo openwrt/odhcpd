@@ -46,7 +46,6 @@ struct config config = {
 	.dhcp_statefile = NULL,
 	.dhcp_statedir_fd = -1,
 	.dhcp_hostsdir = NULL,
-	.dhcp_hostsdir_fd = -1,
 	.ra_piodir = NULL,
 	.ra_piodir_fd = -1,
 	.uci_cfgdir = NULL,
@@ -378,6 +377,7 @@ static void close_interface(struct interface *iface)
 	/* make sure timer is not on the timeouts list before freeing */
 	uloop_timeout_cancel(&iface->timer_rs);
 
+	statefiles_close_interface(iface);
 	clean_interface(iface);
 	free(iface->oaddrs4);
 	free(iface->addr6);
@@ -501,7 +501,6 @@ static void set_config(struct uci_section *s)
 	} else {
 		statefiles_setup_dirfd(NULL, &config.dhcp_statedir_fd);
 	}
-	statefiles_setup_dirfd(config.dhcp_hostsdir, &config.dhcp_hostsdir_fd);
 	statefiles_setup_dirfd(config.ra_piodir, &config.ra_piodir_fd);
 }
 
@@ -1173,6 +1172,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_event.uloop.fd = -1;
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
+		iface->hosts_dirfd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
 		db_init_iface(iface);
 		avl_init(&iface->dhcpv4_leases, avl_ipv4_cmp, false, iface);
@@ -2460,6 +2460,8 @@ void odhcpd_reload(void)
 		} else
 			close_interface(i);
 	}
+
+	statefiles_reload();
 
 	uci_free_context(uci);
 }

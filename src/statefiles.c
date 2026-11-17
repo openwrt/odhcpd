@@ -491,7 +491,7 @@ static const char *statefiles_hosts_dir(struct interface *iface)
 	if (iface->dhcpv4 != MODE_SERVER && iface->dhcpv6 != MODE_SERVER)
 		return NULL;
 
-	return config.dhcp_hostsdir;
+	return iface->hostsdir ? iface->hostsdir : config.dhcp_hostsdir;
 }
 
 static void statefiles_remove_hosts(struct interface *iface)

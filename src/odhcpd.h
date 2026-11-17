@@ -527,6 +527,9 @@ struct interface {
 	size_t pio_cnt;
 	bool pio_update;
 
+	// Hosts file directory, overriding the global one
+	char *hostsdir;
+
 	// RFC8910
 	char *captive_portal_uri;
 	size_t captive_portal_uri_len;

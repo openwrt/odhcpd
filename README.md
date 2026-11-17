@@ -65,7 +65,7 @@ and may also receive information from ubus
 | maindhcp	| bool	| 0	| Use odhcpd as the main DHCPv4 service |
 | leasefile	| string|	| DHCPv4/6 lease file |
 | leasetrigger	| string|	| Lease trigger script |
-| hostsdir	| string|	| DHCPv4/v6 hostfile directory (one file per interface will be created) |
+| hostsdir	| string|	| DHCPv4/v6 hostfile directory (one file per interface will be created, see also `hostsdir` in sections of type dhcp) |
 | loglevel	|integer| 6	| Syslog level priority (0-7) |
 | piodir	|string |	| Directory to store IPv6 prefix information (to detect stale prefixes, see RFC9096, §3.5) |
 | enable_tz |bool | 1 | Toggle whether RFC4833 timezone information is sent to clients, if set in system  |
@@ -124,6 +124,7 @@ and may also receive information from ubus
 | upstream		|list	| -	| A list of interfaces which can be used as a source of configuration information (e.g. for NTP servers, if not set explicitly). |
 | captive_portal_uri |string | no  | The API URI to be sent in RFC8910 captive portal options, via DHCPv4, DHCPv6, and ICMPv6 RA. |
 | ipv6_only_preferred   |integer| 0 | Indicate that IPv6-only mode is preferred (RFC8925) [V6ONLY_WAIT time in seconds] |
+| hostsdir		|string	|`<hostsdir of the odhcpd section>`| Directory for this interface's hostfile (`odhcpd.hosts.<interface>`), e.g. to give it to a separate DNS server instance |
 
 [//]: # "dhcpv6_raw - string - not documented, may change when generic DHCPv4/DHCPv6 options are added"
 

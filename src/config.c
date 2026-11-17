@@ -137,6 +137,7 @@ enum {
 	IFACE_ATTR_CAPTIVE_PORTAL_URI,
 	IFACE_ATTR_IPV6_ONLY_PREFERRED,
 	IFACE_ATTR_DHCPV6_RELAY_SERVERS,
+	IFACE_ATTR_HOSTSDIR,
 	IFACE_ATTR_MAX
 };
 
@@ -191,6 +192,7 @@ static const struct blobmsg_policy iface_attrs[IFACE_ATTR_MAX] = {
 	[IFACE_ATTR_CAPTIVE_PORTAL_URI] = { .name = "captive_portal_uri", .type = BLOBMSG_TYPE_STRING },
 	[IFACE_ATTR_IPV6_ONLY_PREFERRED] = { .name = "ipv6_only_preferred", .type = BLOBMSG_TYPE_INT32 },
 	[IFACE_ATTR_DHCPV6_RELAY_SERVERS] = { .name = "dhcpv6_relay_servers", .type = BLOBMSG_TYPE_ARRAY },
+	[IFACE_ATTR_HOSTSDIR] = { .name = "hostsdir", .type = BLOBMSG_TYPE_STRING },
 };
 
 const struct uci_blob_param_list interface_attr_list = {
@@ -353,6 +355,7 @@ static void clean_interface(struct interface *iface)
 	free(iface->dhcpv6_relay_server_addrs6);
 	free(iface->dhcpv6_sntp);
 	free(iface->captive_portal_uri);
+	free(iface->hostsdir);
 	for (unsigned i = 0; i < iface->dnr_cnt; i++) {
 		free(iface->dnr[i].adn);
 		free(iface->dnr[i].addr4);
@@ -1368,6 +1371,15 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 				error("Invalid %s value configured for interface '%s'",
 				      iface_attrs[IFACE_ATTR_ROUTER].name, iface->name);
 			}
+		}
+	}
+
+	if ((c = tb[IFACE_ATTR_HOSTSDIR])) {
+		iface->hostsdir = strdup(blobmsg_get_string(c));
+		if (!iface->hostsdir) {
+			error("Out of memory parsing %s for interface '%s'",
+			      iface_attrs[IFACE_ATTR_HOSTSDIR].name, iface->name);
+			goto err;
 		}
 	}
 

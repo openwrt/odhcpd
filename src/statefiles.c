@@ -147,23 +147,23 @@ static inline bool statefiles_ra_pio_enabled(struct interface *iface)
 
 static bool statefiles_ra_pio_time(json_object *slaac_json, time_t *slaac_time)
 {
-	time_t pio_json_time, pio_time;
+	time_t pio_json_time, pio_time = 0;
 	json_object *time_json;
 
 	time_json = json_object_object_get(slaac_json, JSON_TIME);
 	if (!time_json)
-		return true;
+		goto out;
 
-	pio_json_time = (time_t) json_object_get_int64(time_json);
+	pio_json_time = (time_t)json_object_get_int64(time_json);
 	if (!pio_json_time)
-		return true;
+		goto out;
 
 	pio_time = statefiles_time_from_json(pio_json_time);
 	if (!pio_time)
 		return false;
 
+out:
 	*slaac_time = pio_time;
-
 	return true;
 }
 
@@ -188,6 +188,32 @@ static json_object *statefiles_load_ra_pio_json(struct interface *iface)
 		      json_util_get_last_err());
 
 	return json;
+}
+
+/*
+ * Compatibility code, TODO: remove after the next OpenWrt release.
+ *
+ * Older versions of odhcpd stored the interface address and the prefix
+ * length of the interface (e.g. 2001:db8::1/48) in the PIO file, instead of
+ * the prefix which is announced in the RA (2001:db8::/64). This converts such
+ * an entry to the announced prefix, and returns true if it was converted (the
+ * caller then makes sure the PIO file is rewritten in the new format).
+ *
+ * Each PIO file only needs to be converted once, so this function (and its
+ * caller in statefiles_read_prefix_information()) can be removed once an
+ * OpenWrt release which includes it has been made.
+ */
+static bool statefiles_ra_pio_convert(struct in6_addr *addr, uint64_t *len)
+{
+	struct in6_addr prefix = IN6ADDR_ANY_INIT;
+
+	odhcpd_bmemcpy(&prefix, addr, *len);
+	if (*len >= 64 && IN6_ARE_ADDR_EQUAL(&prefix, addr))
+		return false;
+
+	*addr = prefix;
+	*len = max(64, *len);
+	return true;
 }
 
 void statefiles_read_prefix_information(struct interface *iface)
@@ -223,10 +249,12 @@ void statefiles_read_prefix_information(struct interface *iface)
 	iface->pio_cnt = 0;
 	for (size_t i = 0; i < pio_cnt; i++) {
 		json_object *cur_pio_json, *length_json, *prefix_json;
+		char ipv6_str[INET6_ADDRSTRLEN];
+		struct in6_addr pio_addr;
 		const char *pio_str;
-		time_t pio_lt = 0;
+		uint64_t pio_len;
+		time_t pio_lt;
 		struct ra_pio *pio;
-		uint8_t pio_len;
 
 		cur_pio_json = json_object_array_get_idx(slaac_json, i);
 		if (!cur_pio_json)
@@ -243,17 +271,23 @@ void statefiles_read_prefix_information(struct interface *iface)
 		if (!prefix_json)
 			continue;
 
-		pio_len = (uint8_t) json_object_get_uint64(length_json);
+		pio_len = json_object_get_uint64(length_json);
 		pio_str = json_object_get_string(prefix_json);
-		pio = &iface->pios[iface->pio_cnt];
+		if (pio_len > 128 || !pio_str || inet_pton(AF_INET6, pio_str, &pio_addr) != 1)
+			continue;
 
-		inet_pton(AF_INET6, pio_str, &pio->prefix);
+		/* TODO: remove after the next OpenWrt release, see statefiles_ra_pio_convert() */
+		if (statefiles_ra_pio_convert(&pio_addr, &pio_len))
+			iface->pio_update = true;
+
+		pio = &iface->pios[iface->pio_cnt];
+		pio->prefix = pio_addr;
 		pio->length = pio_len;
 		pio->lifetime = pio_lt;
 		info("rfc9096: %s: load %s/%u (%u)",
 		     iface->ifname,
-		     pio_str,
-		     pio_len,
+		     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+		     pio->length,
 		     ra_pio_lifetime(pio, now));
 
 		iface->pio_cnt++;

@@ -458,37 +458,47 @@ struct nd_opt_capt_portal {
 };
 
 /* IPv6 RA PIOs */
-inline static int router_compare_pio_addr(const struct ra_pio *pio, const struct odhcpd_ipaddr *addr)
-{
-	uint8_t cmp_len = max(64, max(pio->length, addr->prefix_len));
 
-	return odhcpd_bmemcmp(&pio->prefix, &addr->addr.in6, cmp_len);
+/* The prefix announced in the PIO for an interface address */
+static void
+router_pio_prefix(const struct odhcpd_ipaddr *addr, struct in6_addr *prefix, uint8_t *prefix_len)
+{
+	memset(prefix, 0, sizeof(*prefix));
+	odhcpd_bmemcpy(prefix, &addr->addr.in6, addr->prefix_len);
+	*prefix_len = max(64, addr->prefix_len);
 }
 
-static struct ra_pio *router_find_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+inline static int
+router_compare_pio_addr(const struct ra_pio *pio, const struct in6_addr *addr, uint8_t prefix_len)
+{
+	uint8_t cmp_len = max(64, max(pio->length, prefix_len));
+
+	return odhcpd_bmemcmp(&pio->prefix, addr, cmp_len);
+}
+
+static struct ra_pio *
+router_find_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	for (size_t i = 0; i < iface->pio_cnt; i++) {
 		struct ra_pio *cur_pio = &iface->pios[i];
 
-		if (!router_compare_pio_addr(cur_pio, addr))
+		if (!router_compare_pio_addr(cur_pio, addr, prefix_len))
 			return cur_pio;
 	}
 
 	return NULL;
 }
 
-static void router_add_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr)
+static void
+router_add_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t prefix_len)
 {
 	char ipv6_str[INET6_ADDRSTRLEN];
 	struct ra_pio *new_pios, *pio;
 
-	pio = router_find_ra_pio(iface, addr);
+	pio = router_find_ra_pio(iface, addr, prefix_len);
 	if (pio) {
-		if (memcmp(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr)) != 0 ||
-		    pio->length != addr->prefix_len)
-		{
+		if (pio->length != prefix_len ||
+		    odhcpd_bmemcmp(&pio->prefix, addr, prefix_len)) {
 			char new_ipv6_str[INET6_ADDRSTRLEN];
 
 			iface->pio_update = true;
@@ -496,11 +506,12 @@ static void router_add_ra_pio(struct interface *iface,
 			     iface->ifname,
 			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
 			     pio->length,
-			     inet_ntop(AF_INET6, &addr->addr.in6, new_ipv6_str, sizeof(new_ipv6_str)),
-			     addr->prefix_len);
+			     inet_ntop(AF_INET6, addr, new_ipv6_str, sizeof(new_ipv6_str)),
+			     prefix_len);
 
-			memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-			pio->length = addr->prefix_len;
+			memset(&pio->prefix, 0, sizeof(pio->prefix));
+			odhcpd_bmemcpy(&pio->prefix, addr, prefix_len);
+			pio->length = prefix_len;
 		}
 
 		if (pio->lifetime) {
@@ -521,12 +532,11 @@ static void router_add_ra_pio(struct interface *iface,
 		return;
 
 	iface->pios = new_pios;
-	pio = &iface->pios[iface->pio_cnt];
-	iface->pio_cnt++;
+	pio = &iface->pios[iface->pio_cnt++];
+	memset(pio, 0, sizeof(*pio));
 
-	memcpy(&pio->prefix, &addr->addr.in6, sizeof(struct in6_addr));
-	pio->length = addr->prefix_len;
-	pio->lifetime = 0;
+	odhcpd_bmemcpy(&pio->prefix, addr, prefix_len);
+	pio->length = prefix_len;
 
 	iface->pio_update = true;
 	info("rfc9096: %s: add %s/%u",
@@ -603,11 +613,11 @@ static void router_clear_expired_ra_pio(time_t now,
 	}
 }
 
-static void router_stale_ra_pio(struct interface *iface,
-	struct odhcpd_ipaddr *addr,
-	time_t now)
+static void
+router_stale_ra_pio(struct interface *iface, const struct in6_addr *addr,
+		    uint8_t prefix_len, time_t now)
 {
-	struct ra_pio *pio = router_find_ra_pio(iface, addr);
+	struct ra_pio *pio = router_find_ra_pio(iface, addr, prefix_len);
 	char ipv6_str[INET6_ADDRSTRLEN];
 
 	if (!pio || pio->lifetime)
@@ -629,6 +639,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct odhcpd_ipaddr *addrs = NULL;
 	struct adv_msg adv;
 	struct nd_opt_prefix_info *pfxs = NULL;
+	struct in6_addr *pfx_prefixes = NULL;
+	bool *pfx_valid = NULL;
 	struct nd_opt_dns_server *dns = NULL;
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
@@ -722,9 +734,11 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			bool pio_found = false;
 
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
-				struct odhcpd_ipaddr *cur_addr = &addrs[j];
+				struct in6_addr prefix;
+				uint8_t prefix_len;
 
-				if (!router_compare_pio_addr(cur_pio, cur_addr)) {
+				router_pio_prefix(&addrs[j], &prefix, &prefix_len);
+				if (!router_compare_pio_addr(cur_pio, &prefix, prefix_len)) {
 					pio_found = true;
 					break;
 				}
@@ -746,12 +760,19 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	if (total_addr_cnt > 0) {
 		pfxs = alloca(total_addr_cnt * sizeof(*pfxs));
 		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
+		pfx_prefixes = alloca(total_addr_cnt * sizeof(*pfx_prefixes));
+		pfx_valid = alloca(total_addr_cnt * sizeof(*pfx_valid));
 	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
 		struct nd_opt_prefix_info *p = NULL;
+		struct in6_addr prefix;
+		uint8_t prefix_len;
 		uint32_t preferred_lt = 0;
 		uint32_t valid_lt = 0;
+		bool new_pfx = false;
+		bool stale;
+		size_t idx;
 
 		if (addr->prefix_len > 96 || (i < valid_addr_cnt && addr->valid_lt <= (uint32_t)now)) {
 			info("Address %s (prefix %d, valid-lifetime %u) not suitable as RA prefix on %s",
@@ -767,15 +788,25 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			continue; /* PIO filtered out of this RA */
 		}
 
+		/* Addresses in the same prefix share one PIO */
+		router_pio_prefix(addr, &prefix, &prefix_len);
 		for (size_t j = 0; j < pfxs_cnt; ++j) {
-			if (addr->prefix_len == pfxs[j].nd_opt_pi_prefix_len &&
-			    !odhcpd_bmemcmp(&pfxs[j].nd_opt_pi_prefix,
-					    &addr->addr.in6, addr->prefix_len))
+			if (pfxs[j].nd_opt_pi_prefix_len == prefix_len &&
+			    IN6_ARE_ADDR_EQUAL(&pfx_prefixes[j], &prefix)) {
 				p = &pfxs[j];
+				break;
+			}
 		}
 
-		if (!p)
-			p = &pfxs[pfxs_cnt++];
+		if (p) {
+			idx = p - pfxs;
+		} else {
+			idx = pfxs_cnt++;
+			p = &pfxs[idx];
+			pfx_prefixes[idx] = prefix;
+			pfx_valid[idx] = false;
+			new_pfx = true;
+		}
 
 		if (addr->preferred_lt > (uint32_t)now) {
 			preferred_lt = TIME_LEFT(addr->preferred_lt, now);
@@ -812,11 +843,18 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				highest_found_lifetime = valid_lt;
 		}
 
-		odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
-				(iface->ra_advrouter) ? 128 : addr->prefix_len);
+		stale = (i >= valid_addr_cnt || !preferred_lt);
+
+		if (new_pfx || (!stale && !pfx_valid[idx])) {
+			/* With ra_advrouter, announce an address which is still valid */
+			memset(&p->nd_opt_pi_prefix, 0, sizeof(p->nd_opt_pi_prefix));
+			odhcpd_bmemcpy(&p->nd_opt_pi_prefix, &addr->addr.in6,
+				       (iface->ra_advrouter) ? 128 : addr->prefix_len);
+		}
+
 		p->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
 		p->nd_opt_pi_len = 4;
-		p->nd_opt_pi_prefix_len = (addr->prefix_len < 64) ? 64 : addr->prefix_len;
+		p->nd_opt_pi_prefix_len = prefix_len;
 		/* RFC9762 DHCPv6-PD Preferred Flag § 6:
 		 * Routers SHOULD set the P flag to zero by default...
 		 */
@@ -837,26 +875,34 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		if (iface->ra_advrouter)
 			// RFC6275, §7.2
 			p->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_RADDR;
-		if (i >= valid_addr_cnt || !preferred_lt) {
-			/*
-			 * RFC9096 § 3.5
-			 *
-			 * - Any prefixes that were previously advertised by the CE router
-			 *   via PIOs in RA messages, but that have now become stale, MUST
-			 *   be advertised with PIOs that have the "Valid Lifetime" and the
-			 *   "Preferred Lifetime" set to 0 and the "A" and "L" bits
-			 *   unchanged.
-			 */
-			p->nd_opt_pi_preferred_time = 0;
-			p->nd_opt_pi_valid_time = 0;
+		/*
+		 * RFC9096 § 3.5
+		 *
+		 * - Any prefixes that were previously advertised by the CE router
+		 *   via PIOs in RA messages, but that have now become stale, MUST
+		 *   be advertised with PIOs that have the "Valid Lifetime" and the
+		 *   "Preferred Lifetime" set to 0 and the "A" and "L" bits
+		 *   unchanged.
+		 *
+		 * A prefix is only stale if none of its addresses is still valid
+		 * (e.g. an old, deprecated address shouldn't deprecate the prefix
+		 * if the interface has a new address in the same prefix), so the
+		 * lifetimes stay 0 unless a valid address sets them.
+		 */
+		if (stale)
+			continue;
 
-			router_stale_ra_pio(iface, addr, now);
-		} else {
-			p->nd_opt_pi_preferred_time = htonl(preferred_lt);
-			p->nd_opt_pi_valid_time = htonl(valid_lt);
+		p->nd_opt_pi_preferred_time = htonl(max(ntohl(p->nd_opt_pi_preferred_time), preferred_lt));
+		p->nd_opt_pi_valid_time = htonl(max(ntohl(p->nd_opt_pi_valid_time), valid_lt));
+		pfx_valid[idx] = true;
+	}
 
-			router_add_ra_pio(iface, addr);
-		}
+	/* Update the stored PIOs now that the state of each prefix is known */
+	for (size_t i = 0; i < pfxs_cnt; i++) {
+		if (pfx_valid[i])
+			router_add_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len);
+		else
+			router_stale_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len, now);
 	}
 
 	router_clear_duplicated_ra_pio(iface);

@@ -4,75 +4,32 @@ on:
   pull_request:
   push:
 
-env:
-  archs: "aarch64 arm mips mips64 powerpc powerpc64 riscv64 x86_64"
-  variants: "basic DHCPv4 UBUS full"
+permissions:
+  contents: read
 
 jobs:
-  build:
-    name: Build ${{ matrix.arch }}
+  sdk:
+    name: SDK
+    uses: openwrt/actions-shared-workflows/.github/workflows/sdk-package-build.yml@main
+    with:
+      package: odhcpd
+      packages: odhcpd odhcpd-ipv6only
+
+  native:
+    name: Build native ${{ matrix.variant }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: aarch64
-            gcc: /usr/bin/aarch64-linux-gnu-gcc
-            packages: gcc-aarch64-linux-gnu
-          - arch: arm
-            gcc: /usr/bin/arm-linux-gnueabi-gcc
-            packages: gcc-arm-linux-gnueabi
-          - arch: mips
-            gcc: /usr/bin/mips-linux-gnu-gcc
-            packages: gcc-mips-linux-gnu
-          - arch: mips64
-            gcc: /usr/bin/mips64-linux-gnuabi64-gcc
-            packages: gcc-mips64-linux-gnuabi64
-          - arch: powerpc
-            gcc: /usr/bin/powerpc-linux-gnu-gcc
-            packages: gcc-powerpc-linux-gnu
-          - arch: powerpc64
-            gcc: /usr/bin/powerpc64-linux-gnu-gcc
-            packages: gcc-powerpc64-linux-gnu
-          - arch: riscv64
-            gcc: /usr/bin/riscv64-linux-gnu-gcc
-            packages: gcc-riscv64-linux-gnu
-          - arch: x86_64
-            gcc: /usr/bin/x86_64-linux-gnu-gcc
-            packages: gcc-x86-64-linux-gnu
-    outputs:
-      size-aarch64-basic: ${{ steps.basic.outputs.size_aarch64 }}
-      size-aarch64-dhcpv4: ${{ steps.dhcpv4.outputs.size_aarch64 }}
-      size-aarch64-ubus: ${{ steps.ubus.outputs.size_aarch64 }}
-      size-aarch64-full: ${{ steps.full.outputs.size_aarch64 }}
-      size-arm-basic: ${{ steps.basic.outputs.size_arm }}
-      size-arm-dhcpv4: ${{ steps.dhcpv4.outputs.size_arm }}
-      size-arm-ubus: ${{ steps.ubus.outputs.size_arm }}
-      size-arm-full: ${{ steps.full.outputs.size_arm }}
-      size-mips-basic: ${{ steps.basic.outputs.size_mips }}
-      size-mips-dhcpv4: ${{ steps.dhcpv4.outputs.size_mips }}
-      size-mips-ubus: ${{ steps.ubus.outputs.size_mips }}
-      size-mips-full: ${{ steps.full.outputs.size_mips }}
-      size-mips64-basic: ${{ steps.basic.outputs.size_mips64 }}
-      size-mips64-dhcpv4: ${{ steps.dhcpv4.outputs.size_mips64 }}
-      size-mips64-ubus: ${{ steps.ubus.outputs.size_mips64 }}
-      size-mips64-full: ${{ steps.full.outputs.size_mips64 }}
-      size-powerpc-basic: ${{ steps.basic.outputs.size_powerpc }}
-      size-powerpc-dhcpv4: ${{ steps.dhcpv4.outputs.size_powerpc }}
-      size-powerpc-ubus: ${{ steps.ubus.outputs.size_powerpc }}
-      size-powerpc-full: ${{ steps.full.outputs.size_powerpc }}
-      size-powerpc64-basic: ${{ steps.basic.outputs.size_powerpc64 }}
-      size-powerpc64-dhcpv4: ${{ steps.dhcpv4.outputs.size_powerpc64 }}
-      size-powerpc64-ubus: ${{ steps.ubus.outputs.size_powerpc64 }}
-      size-powerpc64-full: ${{ steps.full.outputs.size_powerpc64 }}
-      size-riscv64-basic: ${{ steps.basic.outputs.size_riscv64 }}
-      size-riscv64-dhcpv4: ${{ steps.dhcpv4.outputs.size_riscv64 }}
-      size-riscv64-ubus: ${{ steps.ubus.outputs.size_riscv64 }}
-      size-riscv64-full: ${{ steps.full.outputs.size_riscv64 }}
-      size-x86_64-basic: ${{ steps.basic.outputs.size_x86_64 }}
-      size-x86_64-dhcpv4: ${{ steps.dhcpv4.outputs.size_x86_64 }}
-      size-x86_64-ubus: ${{ steps.ubus.outputs.size_x86_64 }}
-      size-x86_64-full: ${{ steps.full.outputs.size_x86_64 }}
+          - variant: basic
+            options: ""
+          - variant: DHCPv4
+            options: -DDHCPV4_SUPPORT=ON
+          - variant: UBUS
+            options: -DUBUS=ON
+          - variant: full
+            options: -DDHCPV4_SUPPORT=ON -DUBUS=ON
     steps:
       - name: Checkout odhcpd
         uses: actions/checkout@v5
@@ -107,11 +64,6 @@ jobs:
           repository: openwrt/uci
           path: depends/uci
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install ${{ matrix.packages }}
-
       - name: Prepare build
         run: |
           mkdir -p ${GITHUB_WORKSPACE}/build
@@ -120,7 +72,6 @@ jobs:
         working-directory: depends/json-c
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_SHARED_LIBS=ON \
             -DBUILD_STATIC_LIBS=OFF \
@@ -135,7 +86,6 @@ jobs:
         working-directory: depends/libnl-tiny
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             --install-prefix ${GITHUB_WORKSPACE}/build \
             -B . -S .
@@ -146,7 +96,6 @@ jobs:
         working-directory: depends/libubox
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
             -DBUILD_EXAMPLES=OFF \
@@ -159,7 +108,6 @@ jobs:
         working-directory: depends/ubus
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
             -DBUILD_STATIC=OFF \
@@ -173,7 +121,6 @@ jobs:
         working-directory: depends/uci
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
             -DBUILD_LUA=OFF \
             -DBUILD_STATIC=OFF \
@@ -182,122 +129,24 @@ jobs:
           make
           make install
 
-      - id: basic
-        name: Build odhcpd (basic)
+      - name: Build odhcpd
         env:
-          BUILD_DIR: build/odhcpd-basic
+          BUILD_DIR: build/odhcpd-${{ matrix.variant }}
         run: |
           cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
             -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
+            ${{ matrix.options }} \
             -B $BUILD_DIR -S .
           make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
+          {
+            echo "| variant | size |"
+            echo "| :--- | ---: |"
+            echo "| ${{ matrix.variant }} | $( stat -c %s $BUILD_DIR/odhcpd ) |"
+          } >> $GITHUB_STEP_SUMMARY
 
-      - id: dhcpv4
-        name: Build odhcpd (DHCPv4)
-        env:
-          BUILD_DIR: build/odhcpd-dhcpv4
-        run: |
-          cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DDHCPV4_SUPPORT=ON \
-            -B $BUILD_DIR -S .
-          make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
-
-      - id: ubus
-        name: Build odhcpd (UBUS)
-        env:
-          BUILD_DIR: build/odhcpd-ubus
-        run: |
-          cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DUBUS=ON \
-            -B $BUILD_DIR -S .
-          make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
-
-      - id: full
-        name: Build odhcpd (full)
-        env:
-          BUILD_DIR: build/odhcpd-full
-        run: |
-          cmake \
-            -DCMAKE_C_COMPILER=${{ matrix.gcc }} \
-            -DCMAKE_PREFIX_PATH=${GITHUB_WORKSPACE}/build \
-            -DDHCPV4_SUPPORT=ON \
-            -DUBUS=ON \
-            -B $BUILD_DIR -S .
-          make -C $BUILD_DIR
-          echo "size_${{ matrix.arch }}=$( find $BUILD_DIR -type f -name odhcpd -printf '%s' )" >> $GITHUB_OUTPUT
-
-      - name: Upload binaries
+      - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: odhcpd-${{ matrix.arch }}-binaries
-          path: |
-            build/odhcpd-*/odhcpd
+          name: odhcpd-native-${{ matrix.variant }}
+          path: build/odhcpd-${{ matrix.variant }}/odhcpd
           if-no-files-found: error
-
-  summary:
-    name: Sizes
-    needs: [build]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Sizes summary
-        env:
-          size_aarch64_basic: ${{needs.build.outputs.size-aarch64-basic}}
-          size_aarch64_dhcpv4: ${{needs.build.outputs.size-aarch64-dhcpv4}}
-          size_aarch64_ubus: ${{needs.build.outputs.size-aarch64-ubus}}
-          size_aarch64_full: ${{needs.build.outputs.size-aarch64-full}}
-          size_arm_basic: ${{needs.build.outputs.size-arm-basic}}
-          size_arm_dhcpv4: ${{needs.build.outputs.size-arm-dhcpv4}}
-          size_arm_ubus: ${{needs.build.outputs.size-arm-ubus}}
-          size_arm_full: ${{needs.build.outputs.size-arm-full}}
-          size_mips_basic: ${{needs.build.outputs.size-mips-basic}}
-          size_mips_dhcpv4: ${{needs.build.outputs.size-mips-dhcpv4}}
-          size_mips_ubus: ${{needs.build.outputs.size-mips-ubus}}
-          size_mips_full: ${{needs.build.outputs.size-mips-full}}
-          size_mips64_basic: ${{needs.build.outputs.size-mips64-basic}}
-          size_mips64_dhcpv4: ${{needs.build.outputs.size-mips64-dhcpv4}}
-          size_mips64_ubus: ${{needs.build.outputs.size-mips64-ubus}}
-          size_mips64_full: ${{needs.build.outputs.size-mips64-full}}
-          size_powerpc_basic: ${{needs.build.outputs.size-powerpc-basic}}
-          size_powerpc_dhcpv4: ${{needs.build.outputs.size-powerpc-dhcpv4}}
-          size_powerpc_ubus: ${{needs.build.outputs.size-powerpc-ubus}}
-          size_powerpc_full: ${{needs.build.outputs.size-powerpc-full}}
-          size_powerpc64_basic: ${{needs.build.outputs.size-powerpc64-basic}}
-          size_powerpc64_dhcpv4: ${{needs.build.outputs.size-powerpc64-dhcpv4}}
-          size_powerpc64_ubus: ${{needs.build.outputs.size-powerpc64-ubus}}
-          size_powerpc64_full: ${{needs.build.outputs.size-powerpc64-full}}
-          size_riscv64_basic: ${{needs.build.outputs.size-riscv64-basic}}
-          size_riscv64_dhcpv4: ${{needs.build.outputs.size-riscv64-dhcpv4}}
-          size_riscv64_ubus: ${{needs.build.outputs.size-riscv64-ubus}}
-          size_riscv64_full: ${{needs.build.outputs.size-riscv64-full}}
-          size_x86_64_basic: ${{needs.build.outputs.size-x86_64-basic}}
-          size_x86_64_dhcpv4: ${{needs.build.outputs.size-x86_64-dhcpv4}}
-          size_x86_64_ubus: ${{needs.build.outputs.size-x86_64-ubus}}
-          size_x86_64_full: ${{needs.build.outputs.size-x86_64-full}}
-        run: |
-          echo "### ${GITHUB_WORKFLOW} sizes :floppy_disk:" >> $GITHUB_STEP_SUMMARY
-
-          header="| arch |"
-          table="| :---: |"
-          for variant in ${{ env.variants }}; do
-            header="$header $variant |"
-            table="$table :---: |"
-          done
-          echo $header >> $GITHUB_STEP_SUMMARY
-          echo $table >> $GITHUB_STEP_SUMMARY
-
-          for arch in ${{ env.archs }}; do
-            row="| $arch | "
-            for variant in $variants; do
-              value=size_${arch}_$(echo "$variant" | tr "[:upper:]" "[:lower:]")
-              row="$row ${!value} |"
-            done
-            echo $row >> $GITHUB_STEP_SUMMARY
-          done

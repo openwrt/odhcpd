@@ -66,8 +66,12 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 
-	if (a->bound && (a->flags & OAF_DHCPV6_PD))
+	if (a->bound && (a->flags & OAF_DHCPV6_PD)) {
 		apply_lease(a, false);
+		/* recheck the registered addresses */
+		if (a->iface)
+			a->iface->addr6_db_check = true;
+	}
 
 	if (a->fr_cnt)
 		stop_reconf(a);
@@ -514,6 +518,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			dhcpv6_free_lease(c);
 	}
 
+	iface->addr6_db_check = true;
 	iface->update_statefile = true;
 }
 
@@ -573,6 +578,9 @@ static void valid_until_cb(struct uloop_timeout *event)
 				dhcpv6_free_lease(a);
 			}
 		}
+
+		if (dhcpv6_reg_timer(iface, now))
+			update_statefile = true;
 	}
 
 	if (update_statefile)

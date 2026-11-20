@@ -419,6 +419,32 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 	return false;
 }
 
+/* Has this IID been registered (e.g. RFC9686 §4.2.1) */
+static bool iid_registered(struct interface *iface, uint64_t iid, time_t now)
+{
+	struct odhcpd_ipaddr *addrs6 = iface->addr6;
+	size_t m;
+
+	if (avl_is_empty(&iface->addr6_db))
+		return false;
+
+	m = get_preferred_addr(addrs6, iface->addr6_len);
+
+	for (size_t i = 0; i < iface->addr6_len; i++) {
+		struct in6_addr addr6;
+
+		if (!valid_addr(&addrs6[i], now) || ADDR_MATCH_PIO_FILTER(&addrs6[i], iface) ||
+		    !ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs6))
+			continue;
+
+		addr6 = in6_from_prefix_and_iid(&addrs6[i], iid);
+		if (addr6_rec_find(iface, &addr6))
+			return true;
+	}
+
+	return false;
+}
+
 static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 {
 	struct dhcpv6_lease *c;
@@ -427,6 +453,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 	uint64_t pool_size = pool_end - pool_start + 1;
 	uint64_t try;
 	unsigned short xsubi[3] = { 0 };
+	time_t now = odhcpd_time();
 
 	/* Preconfigured assignment by static lease */
 	if (a->assigned_host_id) {
@@ -455,6 +482,9 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 			continue;
 
 		if (config_find_lease_cfg_by_hostid(try))
+			continue;
+
+		if (iid_registered(iface, try, now))
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {

@@ -1912,6 +1912,16 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 		lease_cfg_delete_dhcpv6_leases(lease_cfg_old);
 	}
 
+	if (lease_cfg_old->ignore4 != lease_cfg_new->ignore4) {
+		lease_cfg_old->ignore4 = lease_cfg_new->ignore4;
+		dhcpv4_free_lease(lease_cfg_old->dhcpv4_lease);
+	}
+
+	if (lease_cfg_old->ignore6 != lease_cfg_new->ignore6) {
+		lease_cfg_old->ignore6 = lease_cfg_new->ignore6;
+		lease_cfg_delete_dhcpv6_leases(lease_cfg_old);
+	}
+
 	if (update)
 		lease_cfg_update_leases(lease_cfg_old);
 

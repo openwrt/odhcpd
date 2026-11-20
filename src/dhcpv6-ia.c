@@ -113,6 +113,8 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			c = list_first_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
 			dhcpv6_free_lease(c);
 		}
+
+		db_flush_iface(iface);
 	}
 
 	return 0;

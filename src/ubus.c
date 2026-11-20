@@ -110,6 +110,73 @@ static void dhcpv6_blobmsg_ia_addr(_o_unused struct dhcpv6_lease *lease, struct 
 	blobmsg_close_table(&b, a);
 }
 
+static uint32_t reg_lifetime(time_t until, time_t now)
+{
+	if (INFINITE_VALID(until))
+		return (uint32_t)-1;
+
+	return until > now ? (uint32_t)(until - now) : 0;
+}
+
+/* Add a lease-like entry for each client DUID with registered addresses */
+static void dhcpv6_blobmsg_regs(struct interface *iface, time_t now)
+{
+	struct duid_rec *rec;
+
+	avl_for_each_element(&iface->duid_db, rec, avl) {
+		char namebuf[DHCPV6_REG_HOSTNAME_LEN];
+		struct addr6_rec *a;
+		uint32_t valid = 0;
+		bool any = false;
+		void *l, *m;
+		char *buf;
+
+		list_for_each_entry(a, &rec->addr6_recs, duid_rec_list)
+			if (INFINITE_VALID(a->valid_until) || a->valid_until > now)
+				any = true;
+
+		if (!any)
+			continue;
+
+		l = blobmsg_open_table(&b, NULL);
+		buf = blobmsg_alloc_string_buffer(&b, "duid", DUID_HEXSTRLEN + 1);
+		odhcpd_hexlify(buf, rec->duid, rec->duid_len);
+		blobmsg_add_string_buffer(&b);
+		blobmsg_add_string(&b, "hostname", dhcpv6_reg_hostname(rec, namebuf, now));
+
+		m = blobmsg_open_array(&b, "flags");
+		blobmsg_add_string(&b, NULL, "bound");
+		blobmsg_add_string(&b, NULL, "self-generated");
+		if (rec->lease_cfg)
+			blobmsg_add_string(&b, NULL, "static");
+		blobmsg_close_array(&b, m);
+
+		m = blobmsg_open_array(&b, "ipv6-addr");
+		list_for_each_entry(a, &rec->addr6_recs, duid_rec_list) {
+			uint32_t lt = reg_lifetime(a->valid_until, now);
+			void *t;
+
+			if (!lt)
+				continue;
+
+			if (lt > valid)
+				valid = lt;
+
+			t = blobmsg_open_table(&b, NULL);
+			buf = blobmsg_alloc_string_buffer(&b, "address", INET6_ADDRSTRLEN);
+			inet_ntop(AF_INET6, &a->addr6, buf, INET6_ADDRSTRLEN);
+			blobmsg_add_string_buffer(&b);
+			blobmsg_add_u32(&b, "preferred-lifetime", reg_lifetime(a->preferred_until, now));
+			blobmsg_add_u32(&b, "valid-lifetime", lt);
+			blobmsg_close_table(&b, t);
+		}
+		blobmsg_close_array(&b, m);
+
+		blobmsg_add_u32(&b, "valid", valid);
+		blobmsg_close_table(&b, l);
+	}
+}
+
 static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused struct ubus_object *obj,
 		_o_unused struct ubus_request_data *req, _o_unused const char *method,
 		_o_unused struct blob_attr *msg)
@@ -168,6 +235,8 @@ static int handle_dhcpv6_leases(_o_unused struct ubus_context *ctx, _o_unused st
 
 			blobmsg_close_table(&b, l);
 		}
+
+		dhcpv6_blobmsg_regs(iface, now);
 
 		blobmsg_close_array(&b, j);
 		blobmsg_close_table(&b, i);

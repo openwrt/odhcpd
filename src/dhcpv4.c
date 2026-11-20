@@ -495,7 +495,7 @@ out:
 	return true;
 }
 
-static struct dhcpv4_lease *find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
+struct dhcpv4_lease *dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr)
 {
 	struct dhcpv4_lease *lease;
 
@@ -551,7 +551,7 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	}
 
 	if (!lease)
-		lease = find_lease_by_hwaddr(iface, req_mac);
+		lease = dhcpv4_find_lease_by_hwaddr(iface, req_mac);
 
 	if (!lease_cfg)
 		lease_cfg = config_find_lease_cfg_by_mac(req_mac);

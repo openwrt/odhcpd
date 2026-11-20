@@ -116,6 +116,38 @@ bool dhcpv6_reg_timer(struct interface *iface, time_t now)
 	return changed;
 }
 
+/*
+ * Get the hostname of a client DUID: from its host section, its Client FQDN
+ * option, a DHCPv4 lease with the same MAC, or else "dyn-<DUID>" (in buf)
+ */
+const char *dhcpv6_reg_hostname(const struct duid_rec *rec, char buf[DHCPV6_REG_HOSTNAME_LEN],
+				time_t now)
+{
+	struct dhcpv4_lease *lease4;
+	uint8_t mac[6];
+	size_t off;
+
+	if (rec->lease_cfg && rec->lease_cfg->hostname)
+		return rec->lease_cfg->hostname;
+
+	if (rec->hostname)
+		return rec->hostname;
+
+	if (dhcpv6_duid_to_mac(rec->duid, rec->duid_len, mac)) {
+		lease4 = dhcpv4_find_lease_by_hwaddr(rec->iface, mac);
+		if (lease4 && lease4->bound && lease4->hostname && lease4->hostname_valid &&
+		    (INFINITE_VALID(lease4->valid_until) || lease4->valid_until > now))
+			return lease4->hostname;
+	}
+
+	/* DNS labels have at most 63 characters */
+	off = rec->duid_len > 29 ? rec->duid_len - 29 : 0;
+	memcpy(buf, "dyn-", 4);
+	odhcpd_hexlify(&buf[4], &rec->duid[off], rec->duid_len - off);
+
+	return buf;
+}
+
 static time_t reg_lifetime_to_time(uint32_t lt, time_t now)
 {
 	/* 0 = infinite */

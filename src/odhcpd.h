@@ -315,6 +315,7 @@ struct dhcpv6_lease {
 struct lease_cfg {
 	struct vlist_node node;
 	struct list_head dhcpv6_leases;
+	struct list_head duid_recs;		// struct duid_rec matching this host
 	struct dhcpv4_lease *dhcpv4_lease;
 	struct in_addr ipv4;
 	uint64_t hostid;
@@ -362,6 +363,8 @@ struct duid_rec {
 	struct interface *iface;
 	unsigned int refcnt;
 	struct list_head addr6_recs;	// struct addr6_rec owned by this client
+	struct lease_cfg *lease_cfg;	// matching host section, if any
+	struct list_head lease_cfg_list; // in lease_cfg->duid_recs
 	char *hostname;			// from the Client FQDN option
 	uint8_t duid_len;		// key: duid_len + duid[]
 	uint8_t duid[];
@@ -608,6 +611,7 @@ struct addr6_rec *addr6_rec_add(struct interface *iface, const struct in6_addr *
 				struct duid_rec *duid_rec);
 void addr6_rec_set_duid_rec(struct addr6_rec *rec, struct duid_rec *duid_rec);
 void addr6_rec_del(struct interface *iface, struct addr6_rec *rec);
+size_t duid_rec_del_addr6s(struct duid_rec *rec);
 size_t addr6_db_del_prefix(struct interface *iface, const struct in6_addr *prefix, uint8_t len);
 
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
@@ -615,6 +619,7 @@ struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
 struct lease_cfg *config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len);
+void config_link_duid_rec(struct duid_rec *rec);
 struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
 struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);

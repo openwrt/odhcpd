@@ -72,6 +72,7 @@ struct duid_rec *duid_rec_get(struct interface *iface, const uint8_t *duid, size
 	rec->iface = iface;
 	rec->refcnt = 1;
 	INIT_LIST_HEAD(&rec->addr6_recs);
+	INIT_LIST_HEAD(&rec->lease_cfg_list);
 	rec->duid_len = len;
 	memcpy(rec->duid, duid, len);
 	rec->avl.key = &rec->duid_len;
@@ -80,6 +81,8 @@ struct duid_rec *duid_rec_get(struct interface *iface, const uint8_t *duid, size
 		free(rec);
 		return NULL;
 	}
+
+	config_link_duid_rec(rec);
 
 	return rec;
 }
@@ -90,6 +93,7 @@ void duid_rec_put(struct duid_rec *rec)
 		return;
 
 	avl_delete(&rec->iface->duid_db, &rec->avl);
+	list_del(&rec->lease_cfg_list);
 	free(rec->hostname);
 	free(rec);
 }
@@ -145,6 +149,22 @@ void addr6_rec_del(struct interface *iface, struct addr6_rec *rec)
 	list_del(&rec->duid_rec_list);
 	duid_rec_put(rec->duid_rec);
 	free(rec);
+}
+
+/* Delete the addresses of a DUID record (which may free it), return the count */
+size_t duid_rec_del_addr6s(struct duid_rec *rec)
+{
+	struct addr6_rec *a, *tmp;
+	size_t cnt = 0;
+
+	rec->refcnt++;
+	list_for_each_entry_safe(a, tmp, &rec->addr6_recs, duid_rec_list) {
+		addr6_rec_del(rec->iface, a);
+		cnt++;
+	}
+	duid_rec_put(rec);
+
+	return cnt;
 }
 
 /* Delete the addresses within a prefix, return the count */

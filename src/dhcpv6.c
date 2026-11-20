@@ -192,6 +192,21 @@ enum {
 	IOV_TOTAL
 };
 
+/* Get the server DUID */
+size_t dhcpv6_get_server_duid(const struct interface *iface, uint8_t duid[DUID_MAX_LEN])
+{
+	uint16_t duid_ll_hdr[] = { htons(DUID_TYPE_LL), htons(ARPHRD_ETHER) };
+
+	if (config.default_duid_len > 0) {
+		memcpy(duid, config.default_duid, config.default_duid_len);
+		return config.default_duid_len;
+	}
+
+	memcpy(duid, duid_ll_hdr, sizeof(duid_ll_hdr));
+	odhcpd_get_mac(iface, &duid[sizeof(duid_ll_hdr)]);
+	return sizeof(duid_ll_hdr) + ETH_ALEN;
+}
+
 static void handle_nested_message(uint8_t *data, size_t len, unsigned depth,
 				  struct dhcpv6_client_header **c_hdr, uint8_t **opts,
 				  uint8_t **end, struct iovec iov[IOV_TOTAL])
@@ -412,15 +427,7 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		.serverid_buf = { 0 },
 	};
 
-	if (config.default_duid_len > 0) {
-		memcpy(dest.serverid_buf, config.default_duid, config.default_duid_len);
-		dest.serverid_length = htons(config.default_duid_len);
-	} else {
-		uint16_t duid_ll_hdr[] = { htons(DUID_TYPE_LL), htons(ARPHRD_ETHER) };
-		memcpy(dest.serverid_buf, duid_ll_hdr, sizeof(duid_ll_hdr));
-		odhcpd_get_mac(iface, &dest.serverid_buf[sizeof(duid_ll_hdr)]);
-		dest.serverid_length = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
-	}
+	dest.serverid_length = htons(dhcpv6_get_server_duid(iface, dest.serverid_buf));
 
 	struct _o_packed {
 		uint16_t type;

@@ -205,15 +205,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		.key = { 0 },
 	};
 
-	if (config.default_duid_len > 0) {
-		memcpy(serverid.data, config.default_duid, config.default_duid_len);
-		serverid.len = htons(config.default_duid_len);
-	} else {
-		uint16_t duid_ll_hdr[] = { htons(DUID_TYPE_LL), htons(ARPHRD_ETHER) };
-		memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
-		odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
-		serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
-	}
+	serverid.len = htons(dhcpv6_get_server_duid(iface, serverid.data));
 
 	memcpy(clientid.data, assign->duid, assign->duid_len);
 

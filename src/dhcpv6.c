@@ -189,6 +189,7 @@ enum {
 	IOV_TZDB_TZ_STR,
 	IOV_CAPT_PORTAL,
 	IOV_CAPT_PORTAL_URI,
+	IOV_ADDR_REG_ENABLE,
 	IOV_TOTAL
 };
 
@@ -680,6 +681,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	} dhcpv4o6_server = {htons(DHCPV6_OPT_4O6_SERVER), htons(sizeof(struct in6_addr)),
 			IN6ADDR_ANY_INIT};
 
+	/* RFC9686 §4.1 */
+	struct {
+		uint16_t type;
+		uint16_t len;
+	} addr_reg_enable = { htons(DHCPV6_OPT_ADDR_REG_ENABLE), 0 };
+
 	uint8_t pdbuf[512];
 	struct iovec iov[IOV_TOTAL] = {
 		[IOV_NESTED] = {NULL, 0},
@@ -706,7 +713,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		[IOV_DHCPV4O6_SERVER] = {&dhcpv4o6_server, 0},
 		[IOV_CAPT_PORTAL] = {&capt_portal, capt_portal_len ? sizeof(capt_portal) : 0},
 		[IOV_CAPT_PORTAL_URI] = {capt_portal_ptr, capt_portal_len ? capt_portal_len : 0},
-		[IOV_BOOTFILE_URL] = {NULL, 0}
+		[IOV_BOOTFILE_URL] = {NULL, 0},
+		[IOV_ADDR_REG_ENABLE] = {&addr_reg_enable, 0},
 	};
 
 	if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW) {
@@ -773,6 +781,12 @@ static void handle_client_request(void *addr, void *data, size_t len,
 					}
 					break;
 #endif /* DHCPV4_SUPPORT */
+				case DHCPV6_OPT_ADDR_REG_ENABLE:
+					/* RFC9686 §4.1 (TODO: relayed clients) */
+					if (iov[IOV_NESTED].iov_len == 0 &&
+					    hdr->msg_type != DHCPV6_MSG_DHCPV4_QUERY)
+						iov[IOV_ADDR_REG_ENABLE].iov_len = sizeof(addr_reg_enable);
+					break;
 				default:
 					break;
 				}
@@ -864,7 +878,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 				      iov[IOV_POSIX_TZ].iov_len + iov[IOV_POSIX_TZ_STR].iov_len +
 				      iov[IOV_TZDB_TZ].iov_len + iov[IOV_TZDB_TZ_STR].iov_len +
 				      iov[IOV_CAPT_PORTAL].iov_len + iov[IOV_CAPT_PORTAL_URI].iov_len +
-				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len -
+				      iov[IOV_DNR].iov_len + iov[IOV_BOOTFILE_URL].iov_len +
+				      iov[IOV_ADDR_REG_ENABLE].iov_len -
 				      (4 + opts_end - opts));
 
 	debug("Sending a DHCPv6-%s on %s", iov[IOV_NESTED].iov_len ? "relay-reply" : "reply", iface->name);

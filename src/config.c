@@ -21,6 +21,7 @@
 #include "router.h"
 #include "dhcpv6-pxe.h"
 #include "dhcpv4.h"
+#include "dhcpv6-ia.h"
 #include "statefiles.h"
 
 static struct blob_buf b;
@@ -725,6 +726,7 @@ int config_set_lease_cfg_from_blobmsg(struct blob_attr *ba)
 	}
 
 	INIT_LIST_HEAD(&lease_cfg->dhcpv6_leases);
+	INIT_LIST_HEAD(&lease_cfg->duid_recs);
 	vlist_add(&lease_cfgs, &lease_cfg->node, lease_cfg);
 	return 0;
 
@@ -1820,6 +1822,83 @@ static void lease_cfg_delete_dhcpv6_leases(struct lease_cfg *lease_cfg)
 		dhcpv6_free_lease(lease);
 }
 
+/* Link a client DUID to its host section */
+void config_link_duid_rec(struct duid_rec *rec)
+{
+	struct lease_cfg *lease_cfg;
+	uint8_t mac[6];
+
+	if (rec->lease_cfg)
+		return;
+
+	lease_cfg = config_find_lease_cfg_by_duid(rec->duid, rec->duid_len);
+	if (!lease_cfg && dhcpv6_duid_to_mac(rec->duid, rec->duid_len, mac))
+		lease_cfg = config_find_lease_cfg_by_mac(mac);
+
+	if (!lease_cfg)
+		return;
+
+	rec->lease_cfg = lease_cfg;
+	list_add_tail(&rec->lease_cfg_list, &lease_cfg->duid_recs);
+	rec->iface->update_statefile = true;
+
+	if (lease_cfg->ignore6 && duid_rec_del_addr6s(rec))
+		info("Ignoring the registered addresses of an ignored host on %s",
+		     rec->iface->name);
+}
+
+/* Link unlinked client DUIDs to a new host section */
+static void lease_cfg_link_duid_recs(void)
+{
+	struct interface *iface;
+	struct duid_rec *rec, *tmp;
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		/* config_link_duid_rec() may free rec */
+		avl_for_each_element_safe(&iface->duid_db, rec, avl, tmp) {
+			if (rec->lease_cfg)
+				continue;
+
+			rec->refcnt++;
+			config_link_duid_rec(rec);
+			duid_rec_put(rec);
+		}
+	}
+}
+
+/* Unlink client DUIDs from a host section */
+static void lease_cfg_unlink_duid_recs(struct lease_cfg *lease_cfg)
+{
+	struct duid_rec *rec, *tmp;
+
+	list_for_each_entry_safe(rec, tmp, &lease_cfg->duid_recs, lease_cfg_list) {
+		list_del_init(&rec->lease_cfg_list);
+		rec->lease_cfg = NULL;
+		rec->iface->update_statefile = true;
+
+		rec->refcnt++;
+		config_link_duid_rec(rec);
+		duid_rec_put(rec);
+	}
+}
+
+/* Update client DUIDs after a host section change */
+static void lease_cfg_update_duid_recs(struct lease_cfg *lease_cfg)
+{
+	struct duid_rec *rec, *tmp;
+
+	list_for_each_entry_safe(rec, tmp, &lease_cfg->duid_recs, lease_cfg_list) {
+		struct interface *iface = rec->iface;
+
+		iface->update_statefile = true;
+
+		/* frees rec */
+		if (lease_cfg->ignore6 && duid_rec_del_addr6s(rec))
+			info("Ignoring the registered addresses of an ignored host on %s",
+			     iface->name);
+	}
+}
+
 static void lease_cfg_update_leases(struct lease_cfg *lease_cfg)
 {
 	struct dhcpv4_lease *lease4 = lease_cfg->dhcpv4_lease;
@@ -1920,10 +1999,13 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 	if (lease_cfg_old->ignore6 != lease_cfg_new->ignore6) {
 		lease_cfg_old->ignore6 = lease_cfg_new->ignore6;
 		lease_cfg_delete_dhcpv6_leases(lease_cfg_old);
+		update = true;
 	}
 
-	if (update)
+	if (update) {
 		lease_cfg_update_leases(lease_cfg_old);
+		lease_cfg_update_duid_recs(lease_cfg_old);
+	}
 
 	free_lease_cfg(lease_cfg_new);
 }
@@ -1932,6 +2014,7 @@ static void lease_cfg_delete(struct lease_cfg *lease_cfg)
 {
 	dhcpv4_free_lease(lease_cfg->dhcpv4_lease);
 	lease_cfg_delete_dhcpv6_leases(lease_cfg);
+	lease_cfg_unlink_duid_recs(lease_cfg);
 	free_lease_cfg(lease_cfg);
 }
 
@@ -1945,6 +2028,8 @@ static void lease_cfg_update(_o_unused struct vlist_tree *tree, struct vlist_nod
 		lease_cfg_change(lease_cfg_old, lease_cfg_new);
 	else if (node_old)
 		lease_cfg_delete(lease_cfg_old);
+	else if (node_new)
+		lease_cfg_link_duid_recs();
 }
 
 /*

@@ -66,17 +66,14 @@ static bool reg_addr6_in_lease(struct interface *iface, const struct in6_addr *a
 	return false;
 }
 
-/*
- * Is addr6 within one of the (non-filtered) prefixes on the link? That's the
- * prefix as announced in RA PIOs: at least a /64, the rest of a shorter
- * prefix is delegated (see reg_addr6_in_lease()).
- */
+/* Is addr6 within an on-link prefix (as announced in the PIOs, deprecated or not) */
 static bool reg_addr6_on_link(struct interface *iface, const struct in6_addr *addr6, time_t now)
 {
 	for (size_t i = 0; i < iface->addr6_len; i++) {
 		struct odhcpd_ipaddr *a = &iface->addr6[i];
 
-		if (!valid_addr(a, now) || ADDR_MATCH_PIO_FILTER(a, iface))
+		if (a->prefix_len > 96 || a->valid_lt <= (uint32_t)now ||
+		    ADDR_MATCH_PIO_FILTER(a, iface))
 			continue;
 
 		if (!odhcpd_bmemcmp(addr6, &a->addr.in6, a->prefix_len < 64 ? 64 : a->prefix_len))
@@ -84,6 +81,39 @@ static bool reg_addr6_on_link(struct interface *iface, const struct in6_addr *ad
 	}
 
 	return false;
+}
+
+/*
+ * Remove expired registrations, and those no longer on-link or delegated,
+ * return true if any were removed
+ */
+bool dhcpv6_reg_timer(struct interface *iface, time_t now)
+{
+	struct addr6_rec *rec, *tmp;
+	bool check = iface->addr6_db_check, changed = false;
+	char addr6buf[INET6_ADDRSTRLEN];
+
+	iface->addr6_db_check = false;
+
+	avl_for_each_element_safe(&iface->addr6_db, rec, avl, tmp) {
+		const char *why;
+
+		if (!INFINITE_VALID(rec->valid_until) && rec->valid_until < now)
+			why = "expired";
+		else if (check && !reg_addr6_on_link(iface, &rec->addr6, now) &&
+			 !reg_addr6_in_lease(iface, &rec->addr6, OAF_DHCPV6_PD,
+					    rec->duid_rec->duid, rec->duid_rec->duid_len, now))
+			why = "no longer appropriate";
+		else
+			continue;
+
+		info("Registration of %s on %s %s", inet_ntop(AF_INET6, &rec->addr6, addr6buf,
+		     sizeof(addr6buf)), iface->name, why);
+		addr6_rec_del(iface, rec);
+		changed = true;
+	}
+
+	return changed;
 }
 
 static time_t reg_lifetime_to_time(uint32_t lt, time_t now)

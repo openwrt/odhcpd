@@ -395,6 +395,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	case DHCPV6_MSG_DHCPV4_QUERY:
 #endif
 		break;
+	/* RFC9686 */
+	case DHCPV6_MSG_ADDR_REG_INFORM:
+		dhcpv6_reg_handle_inform(iface, addr, data, len);
+		return;
 	/* Invalid message types for clients i.e. server messages */
 	case DHCPV6_MSG_ADVERTISE:
 	case DHCPV6_MSG_REPLY:
@@ -711,6 +715,10 @@ static void handle_client_request(void *addr, void *data, size_t len,
 		/* No client message found inside the relay chain (truncated
 		 * RELAY_MSG or hop limit reached) */
 		if (hdr->msg_type == DHCPV6_MSG_RELAY_FORW)
+			return;
+
+		/* TODO: relayed RFC9686 address registrations */
+		if (hdr->msg_type == DHCPV6_MSG_ADDR_REG_INFORM)
 			return;
 	}
 

@@ -711,6 +711,8 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
 size_t dhcpv6_get_server_duid(const struct interface *iface, uint8_t duid[DUID_MAX_LEN]);
+void dhcpv6_reg_handle_inform(struct interface *iface, struct sockaddr_in6 *src,
+			      const void *data, size_t len);
 int ndp_setup_interface(struct interface *iface, bool enable);
 void reload_services(struct interface *iface);
 

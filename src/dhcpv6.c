@@ -385,6 +385,8 @@ static void handle_client_request(void *addr, void *data, size_t len,
 	case DHCPV6_MSG_REPLY:
 	case DHCPV6_MSG_RECONFIGURE:
 	case DHCPV6_MSG_RELAY_REPL:
+	/* RFC9686 §4.3 */
+	case DHCPV6_MSG_ADDR_REG_REPLY:
 #ifndef DHCPV4_SUPPORT
 	/* if we omit DHCPV4 support, ignore this client message type */
 	case DHCPV6_MSG_DHCPV4_QUERY:

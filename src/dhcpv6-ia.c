@@ -984,6 +984,47 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 	return onlink;
 }
 
+/*
+ * Get the link-layer address from a DUID, if possible (note that RFC8415 §11
+ * says DUIDs SHOULD NOT be interpreted).
+ */
+bool dhcpv6_duid_to_mac(const uint8_t *duid, size_t len, uint8_t mac[6])
+{
+	if (len == 14 && duid[0] == 0 && duid[1] == DUID_TYPE_LLT)
+		memcpy(mac, &duid[8], 6);
+	else if (len == 10 && duid[0] == 0 && duid[1] == DUID_TYPE_LL)
+		memcpy(mac, &duid[4], 6);
+	else
+		return false;
+
+	return true;
+}
+
+/* Get the first label of a Client FQDN option (RFC4704), return its length */
+size_t dhcpv6_parse_fqdn(const uint8_t *odata, uint16_t olen, char hostname[256])
+{
+	uint8_t fqdn_buf[256];
+	size_t len;
+
+	hostname[0] = '\0';
+
+	if (olen < 2 || olen > 255)
+		return 0;
+
+	memcpy(fqdn_buf, odata, olen);
+	fqdn_buf[olen++] = 0;
+
+	if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, 256) <= 0) {
+		hostname[0] = '\0';
+		return 0;
+	}
+
+	len = strcspn(hostname, ".");
+	hostname[len] = '\0';
+
+	return len;
+}
+
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
@@ -1004,26 +1045,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			duid = odata;
 			duid_len = olen;
 
-			if (olen == 14 && odata[0] == 0 && odata[1] == 1)
-				memcpy(mac, &odata[8], sizeof(mac));
-			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
-				memcpy(mac, &odata[4], sizeof(mac));
+			dhcpv6_duid_to_mac(odata, olen, mac);
 
 			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
 			break;
 
 		case DHCPV6_OPT_FQDN:
-			if (olen < 2 || olen > 255)
-				break;
-
-			uint8_t fqdn_buf[256];
-			memcpy(fqdn_buf, odata, olen);
-			fqdn_buf[olen++] = 0;
-
-			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
-				hostname_len = strcspn(hostname, ".");
-
+			hostname_len = dhcpv6_parse_fqdn(odata, olen, hostname);
 			break;
 
 		case DHCPV6_OPT_RECONF_ACCEPT:

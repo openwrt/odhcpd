@@ -1967,6 +1967,30 @@ config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid, const uint16_t len, 
 	return candidate;
 }
 
+/* Find a lease cfg with a matching DUID, ignoring the IAID, cfgs without an IAID win */
+struct lease_cfg *config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len)
+{
+	struct lease_cfg *lease_cfg, *candidate = NULL;
+
+	vlist_for_each_element(&lease_cfgs, lease_cfg, node) {
+		for (size_t i = 0; i < lease_cfg->duid_count; i++) {
+			if (lease_cfg->duids[i].len != len)
+				continue;
+
+			if (memcmp(lease_cfg->duids[i].id, duid, len))
+				continue;
+
+			if (!lease_cfg->duids[i].iaid_set)
+				return lease_cfg;
+
+			if (!candidate)
+				candidate = lease_cfg;
+		}
+	}
+
+	return candidate;
+}
+
 struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac)
 {
 	struct lease_cfg *lease_cfg;

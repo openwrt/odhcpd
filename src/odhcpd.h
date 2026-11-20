@@ -578,6 +578,7 @@ int config_parse_interface(void *data, size_t len, const char *iname, bool overw
 struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
+struct lease_cfg *config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len);
 struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
 struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);

@@ -1129,6 +1129,7 @@ int config_parse_interface(void *data, size_t len, const char *name, bool overwr
 		iface->ndp_ping_fd = -1;
 		iface->dhcpv4_event.uloop.fd = -1;
 		INIT_LIST_HEAD(&iface->ia_assignments);
+		db_init_iface(iface);
 		avl_init(&iface->dhcpv4_leases, avl_ipv4_cmp, false, iface);
 		INIT_LIST_HEAD(&iface->dhcpv4_fr_ips);
 

@@ -27,6 +27,7 @@ prefix delegation and can be used to relay RA, DHCPv6 and NDP between routed
      * prefix delegation support
      * dynamic reconfiguration in case prefixes change
      * hostname detection and hosts-files creation
+     * registration of self-generated (e.g. SLAAC; RFC 9686) addresses
 
    * relay: mostly standards-compliant DHCPv6-relay
      * support for rewriting announced DNS-server addresses

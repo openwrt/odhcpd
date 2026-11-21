@@ -24,6 +24,8 @@
 size_t get_preferred_addr(const struct odhcpd_ipaddr *addrs, const size_t addrlen);
 
 struct in6_addr in6_from_prefix_and_iid(const struct odhcpd_ipaddr *prefix, uint64_t iid);
+bool dhcpv6_duid_to_mac(const uint8_t *duid, size_t len, uint8_t mac[6]);
+size_t dhcpv6_parse_fqdn(const uint8_t *odata, uint16_t olen, char hostname[256]);
 
 static inline bool valid_prefix_length(const struct dhcpv6_lease *a, const uint8_t prefix_length)
 {

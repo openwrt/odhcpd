@@ -417,9 +417,36 @@ static bool statefiles_write_host4(struct write_ctxt *ctxt, struct dhcpv4_lease 
 	return true;
 }
 
+/* Write or hash the registered addresses of ctxt->iface */
+static void statefiles_write_host_regs(struct write_ctxt *ctxt, bool hash)
+{
+	struct duid_rec *rec;
+	struct addr6_rec *a;
+
+	avl_for_each_element(&ctxt->iface->duid_db, rec, avl) {
+		char namebuf[DHCPV6_REG_HOSTNAME_LEN];
+		const char *name = dhcpv6_reg_hostname(rec, namebuf, ctxt->now);
+
+		list_for_each_entry(a, &rec->addr6_recs, duid_rec_list) {
+			char addr6buf[INET6_ADDRSTRLEN];
+
+			if (!INFINITE_VALID(a->valid_until) && a->valid_until <= ctxt->now)
+				continue;
+
+			if (hash) {
+				md5_hash(&a->addr6, sizeof(a->addr6), &ctxt->md5);
+				md5_hash(name, strlen(name), &ctxt->md5);
+			} else if (ctxt->fp) {
+				inet_ntop(AF_INET6, &a->addr6, addr6buf, sizeof(addr6buf));
+				statefiles_write_host(addr6buf, name, ctxt);
+			}
+		}
+	}
+}
+
 static void statefiles_write_hosts(time_t now)
 {
-	struct write_ctxt ctxt;
+	struct write_ctxt ctxt = { .now = now };
 
 	if (config.dhcp_hostsdir_fd < 0)
 		return;
@@ -448,6 +475,8 @@ static void statefiles_write_hosts(time_t now)
 				odhcpd_enum_addr6(ctxt.iface, lease, now,
 						  statefiles_write_host6_cb, &ctxt);
 			}
+
+			statefiles_write_host_regs(&ctxt, false);
 		}
 
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {
@@ -613,6 +642,8 @@ static bool statefiles_write_state(time_t now)
 
 				statefiles_write_state6(&ctxt, lease);
 			}
+
+			statefiles_write_host_regs(&ctxt, true);
 		}
 
 		if (ctxt.iface->dhcpv4 == MODE_SERVER) {

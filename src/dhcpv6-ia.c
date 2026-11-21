@@ -66,8 +66,12 @@ void dhcpv6_free_lease(struct dhcpv6_lease *a)
 	list_del(&a->head);
 	list_del(&a->lease_cfg_list);
 
-	if (a->bound && (a->flags & OAF_DHCPV6_PD))
+	if (a->bound && (a->flags & OAF_DHCPV6_PD)) {
 		apply_lease(a, false);
+		/* recheck the registered addresses */
+		if (a->iface)
+			a->iface->addr6_db_check = true;
+	}
 
 	if (a->fr_cnt)
 		stop_reconf(a);
@@ -113,6 +117,8 @@ int dhcpv6_ia_setup_interface(struct interface *iface, bool enable)
 			c = list_first_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
 			dhcpv6_free_lease(c);
 		}
+
+		db_flush_iface(iface);
 	}
 
 	return 0;
@@ -203,15 +209,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 		.key = { 0 },
 	};
 
-	if (config.default_duid_len > 0) {
-		memcpy(serverid.data, config.default_duid, config.default_duid_len);
-		serverid.len = htons(config.default_duid_len);
-	} else {
-		uint16_t duid_ll_hdr[] = { htons(DUID_TYPE_LL), htons(ARPHRD_ETHER) };
-		memcpy(serverid.data, duid_ll_hdr, sizeof(duid_ll_hdr));
-		odhcpd_get_mac(iface, &serverid.data[sizeof(duid_ll_hdr)]);
-		serverid.len = htons(sizeof(duid_ll_hdr) + ETH_ALEN);
-	}
+	serverid.len = htons(dhcpv6_get_server_duid(iface, serverid.data));
 
 	memcpy(clientid.data, assign->duid, assign->duid_len);
 
@@ -421,6 +419,32 @@ static bool is_reserved_ipv6_iid(uint64_t iid)
 	return false;
 }
 
+/* Has this IID been registered (e.g. RFC9686 §4.2.1) */
+static bool iid_registered(struct interface *iface, uint64_t iid, time_t now)
+{
+	struct odhcpd_ipaddr *addrs6 = iface->addr6;
+	size_t m;
+
+	if (avl_is_empty(&iface->addr6_db))
+		return false;
+
+	m = get_preferred_addr(addrs6, iface->addr6_len);
+
+	for (size_t i = 0; i < iface->addr6_len; i++) {
+		struct in6_addr addr6;
+
+		if (!valid_addr(&addrs6[i], now) || ADDR_MATCH_PIO_FILTER(&addrs6[i], iface) ||
+		    !ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs6))
+			continue;
+
+		addr6 = in6_from_prefix_and_iid(&addrs6[i], iid);
+		if (addr6_rec_find(iface, &addr6))
+			return true;
+	}
+
+	return false;
+}
+
 static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 {
 	struct dhcpv6_lease *c;
@@ -429,6 +453,7 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 	uint64_t pool_size = pool_end - pool_start + 1;
 	uint64_t try;
 	unsigned short xsubi[3] = { 0 };
+	time_t now = odhcpd_time();
 
 	/* Preconfigured assignment by static lease */
 	if (a->assigned_host_id) {
@@ -457,6 +482,9 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 			continue;
 
 		if (config_find_lease_cfg_by_hostid(try))
+			continue;
+
+		if (iid_registered(iface, try, now))
 			continue;
 
 		list_for_each_entry(c, &iface->ia_assignments, head) {
@@ -520,6 +548,7 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			dhcpv6_free_lease(c);
 	}
 
+	iface->addr6_db_check = true;
 	iface->update_statefile = true;
 }
 
@@ -579,6 +608,9 @@ static void valid_until_cb(struct uloop_timeout *event)
 				dhcpv6_free_lease(a);
 			}
 		}
+
+		if (dhcpv6_reg_timer(iface, now))
+			update_statefile = true;
 	}
 
 	if (update_statefile)
@@ -984,6 +1016,47 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 	return onlink;
 }
 
+/*
+ * Get the link-layer address from a DUID, if possible (note that RFC8415 §11
+ * says DUIDs SHOULD NOT be interpreted).
+ */
+bool dhcpv6_duid_to_mac(const uint8_t *duid, size_t len, uint8_t mac[6])
+{
+	if (len == 14 && duid[0] == 0 && duid[1] == DUID_TYPE_LLT)
+		memcpy(mac, &duid[8], 6);
+	else if (len == 10 && duid[0] == 0 && duid[1] == DUID_TYPE_LL)
+		memcpy(mac, &duid[4], 6);
+	else
+		return false;
+
+	return true;
+}
+
+/* Get the first label of a Client FQDN option (RFC4704), return its length */
+size_t dhcpv6_parse_fqdn(const uint8_t *odata, uint16_t olen, char hostname[256])
+{
+	uint8_t fqdn_buf[256];
+	size_t len;
+
+	hostname[0] = '\0';
+
+	if (olen < 2 || olen > 255)
+		return 0;
+
+	memcpy(fqdn_buf, odata, olen);
+	fqdn_buf[olen++] = 0;
+
+	if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, 256) <= 0) {
+		hostname[0] = '\0';
+		return 0;
+	}
+
+	len = strcspn(hostname, ".");
+	hostname[len] = '\0';
+
+	return len;
+}
+
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
@@ -1004,26 +1077,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 			duid = odata;
 			duid_len = olen;
 
-			if (olen == 14 && odata[0] == 0 && odata[1] == 1)
-				memcpy(mac, &odata[8], sizeof(mac));
-			else if (olen == 10 && odata[0] == 0 && odata[1] == 3)
-				memcpy(mac, &odata[4], sizeof(mac));
+			dhcpv6_duid_to_mac(odata, olen, mac);
 
 			if (olen <= DUID_MAX_LEN)
 				odhcpd_hexlify(duidbuf, odata, olen);
 			break;
 
 		case DHCPV6_OPT_FQDN:
-			if (olen < 2 || olen > 255)
-				break;
-
-			uint8_t fqdn_buf[256];
-			memcpy(fqdn_buf, odata, olen);
-			fqdn_buf[olen++] = 0;
-
-			if (dn_expand(&fqdn_buf[1], &fqdn_buf[olen], &fqdn_buf[1], hostname, sizeof(hostname)) > 0)
-				hostname_len = strcspn(hostname, ".");
-
+			hostname_len = dhcpv6_parse_fqdn(odata, olen, hostname);
 			break;
 
 		case DHCPV6_OPT_RECONF_ACCEPT:

@@ -315,6 +315,7 @@ struct dhcpv6_lease {
 struct lease_cfg {
 	struct vlist_node node;
 	struct list_head dhcpv6_leases;
+	struct list_head duid_recs;		// struct duid_rec matching this host
 	struct dhcpv4_lease *dhcpv4_lease;
 	struct in_addr ipv4;
 	uint64_t hostid;
@@ -356,6 +357,29 @@ struct ra_pio {
 };
 
 
+/* A client DUID on an interface */
+struct duid_rec {
+	struct avl_node avl;		// in iface->duid_db, key: &duid_len
+	struct interface *iface;
+	unsigned int refcnt;
+	struct list_head addr6_recs;	// struct addr6_rec owned by this client
+	struct lease_cfg *lease_cfg;	// matching host section, if any
+	struct list_head lease_cfg_list; // in lease_cfg->duid_recs
+	char *hostname;			// from the Client FQDN option
+	uint8_t duid_len;		// key: duid_len + duid[]
+	uint8_t duid[];
+};
+
+/* An IPv6 address in use by a client on an interface */
+struct addr6_rec {
+	struct avl_node avl;		// in iface->addr6_db, key: &addr6
+	struct in6_addr addr6;
+	struct duid_rec *duid_rec;	// holds a reference
+	struct list_head duid_rec_list;	// in duid_rec->addr6_recs
+	time_t preferred_until;		// CLOCK_MONOTONIC
+	time_t valid_until;		// CLOCK_MONOTONIC
+};
+
 struct interface {
 	struct avl_node avl;
 
@@ -378,6 +402,9 @@ struct interface {
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
 	struct list_head ia_assignments;
+	struct avl_tree addr6_db;		// struct addr6_rec
+	struct avl_tree duid_db;		// struct duid_rec
+	bool addr6_db_check;			// prefixes/IA_PDs changed, recheck addr6_db
 
 	// NDP runtime data
 	struct odhcpd_event ndp_event;
@@ -574,10 +601,25 @@ void odhcpd_enum_addr6(struct interface *iface, struct dhcpv6_lease *lease,
 int odhcpd_parse_addr6_prefix(const char *str, struct in6_addr *addr, uint8_t *prefix);
 bool odhcpd_hostname_valid(const char *name);
 
+void db_init_iface(struct interface *iface);
+void db_flush_iface(struct interface *iface);
+struct duid_rec *duid_rec_find(struct interface *iface, const uint8_t *duid, size_t len);
+struct duid_rec *duid_rec_get(struct interface *iface, const uint8_t *duid, size_t len);
+void duid_rec_put(struct duid_rec *rec);
+struct addr6_rec *addr6_rec_find(struct interface *iface, const struct in6_addr *addr6);
+struct addr6_rec *addr6_rec_add(struct interface *iface, const struct in6_addr *addr6,
+				struct duid_rec *duid_rec);
+void addr6_rec_set_duid_rec(struct addr6_rec *rec, struct duid_rec *duid_rec);
+void addr6_rec_del(struct interface *iface, struct addr6_rec *rec);
+size_t duid_rec_del_addr6s(struct duid_rec *rec);
+size_t addr6_db_del_prefix(struct interface *iface, const struct in6_addr *prefix, uint8_t len);
+
 int config_parse_interface(void *data, size_t len, const char *iname, bool overwrite);
 struct lease_cfg *config_find_lease_cfg_by_duid_and_iaid(const uint8_t *duid,
 							 const uint16_t len,
 							 const uint32_t iaid);
+struct lease_cfg *config_find_lease_cfg_by_duid(const uint8_t *duid, const uint16_t len);
+void config_link_duid_rec(struct duid_rec *rec);
 struct lease_cfg *config_find_lease_cfg_by_mac(const uint8_t *mac);
 struct lease_cfg *config_find_lease_cfg_by_hostid(const uint64_t hostid);
 struct lease_cfg *config_find_lease_cfg_by_ipv4(const struct in_addr ipv4);
@@ -656,6 +698,7 @@ int ndp_init(void);
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
 void dhcpv4_free_lease(struct dhcpv4_lease *a);
+struct dhcpv4_lease *dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr);
 bool dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 		       struct interface *iface, _o_unused void *dest_addr,
@@ -663,6 +706,11 @@ void dhcpv4_handle_msg(void *addr, void *data, size_t len,
 #else
 static inline bool dhcpv4_setup_interface(struct interface *iface, bool enable) {
 	return true;
+}
+
+static inline struct dhcpv4_lease *
+dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr) {
+	return NULL;
 }
 
 static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
@@ -674,6 +722,13 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 
 int router_setup_interface(struct interface *iface, bool enable);
 int dhcpv6_setup_interface(struct interface *iface, bool enable);
+size_t dhcpv6_get_server_duid(const struct interface *iface, uint8_t duid[DUID_MAX_LEN]);
+void dhcpv6_reg_handle_inform(struct interface *iface, struct sockaddr_in6 *src,
+			      const void *data, size_t len);
+bool dhcpv6_reg_timer(struct interface *iface, time_t now);
+#define DHCPV6_REG_HOSTNAME_LEN 64
+const char *dhcpv6_reg_hostname(const struct duid_rec *rec, char buf[DHCPV6_REG_HOSTNAME_LEN],
+				time_t now);
 int ndp_setup_interface(struct interface *iface, bool enable);
 void reload_services(struct interface *iface);
 

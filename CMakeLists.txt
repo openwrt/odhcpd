@@ -8,9 +8,11 @@ add_executable(${PROJECT_NAME})
 target_sources(${PROJECT_NAME} PRIVATE
 	src/odhcpd.c
 	src/config.c
+	src/db.c
 	src/dhcpv6.c
 	src/dhcpv6-ia.c
 	src/dhcpv6-pxe.c
+	src/dhcpv6-reg.c
 	src/ndp.c
 	src/netlink.c
 	src/statefiles.c

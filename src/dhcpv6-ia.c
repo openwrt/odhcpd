@@ -984,6 +984,25 @@ static bool dhcpv6_ia_on_link(const struct dhcpv6_ia_hdr *ia, struct dhcpv6_leas
 	return onlink;
 }
 
+/* Return true if two IA_NA options share an IAID. */
+static bool dhcpv6_ia_na_iaid_dup(const uint8_t *start, const uint8_t *end)
+{
+	uint8_t *odata, *sdata;
+	uint16_t otype, olen, stype, slen;
+
+	dhcpv6_for_each_option(start, end, otype, olen, odata) {
+		if (otype != DHCPV6_OPT_IA_NA || olen < 4)
+			continue;
+
+		dhcpv6_for_each_sub_option(odata + olen, end, stype, slen, sdata) {
+			if (stype == DHCPV6_OPT_IA_NA && slen >= 4 && !memcmp(odata, sdata, 4))
+				return true;
+		}
+	}
+
+	return false;
+}
+
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
@@ -995,7 +1014,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 	uint8_t *start = (uint8_t *)&hdr[1], *odata;
 	uint8_t *duid = NULL, mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 	size_t hostname_len = 0, response_len = 0;
-	bool notonlink = false, rapid_commit = false, accept_reconf = false;
+	uint8_t msg_status = DHCPV6_STATUS_OK;
+	bool rapid_commit = false, accept_reconf = false;
 	char duidbuf[DUID_HEXSTRLEN], hostname[256];
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
@@ -1042,6 +1062,14 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 
 	if (!duid || duid_len < DUID_MIN_LEN || duid_len > DUID_MAX_LEN)
 		goto out;
+
+	/* Reply UnspecFail to CONFIRMs with duplicate IA_NA IAIDs (RFC9915 sections 16, 21.4), e.g. from Win10 */
+	if (hdr->msg_type == DHCPV6_MSG_CONFIRM && dhcpv6_ia_na_iaid_dup(start, end)) {
+		debug("Replying UnspecFail to CONFIRM with duplicate IA_NA IAIDs from %s on %s",
+		      duidbuf, iface->name);
+		msg_status = DHCPV6_STATUS_UNSPECFAIL;
+		goto status;
+	}
 
 	dhcpv6_for_each_option(start, end, otype, olen, odata) {
 		bool is_pd = (otype == DHCPV6_OPT_IA_PD);
@@ -1403,7 +1431,7 @@ proceed:
 
 		case DHCPV6_MSG_CONFIRM:
 			if (ia_addr_present && !dhcpv6_ia_on_link(ia, a, iface)) {
-				notonlink = true;
+				msg_status = DHCPV6_STATUS_NOTONLINK;
 				break;
 			}
 
@@ -1432,6 +1460,7 @@ proceed:
 		dhcpv6_log(hdr->msg_type, iface, now, duidbuf, is_pd, a, status);
 	} /* end dhcpv6_for_each_option */
 
+status:
 	switch (hdr->msg_type) {
 	case DHCPV6_MSG_RELEASE:
 	case DHCPV6_MSG_DECLINE:
@@ -1442,7 +1471,7 @@ proceed:
 			buf[2] = 0;
 			buf[3] = 2;
 			buf[4] = 0;
-			buf[5] = (notonlink) ? DHCPV6_STATUS_NOTONLINK : DHCPV6_STATUS_OK;
+			buf[5] = msg_status;
 			response_len += 6;
 		}
 		break;

@@ -503,6 +503,67 @@ static bool assign_na(struct interface *iface, struct dhcpv6_lease *a)
 	return false;
 }
 
+/* Whether address @i of @addrs would be offered in an IA_NA, see build_ia() */
+static bool na_addr_offered(const struct interface *iface,
+			    const struct odhcpd_ipaddr *addrs,
+			    size_t i, size_t m, time_t now)
+{
+	return valid_addr(&addrs[i], now) &&
+	       !ADDR_MATCH_PIO_FILTER(&addrs[i], iface) &&
+	       ADDR_ENTRY_VALID_IA_ADDR(iface, i, m, addrs);
+}
+
+static bool na_addr_in_list(const struct interface *iface,
+			    const struct odhcpd_ipaddr *a,
+			    const struct odhcpd_ipaddr *list, size_t len,
+			    size_t m, time_t now)
+{
+	for (size_t i = 0; list && i < len; i++) {
+		if (!na_addr_offered(iface, list, i, m, now))
+			continue;
+
+		if (IN6_ARE_ADDR_EQUAL(&a->addr.in6, &list[i].addr.in6) &&
+		    a->prefix_len == list[i].prefix_len)
+			return true;
+	}
+
+	return false;
+}
+
+/*
+ * Return true if the set of addresses offered in an IA_NA differs between
+ * the old address list and the current one: an address was added, removed
+ * or replaced. Pure lifetime changes of an otherwise identical address do
+ * not count.
+ */
+static bool addrlist_set_changed(const struct interface *iface,
+				 const struct odhcpd_ipaddr *old,
+				 size_t oldlen, time_t now)
+{
+	size_t m_new = get_preferred_addr(iface->addr6, iface->addr6_len);
+	size_t m_old = get_preferred_addr(old, oldlen);
+
+	for (size_t i = 0; i < iface->addr6_len; i++) {
+		if (!na_addr_offered(iface, iface->addr6, i, m_new, now))
+			continue;
+
+		if (!na_addr_in_list(iface, &iface->addr6[i], old, oldlen,
+				     m_old, now))
+			return true;
+	}
+
+	for (size_t i = 0; old && i < oldlen; i++) {
+		if (!na_addr_offered(iface, old, i, m_old, now))
+			continue;
+
+		if (!na_addr_in_list(iface, &old[i], iface->addr6,
+				     iface->addr6_len, m_new, now))
+			return true;
+	}
+
+	return false;
+}
+
 static void handle_addrlist_change(struct netevent_handler_info *info)
 {
 	struct interface *iface = info->iface;
@@ -510,6 +571,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 			&iface->ia_assignments, struct dhcpv6_lease, head);
 	struct list_head reassign = LIST_HEAD_INIT(reassign);
 	time_t now = odhcpd_time();
+	bool set_changed = addrlist_set_changed(iface, info->addrs_old.addrs,
+						info->addrs_old.len, now);
 
 	list_for_each_entry(c, &iface->ia_assignments, head) {
 		if ((c->flags & OAF_DHCPV6_PD) && !(iface->ra_flags & ND_RA_FLAG_MANAGED)
@@ -522,16 +585,19 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 
 	list_for_each_entry_safe(c, d, &iface->ia_assignments, head) {
 		if (c->duid_len == 0 ||
-	            !(c->flags & OAF_DHCPV6_PD)	||
+		    !(c->flags & (OAF_DHCPV6_PD | OAF_DHCPV6_NA)) ||
 		    (!INFINITE_VALID(c->valid_until) && c->valid_until < now))
 			continue;
 
-		if (c->assigned_subnet_id >= border->assigned_subnet_id)
-			list_move(&c->head, &reassign);
-		else if (c->bound)
-			apply_lease(c, true);
+		if (c->flags & OAF_DHCPV6_PD) {
+			if (c->assigned_subnet_id >= border->assigned_subnet_id)
+				list_move(&c->head, &reassign);
+			else if (c->bound)
+				apply_lease(c, true);
+		}
 
-		if (c->accept_fr_nonce && c->fr_cnt == 0) {
+		if ((set_changed || (c->flags & OAF_DHCPV6_PD)) &&
+		    c->accept_fr_nonce && c->fr_cnt == 0) {
 			struct dhcpv6_lease *a;
 
 			start_reconf(c);

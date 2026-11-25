@@ -134,6 +134,9 @@ static void dhcpv6_netevent_cb(unsigned long event, struct netevent_handler_info
 
 	switch (event) {
 	case NETEV_ADDR6LIST_CHANGE:
+		/* Skip interfaces without a border lease, i.e. not running */
+		if (list_empty(&iface->ia_assignments))
+			break;
 		handle_addrlist_change(info);
 		break;
 	default:

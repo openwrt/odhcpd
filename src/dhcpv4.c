@@ -518,8 +518,8 @@ static struct dhcpv4_lease *
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
 	     const uint8_t *clid, size_t clid_len, const struct in_addr req_addr,
 	     uint32_t *req_leasetime, const char *req_hostname, const size_t
-	     req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
-	     uint32_t *fr_serverid)
+	     req_hostname_len, const bool req_accept_fr, const bool req_init_reboot,
+	     bool *reply_incl_fr, uint32_t *fr_serverid)
 {
 	struct dhcpv4_lease *lease = NULL;
 	struct lease_cfg *lease_cfg = NULL;
@@ -670,15 +670,17 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		}
 
 		*reply_incl_fr = false;
-		if (!lease->bound) {
-			/* This is the client's first request for the address */
-			if (req_accept_fr) {
-				lease->accept_fr_nonce = true;
-				*reply_incl_fr = true;
-				odhcpd_urandom(lease->key, sizeof(lease->key));
-			}
-			lease->bound = true;
+		/*
+		 * RFC6704 §3.1.3: send a new nonce on the first request for the
+		 * address or if none is recorded; a rebooted client may have lost it
+		 */
+		if (req_accept_fr &&
+		    (!lease->bound || !lease->accept_fr_nonce || req_init_reboot)) {
+			lease->accept_fr_nonce = true;
+			*reply_incl_fr = true;
+			odhcpd_urandom(lease->key, sizeof(lease->key));
 		}
+		lease->bound = true;
 
 		if (*req_leasetime == UINT32_MAX)
 			lease->valid_until = 0;
@@ -809,6 +811,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint8_t *req_clientid = NULL;
 	size_t req_clientid_len = 0;
 	bool req_accept_fr = false;
+	bool req_serverid = false;
+	bool req_init_reboot;
 	bool ipv6_only = false;
 
 	/* Reply variables */
@@ -990,6 +994,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		case DHCPV4_OPT_SERVERID:
 			if (opt->len == 4 && memcmp(opt->data, &iface->dhcpv4_own_ip, 4))
 				return;
+			req_serverid = true;
 			break;
 		case DHCPV4_OPT_REQOPTS:
 			req_opts = opt->data;
@@ -1029,6 +1034,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
+	/* RFC2131 §4.3.2: INIT-REBOOT has a requested address, no server ID or ciaddr */
+	req_init_reboot = req_msg == DHCPV4_MSG_REQUEST && req_addr.s_addr &&
+			  !req_serverid && !req->ciaddr.s_addr;
+
 	switch (req_msg) {
 	case DHCPV4_MSG_INFORM:
 		break;
@@ -1037,7 +1046,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 			     req_clientid_len, req_addr, &req_leasetime,
 			     req_hostname, req_hostname_len, req_accept_fr,
-			     &reply_incl_fr, &fr_serverid);
+			     req_init_reboot, &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
 		if (ipv6_only)
@@ -1047,7 +1056,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,
 				     req_hostname, req_hostname_len, req_accept_fr,
-				     &reply_incl_fr, &fr_serverid);
+				     req_init_reboot, &reply_incl_fr, &fr_serverid);
 		break;
 	default:
 		return;

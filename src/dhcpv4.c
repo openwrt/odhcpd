@@ -1484,6 +1484,14 @@ struct dhcpv4_packet {
 	struct dhcpv4_message dhcp;
 } _o_packed;
 
+void dhcpv4_free_leases(struct interface *iface)
+{
+	struct dhcpv4_lease *lease, *tmp;
+
+	avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp)
+		dhcpv4_free_lease(lease);
+}
+
 bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	/* Note: we could check more things (but buggy clients exist), e.g.:
@@ -1534,10 +1542,9 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	}
 
 	if (!enable || iface->dhcpv4 == MODE_DISABLED) {
-		struct dhcpv4_lease *lease, *tmp;
-
-		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp)
-			dhcpv4_free_lease(lease);
+		/* Keep the leases while the interface is only down */
+		if (iface->dhcpv4 == MODE_DISABLED)
+			dhcpv4_free_leases(iface);
 		return true;
 	}
 

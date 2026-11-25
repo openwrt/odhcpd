@@ -710,6 +710,7 @@ int ndp_init(void);
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
 void dhcpv4_free_lease(struct dhcpv4_lease *a);
+void dhcpv4_free_leases(struct interface *iface);
 struct dhcpv4_lease *dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr);
 bool dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
@@ -729,6 +730,9 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 	if (!lease)
 		return;
 	error("Trying to free IPv4 assignment 0x%p", lease);
+}
+
+static inline void dhcpv4_free_leases(struct interface *iface) {
 }
 #endif /* DHCPV4_SUPPORT */
 

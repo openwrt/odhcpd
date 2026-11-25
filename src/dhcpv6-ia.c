@@ -203,7 +203,7 @@ static int send_reconf(struct dhcpv6_lease *assign)
 	};
 	struct dhcpv6_auth_reconfigure auth = {
 		.type = htons(DHCPV6_OPT_AUTH),
-		.len = htons(sizeof(struct dhcpv6_auth_reconfigure)),
+		.len = htons(sizeof(struct dhcpv6_auth_reconfigure) - DHCPV6_OPT_HDR_SIZE),
 		.protocol = 3,
 		.algorithm = 1,
 		.rdm = 0,

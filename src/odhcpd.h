@@ -356,6 +356,10 @@ struct ra_pio {
 	struct in6_addr prefix;
 	uint8_t length;
 	time_t lifetime;
+	/* Not stored in the piofile: */
+	bool unseen;		/* Loaded, not on the interface since */
+	time_t hold_until;	/* Unseen and missing: left out of RAs until this time */
+	bool deprecated;	/* Only deprecated addresses left */
 };
 
 
@@ -546,7 +550,8 @@ extern const struct blobmsg_policy lease_cfg_attrs[LEASE_CFG_ATTR_MAX];
 
 inline static bool ra_pio_expired(const struct ra_pio *pio, time_t now)
 {
-	return pio->lifetime && (now > pio->lifetime);
+	return (pio->lifetime && now > pio->lifetime) ||
+	       (pio->hold_until && now > pio->hold_until);
 }
 
 inline static uint32_t ra_pio_lifetime(const struct ra_pio *pio, time_t now)

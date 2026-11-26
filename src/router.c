@@ -492,6 +492,14 @@ router_add_ra_pio(struct interface *iface, const struct in6_addr *addr, uint8_t 
 
 	pio = router_find_ra_pio(iface, addr, prefix_len);
 	if (pio) {
+		if (pio->deprecated) {
+			pio->deprecated = false;
+			info("rfc9096: %s: preferred again %s/%u",
+			     iface->ifname,
+			     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
+			     pio->length);
+		}
+
 		if (pio->length != prefix_len ||
 		    odhcpd_bmemcmp(&pio->prefix, addr, prefix_len)) {
 			char new_ipv6_str[INET6_ADDRSTRLEN];
@@ -619,12 +627,38 @@ router_stale_ra_pio(struct interface *iface, const struct in6_addr *addr,
 		return;
 
 	pio->lifetime = now + iface->max_valid_lifetime;
+	pio->deprecated = false;
 
 	iface->pio_update = true;
 	warn("rfc9096: %s: stale %s/%u",
 	     iface->ifname,
 	     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),
 	     pio->length);
+}
+
+/* Find new preferred prefixes (not in the stored PIOs), separately for ULAs and others */
+static void router_find_new_prefixes(struct interface *iface, struct odhcpd_ipaddr *addrs,
+				     size_t addr_cnt, time_t now, bool *new_ula, bool *new_gua)
+{
+	*new_ula = *new_gua = false;
+
+	for (size_t i = 0; i < addr_cnt; i++) {
+		struct in6_addr prefix;
+		uint8_t prefix_len;
+
+		if (addrs[i].prefix_len > 96 || addrs[i].preferred_lt <= (uint32_t)now ||
+		    ADDR_MATCH_PIO_FILTER(&addrs[i], iface))
+			continue;
+
+		router_pio_prefix(&addrs[i], &prefix, &prefix_len);
+		if (router_find_ra_pio(iface, &prefix, prefix_len))
+			continue;
+
+		if (IN6_IS_ADDR_ULA(&prefix))
+			*new_ula = true;
+		else
+			*new_gua = true;
+	}
 }
 
 /* Router Advert server mode */
@@ -636,6 +670,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 	struct nd_opt_prefix_info *pfxs = NULL;
 	struct in6_addr *pfx_prefixes = NULL;
 	bool *pfx_valid = NULL;
+	uint32_t *pfx_deprecated_lt = NULL;
+	bool new_ula = false, new_gua = false;
 	struct nd_opt_dns_server *dns = NULL;
 	struct nd_opt_search_list *search = NULL;
 	struct nd_opt_route_info *routes = NULL;
@@ -722,10 +758,14 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			/* Check default route */
 			if (!default_route && parse_routes(addrs, valid_addr_cnt))
 				default_route = true;
+
+			router_find_new_prefixes(iface, addrs, valid_addr_cnt, now,
+						 &new_ula, &new_gua);
 		}
 
 		for (size_t i = 0; i < iface->pio_cnt; i++) {
 			struct ra_pio *cur_pio = &iface->pios[i];
+			struct odhcpd_ipaddr *addr;
 			bool pio_found = false;
 
 			for (size_t j = 0; j < valid_addr_cnt; j++) {
@@ -739,15 +779,30 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 				}
 			}
 
-			if (!pio_found) {
-				struct odhcpd_ipaddr *addr = &addrs[total_addr_cnt];
-
-				memcpy(&addr->addr.in6, &cur_pio->prefix, sizeof(addr->addr.in6));
-				addr->prefix_len = cur_pio->length;
-				addr->preferred_lt = 0;
-				addr->valid_lt = (uint32_t) (now + ND_VALID_LIMIT);
-				total_addr_cnt++;
+			if (pio_found) {
+				cur_pio->unseen = false;
+				cur_pio->hold_until = 0;
+				continue;
 			}
+
+			/* Leave out a loaded prefix until it's back or replaced (RFC 9096 § 3.5) */
+			if (cur_pio->unseen && !ra_pio_stale(cur_pio) && iface->timer_rs.cb &&
+			    !(IN6_IS_ADDR_ULA(&cur_pio->prefix) ? new_ula : new_gua)) {
+				if (!cur_pio->hold_until) {
+					cur_pio->hold_until = now + iface->max_valid_lifetime;
+					info("rfc9096: %s: hold %s/%u",
+					     iface->ifname,
+					     inet_ntop(AF_INET6, &cur_pio->prefix, buf, sizeof(buf)),
+					     cur_pio->length);
+				}
+				continue;
+			}
+
+			addr = &addrs[total_addr_cnt++];
+			memcpy(&addr->addr.in6, &cur_pio->prefix, sizeof(addr->addr.in6));
+			addr->prefix_len = cur_pio->length;
+			addr->preferred_lt = 0;
+			addr->valid_lt = (uint32_t) (now + ND_VALID_LIMIT);
 		}
 	}
 
@@ -757,6 +812,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		memset(pfxs, 0, total_addr_cnt * sizeof(*pfxs));
 		pfx_prefixes = alloca(total_addr_cnt * sizeof(*pfx_prefixes));
 		pfx_valid = alloca(total_addr_cnt * sizeof(*pfx_valid));
+		pfx_deprecated_lt = alloca(total_addr_cnt * sizeof(*pfx_deprecated_lt));
 	}
 	for (size_t i = 0; i < total_addr_cnt; ++i) {
 		struct odhcpd_ipaddr *addr = &addrs[i];
@@ -800,6 +856,7 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			p = &pfxs[idx];
 			pfx_prefixes[idx] = prefix;
 			pfx_valid[idx] = false;
+			pfx_deprecated_lt[idx] = 0;
 			new_pfx = true;
 		}
 
@@ -882,10 +939,14 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 		 * A prefix is only stale if none of its addresses is still valid
 		 * (e.g. an old, deprecated address shouldn't deprecate the prefix
 		 * if the interface has a new address in the same prefix), so the
-		 * lifetimes stay 0 unless a valid address sets them.
+		 * lifetimes stay 0 unless a preferred address sets them; a prefix
+		 * with only deprecated addresses gets their valid lifetime below.
 		 */
-		if (stale)
+		if (stale) {
+			if (i < valid_addr_cnt && valid_lt > pfx_deprecated_lt[idx])
+				pfx_deprecated_lt[idx] = valid_lt;
 			continue;
+		}
 
 		p->nd_opt_pi_preferred_time = htonl(max(ntohl(p->nd_opt_pi_preferred_time), preferred_lt));
 		p->nd_opt_pi_valid_time = htonl(max(ntohl(p->nd_opt_pi_valid_time), valid_lt));
@@ -894,10 +955,41 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 
 	/* Update the stored PIOs now that the state of each prefix is known */
 	for (size_t i = 0; i < pfxs_cnt; i++) {
-		if (pfx_valid[i])
-			router_add_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len);
-		else
-			router_stale_ra_pio(iface, &pfx_prefixes[i], pfxs[i].nd_opt_pi_prefix_len, now);
+		uint8_t prefix_len = pfxs[i].nd_opt_pi_prefix_len;
+		struct ra_pio *pio;
+
+		if (pfx_valid[i]) {
+			router_add_ra_pio(iface, &pfx_prefixes[i], prefix_len);
+			continue;
+		}
+
+		/*
+		 * Deprecate a prefix with only deprecated addresses (e.g. netifd
+		 * after a WAN down) until a new prefix of the same kind replaces it
+		 */
+		if (pfx_deprecated_lt[i] &&
+		    !(IN6_IS_ADDR_ULA(&pfx_prefixes[i]) ? new_ula : new_gua)) {
+			pio = router_find_ra_pio(iface, &pfx_prefixes[i], prefix_len);
+			if (!pio) {
+				router_add_ra_pio(iface, &pfx_prefixes[i], prefix_len);
+				pio = router_find_ra_pio(iface, &pfx_prefixes[i], prefix_len);
+			}
+
+			if (pio && !ra_pio_stale(pio)) {
+				pfxs[i].nd_opt_pi_valid_time = htonl(pfx_deprecated_lt[i]);
+
+				if (!pio->deprecated) {
+					pio->deprecated = true;
+					info("rfc9096: %s: deprecated %s/%u",
+					     iface->ifname,
+					     inet_ntop(AF_INET6, &pio->prefix, buf, sizeof(buf)),
+					     pio->length);
+				}
+			}
+			continue;
+		}
+
+		router_stale_ra_pio(iface, &pfx_prefixes[i], prefix_len, now);
 	}
 
 	router_clear_duplicated_ra_pio(iface);

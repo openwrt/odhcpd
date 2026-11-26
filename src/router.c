@@ -755,8 +755,8 @@ static int send_router_advert(struct interface *iface, const struct in6_addr *fr
 			memcpy(addrs, iface->addr6, sizeof(*addrs) * valid_addr_cnt);
 			total_addr_cnt = valid_addr_cnt;
 
-			/* Check default route */
-			if (!default_route && parse_routes(addrs, valid_addr_cnt))
+			/* Check default route and find the delegated prefixes for the RIOs */
+			if (parse_routes(addrs, valid_addr_cnt))
 				default_route = true;
 
 			router_find_new_prefixes(iface, addrs, valid_addr_cnt, now,

@@ -412,6 +412,7 @@ struct interface {
 	// NDP runtime data
 	struct odhcpd_event ndp_event;
 	int ndp_ping_fd;
+	int ndp_sock_ifindex;			// ifindex the NDP sockets were set up for
 
 	// IPv4 runtime data
 	struct odhcpd_ipaddr *oaddrs4;		// IPv4 addresses assigned to this interface

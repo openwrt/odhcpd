@@ -47,6 +47,7 @@ int dhcpv6_init(void)
 int dhcpv6_setup_interface(struct interface *iface, bool enable)
 {
 	int ret = 0;
+	bool keep;
 
 	enable = enable && (iface->dhcpv6 != MODE_DISABLED);
 
@@ -54,19 +55,18 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 	 * Keep the existing socket if it was set up for the same ifindex and
 	 * mode. Re-creating it would drop datagrams still queued in the old one.
 	 */
-	if (enable && iface->dhcpv6_event.uloop.fd >= 0 &&
-	    iface->dhcpv6_sock_ifindex == iface->ifindex &&
-	    iface->dhcpv6_sock_mode == iface->dhcpv6)
-		return dhcpv6_ia_setup_interface(iface, enable);
+	keep = enable && iface->dhcpv6_event.uloop.fd >= 0 &&
+	       iface->dhcpv6_sock_ifindex == iface->ifindex &&
+	       iface->dhcpv6_sock_mode == iface->dhcpv6;
 
-	if (iface->dhcpv6_event.uloop.fd >= 0) {
+	if (!keep && iface->dhcpv6_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
 		iface->dhcpv6_event.uloop.fd = -1;
 	}
 
 	/* Configure multicast settings */
-	if (enable) {
+	if (enable && !keep) {
 		struct sockaddr_in6 bind_addr = {AF_INET6, htons(DHCPV6_SERVER_PORT),
 					0, IN6ADDR_ANY_INIT, 0};
 		struct ipv6_mreq mreq;
@@ -165,6 +165,7 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 out:
 	if (ret < 0 && iface->dhcpv6_event.uloop.fd >= 0) {
+		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
 		iface->dhcpv6_event.uloop.fd = -1;
 	}

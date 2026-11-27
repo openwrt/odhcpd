@@ -419,6 +419,8 @@ struct interface {
 
 	// DHCPv4 runtime data
 	struct odhcpd_event dhcpv4_event;
+	int dhcpv4_sock_ifindex;		// ifindex and mode the DHCPv4 socket was set up for
+	enum odhcpd_mode dhcpv4_sock_mode;
 	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
 

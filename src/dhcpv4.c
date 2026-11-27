@@ -1534,8 +1534,17 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	};
 	int val;
 	int fd;
+	bool keep;
 
-	if (iface->dhcpv4_event.uloop.fd >= 0) {
+	/*
+	 * Keep the existing socket if it was set up for the same ifindex and
+	 * mode. Re-creating it would drop datagrams still queued in the old one.
+	 */
+	keep = enable && iface->dhcpv4 != MODE_DISABLED && iface->dhcpv4_event.uloop.fd >= 0 &&
+	       iface->dhcpv4_sock_ifindex == iface->ifindex &&
+	       iface->dhcpv4_sock_mode == iface->dhcpv4;
+
+	if (!keep && iface->dhcpv4_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv4_event.uloop);
 		close(iface->dhcpv4_event.uloop.fd);
 		iface->dhcpv4_event.uloop.fd = -1;
@@ -1546,6 +1555,16 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 		if (iface->dhcpv4 == MODE_DISABLED)
 			dhcpv4_free_leases(iface);
 		return true;
+	}
+
+	if (keep) {
+		if (dhcpv4_setup_addresses(iface))
+			return true;
+
+		uloop_fd_delete(&iface->dhcpv4_event.uloop);
+		close(iface->dhcpv4_event.uloop.fd);
+		iface->dhcpv4_event.uloop.fd = -1;
+		return false;
 	}
 
 	fd = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
@@ -1604,6 +1623,8 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	iface->dhcpv4_event.uloop.fd = fd;
 	iface->dhcpv4_event.handle_dgram = dhcpv4_handle_dgram;
 	odhcpd_register(&iface->dhcpv4_event);
+	iface->dhcpv4_sock_ifindex = iface->ifindex;
+	iface->dhcpv4_sock_mode = iface->dhcpv4;
 	return true;
 
 error:

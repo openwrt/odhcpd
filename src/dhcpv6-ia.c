@@ -621,6 +621,8 @@ static void handle_addrlist_change(struct netevent_handler_info *info)
 	iface->update_statefile = true;
 }
 
+static void finish_removal(struct dhcpv6_lease *a);
+
 static void reconf_timeout_cb(struct uloop_timeout *event)
 {
 	struct dhcpv6_lease *a = container_of(event, struct dhcpv6_lease, fr_timer);
@@ -630,6 +632,9 @@ static void reconf_timeout_cb(struct uloop_timeout *event)
 		uloop_timeout_set(&a->fr_timer,
 				  DHCPV6_REC_TIMEOUT << a->fr_cnt);
 		a->fr_cnt++;
+	} else if (a->removing) {
+		/* The client didn't react, it's probably gone */
+		finish_removal(a);
 	} else
 		stop_reconf(a);
 }
@@ -649,6 +654,103 @@ static void stop_reconf(struct dhcpv6_lease *a)
 	uloop_timeout_cancel(&a->fr_timer);
 	a->fr_cnt = 0;
 	a->fr_timer.cb = NULL;
+}
+
+static void finish_removal(struct dhcpv6_lease *a)
+{
+	/* Only bound leases are in the state/hosts files */
+	if (a->bound)
+		a->iface->update_statefile = true;
+
+	dhcpv6_free_lease(a);
+}
+
+/*
+ * The static lease config of an active lease has changed or has been deleted.
+ * If the lease's address/prefix is affected, the lease is removed: if the
+ * client supports it, after asking it to renew via Reconfigure (its Renew gets
+ * a NoBinding status for the IA, so it requests the IA again), otherwise at
+ * once. Other changes (e.g. a new hostname) only make clients which support it
+ * renew.
+ */
+void dhcpv6_lease_cfg_changed(struct dhcpv6_lease *a, bool addr_changed)
+{
+	bool reconf = a->bound && a->accept_fr_nonce;
+
+	if (!addr_changed) {
+		if (reconf && !a->fr_timer.cb) {
+			a->fr_cnt = 0;
+			start_reconf(a);
+		}
+		return;
+	}
+
+	if (a->lease_cfg) {
+		list_del_init(&a->lease_cfg_list);
+		a->lease_cfg = NULL;
+	}
+
+	if (!reconf) {
+		finish_removal(a);
+		return;
+	}
+
+	a->removing = true;
+
+	/* A Reconfigure may already be on its way (prefix change) */
+	if (!a->fr_timer.cb) {
+		a->fr_cnt = 0;
+		start_reconf(a);
+	}
+}
+
+/* Finish the removal of an IA's leases, their client is back */
+static void finish_removals(struct interface *iface, const uint8_t *duid, size_t duid_len,
+			    uint32_t iaid)
+{
+	struct dhcpv6_lease *c, *n;
+
+	list_for_each_entry_safe(c, n, &iface->ia_assignments, head)
+		if (c->removing && c->iaid == iaid && c->duid_len == duid_len &&
+		    !memcmp(c->duid, duid, duid_len))
+			finish_removal(c);
+}
+
+/*
+ * Makes clients with a dynamic lease which now matches a static lease config
+ * (e.g. a newly added one) renew, if they support it, so that they get their
+ * static lease right away instead of at their next renewal.
+ */
+void dhcpv6_check_lease_cfgs(void)
+{
+	struct interface *iface;
+	struct dhcpv6_lease *a, *n, *border;
+	struct lease_cfg *lease_cfg;
+	uint8_t mac[6];
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		if (iface->dhcpv6 != MODE_SERVER || list_empty(&iface->ia_assignments))
+			continue;
+
+		border = list_last_entry(&iface->ia_assignments, struct dhcpv6_lease, head);
+
+		list_for_each_entry_safe(a, n, &iface->ia_assignments, head) {
+			if (a == border || a->lease_cfg || a->removing || !a->bound ||
+			    !a->accept_fr_nonce)
+				continue;
+
+			/* Same lookup as when handling a request */
+			lease_cfg = config_find_lease_cfg_by_duid_and_iaid(iface, a->duid, a->duid_len,
+									   ntohl(a->iaid));
+			if (!lease_cfg && dhcpv6_duid_to_mac(a->duid, a->duid_len, mac))
+				lease_cfg = config_find_lease_cfg_by_mac(iface, mac);
+			if (!lease_cfg)
+				continue;
+
+			/* The client's next Renew would get NoBinding for this lease anyway */
+			dhcpv6_lease_cfg_changed(a, true);
+		}
+	}
 }
 
 static void valid_until_cb(struct uloop_timeout *event)
@@ -1227,8 +1329,10 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 		if (!lease_cfg)
 			lease_cfg = config_find_lease_cfg_by_mac(iface, mac);
 
-		if (lease_cfg && lease_cfg->ignore6)
+		if (lease_cfg && lease_cfg->ignore6) {
+			finish_removals(iface, duid, duid_len, ia->iaid);
 			return -1;
+		}
 
 		/* Parse request hint for IA-PD */
 		if (is_pd) {
@@ -1343,6 +1447,12 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 					goto proceed;
 				}
 				continue;
+			}
+
+			/* The client of a lease that is being removed is back */
+			if (c->removing) {
+				finish_removal(c);
+				break;
 			}
 
 			/* We have a match */

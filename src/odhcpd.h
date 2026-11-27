@@ -302,6 +302,7 @@ struct dhcpv6_lease {
 
 	unsigned int flags;
 	bool bound;				// the lease has been accepted by the client
+	bool removing;				// remove the lease when the client renews
 	uint32_t leasetime;
 	char *hostname;
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?
@@ -685,6 +686,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 int dhcpv6_ia_init(void);
 int dhcpv6_ia_setup_interface(struct interface *iface, bool enable);
 void dhcpv6_free_lease(struct dhcpv6_lease *lease);
+void dhcpv6_lease_cfg_changed(struct dhcpv6_lease *lease, bool addr_changed);
+void dhcpv6_check_lease_cfgs(void);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,

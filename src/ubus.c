@@ -310,6 +310,7 @@ static int handle_add_lease_cfg(_o_unused struct ubus_context *ctx, _o_unused st
 {
 	if (!config_set_lease_cfg_from_blobmsg(msg)) {
 		dhcpv4_check_lease_cfgs();
+		dhcpv6_check_lease_cfgs();
 		return UBUS_STATUS_OK;
 	}
 

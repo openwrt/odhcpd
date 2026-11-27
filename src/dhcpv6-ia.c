@@ -1145,6 +1145,26 @@ size_t dhcpv6_parse_fqdn(const uint8_t *odata, uint16_t olen, char hostname[256]
 	return len;
 }
 
+/*
+ * RFC 9915, 20.4.2: the server selects one reconfigure key for a client. Reuse
+ * the key of the client's other leases, so that a Reconfigure sent for any of
+ * them can be authenticated.
+ */
+static bool dhcpv6_client_key(struct interface *iface, struct dhcpv6_lease *a)
+{
+	struct dhcpv6_lease *c;
+
+	list_for_each_entry(c, &iface->ia_assignments, head) {
+		if (c != a && c->duid_len == a->duid_len &&
+		    !memcmp(c->duid, a->duid, a->duid_len)) {
+			memcpy(a->key, c->key, sizeof(a->key));
+			return true;
+		}
+	}
+
+	return false;
+}
+
 ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *iface,
 		const struct sockaddr_in6 *addr, const void *data, const uint8_t *end)
 {
@@ -1399,7 +1419,7 @@ proceed:
 
 						if (first_key_valid)
 							memcpy(a->key, first_key, sizeof(a->key));
-						else
+						else if (!dhcpv6_client_key(iface, a))
 							odhcpd_urandom(a->key, sizeof(a->key));
 
 						if (is_pd && iface->dhcpv6_pd) {

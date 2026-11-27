@@ -402,6 +402,8 @@ struct interface {
 
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
+	int dhcpv6_sock_ifindex;			// ifindex and mode the DHCPv6 socket was set up for
+	enum odhcpd_mode dhcpv6_sock_mode;
 	struct list_head ia_assignments;
 	struct avl_tree addr6_db;		// struct addr6_rec
 	struct avl_tree duid_db;		// struct duid_rec
@@ -410,6 +412,7 @@ struct interface {
 	// NDP runtime data
 	struct odhcpd_event ndp_event;
 	int ndp_ping_fd;
+	int ndp_sock_ifindex;			// ifindex the NDP sockets were set up for
 
 	// IPv4 runtime data
 	struct odhcpd_ipaddr *oaddrs4;		// IPv4 addresses assigned to this interface
@@ -417,6 +420,8 @@ struct interface {
 
 	// DHCPv4 runtime data
 	struct odhcpd_event dhcpv4_event;
+	int dhcpv4_sock_ifindex;		// ifindex and mode the DHCPv4 socket was set up for
+	enum odhcpd_mode dhcpv4_sock_mode;
 	struct avl_tree dhcpv4_leases;
 	struct list_head dhcpv4_fr_ips;
 
@@ -710,6 +715,7 @@ int ndp_init(void);
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
 void dhcpv4_free_lease(struct dhcpv4_lease *a);
+void dhcpv4_free_leases(struct interface *iface);
 struct dhcpv4_lease *dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr);
 bool dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
@@ -729,6 +735,9 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 	if (!lease)
 		return;
 	error("Trying to free IPv4 assignment 0x%p", lease);
+}
+
+static inline void dhcpv4_free_leases(struct interface *iface) {
 }
 #endif /* DHCPV4_SUPPORT */
 

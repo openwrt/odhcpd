@@ -81,16 +81,28 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 	};
 
 	int ret = 0, procfd;
-	bool dump_neigh = false;
+	bool dump_neigh = false, keep;
 	char procbuf[64];
 
 	enable = enable && (iface->ndp == MODE_RELAY);
+
+	/*
+	 * Keep the existing sockets if they were set up for the same ifindex.
+	 * Re-creating them would drop the packets still queued in the old ones.
+	 */
+	keep = enable && iface->ndp_event.uloop.fd >= 0 && iface->ndp_ping_fd >= 0 &&
+	       iface->ndp_sock_ifindex == iface->ifindex;
 
 	snprintf(procbuf, sizeof(procbuf), "/proc/sys/net/ipv6/conf/%s/proxy_ndp", iface->ifname);
 	procfd = open(procbuf, O_WRONLY);
 
 	if (procfd < 0) {
 		ret = -1;
+		goto out;
+	}
+
+	if (keep) {
+		if (write(procfd, "1\n", 2) < 0) {}
 		goto out;
 	}
 
@@ -234,6 +246,7 @@ int ndp_setup_interface(struct interface *iface, bool enable)
 
 		iface->ndp_event.handle_dgram = handle_solicit;
 		odhcpd_register(&iface->ndp_event);
+		iface->ndp_sock_ifindex = iface->ifindex;
 
 		/* If we already were enabled dump is unnecessary, if not do dump */
 		if (!dump_neigh)

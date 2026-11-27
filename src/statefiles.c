@@ -284,6 +284,9 @@ void statefiles_read_prefix_information(struct interface *iface)
 		pio->prefix = pio_addr;
 		pio->length = pio_len;
 		pio->lifetime = pio_lt;
+		pio->unseen = true;
+		pio->hold_until = 0;
+		pio->deprecated = false;
 		info("rfc9096: %s: load %s/%u (%u)",
 		     iface->ifname,
 		     inet_ntop(AF_INET6, &pio->prefix, ipv6_str, sizeof(ipv6_str)),

@@ -269,6 +269,7 @@ struct dhcpv4_lease {
 	unsigned fr_cnt;			// FR messages sent
 	uint8_t key[16];			// FR nonce
 	struct odhcpd_ref_ip *fr_ip;		// FR message old serverid/IP
+	bool removing;				// remove the lease when the client renews
 
 	// RFC4361
 	uint32_t iaid;
@@ -301,6 +302,7 @@ struct dhcpv6_lease {
 
 	unsigned int flags;
 	bool bound;				// the lease has been accepted by the client
+	bool removing;				// remove the lease when the client renews
 	uint32_t leasetime;
 	char *hostname;
 	bool hostname_valid;			// is the hostname one or more valid DNS labels?
@@ -684,6 +686,8 @@ ssize_t dhcpv6_ia_handle_IAs(uint8_t *buf, size_t buflen, struct interface *ifac
 int dhcpv6_ia_init(void);
 int dhcpv6_ia_setup_interface(struct interface *iface, bool enable);
 void dhcpv6_free_lease(struct dhcpv6_lease *lease);
+void dhcpv6_lease_cfg_changed(struct dhcpv6_lease *lease, bool addr_changed);
+void dhcpv6_check_lease_cfgs(void);
 
 int netlink_add_netevent_handler(struct netevent_handler *hdlr);
 ssize_t netlink_get_interface_addrs(const int ifindex, bool v6,
@@ -710,6 +714,9 @@ int ndp_init(void);
 #ifdef DHCPV4_SUPPORT
 int dhcpv4_init(void);
 void dhcpv4_free_lease(struct dhcpv4_lease *a);
+void dhcpv4_free_leases(struct interface *iface);
+void dhcpv4_lease_cfg_changed(struct dhcpv4_lease *lease, bool addr_changed);
+void dhcpv4_check_lease_cfgs(void);
 struct dhcpv4_lease *dhcpv4_find_lease_by_hwaddr(struct interface *iface, const uint8_t *hwaddr);
 bool dhcpv4_setup_interface(struct interface *iface, bool enable);
 void dhcpv4_handle_msg(void *addr, void *data, size_t len,
@@ -729,6 +736,15 @@ static inline void dhcpv4_free_lease(struct dhcpv4_lease *lease) {
 	if (!lease)
 		return;
 	error("Trying to free IPv4 assignment 0x%p", lease);
+}
+
+static inline void dhcpv4_free_leases(struct interface *iface) {
+}
+
+static inline void dhcpv4_lease_cfg_changed(struct dhcpv4_lease *lease, bool addr_changed) {
+}
+
+static inline void dhcpv4_check_lease_cfgs(void) {
 }
 #endif /* DHCPV4_SUPPORT */
 

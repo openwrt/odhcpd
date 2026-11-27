@@ -280,10 +280,17 @@ static void dhcpv4_fr_send(struct dhcpv4_lease *lease)
 	}
 }
 
+/* Return true if a FORCERENEW is scheduled, or the lease is marked for one */
+static bool dhcpv4_fr_pending(const struct dhcpv4_lease *lease)
+{
+	return lease->fr_timer.cb || lease->fr_ip;
+}
+
 static void dhcpv4_fr_stop(struct dhcpv4_lease *lease)
 {
 	uloop_timeout_cancel(&lease->fr_timer);
-	decr_ref_cnt_ip(&lease->fr_ip, lease->iface);
+	if (lease->fr_ip)
+		decr_ref_cnt_ip(&lease->fr_ip, lease->iface);
 	lease->fr_cnt = 0;
 	lease->fr_timer.cb = NULL;
 }
@@ -296,6 +303,9 @@ static void dhcpv4_fr_timer(struct uloop_timeout *event)
 		dhcpv4_fr_send(lease);
 		uloop_timeout_set(&lease->fr_timer, 1000 << lease->fr_cnt);
 		lease->fr_cnt++;
+	} else if (lease->removing) {
+		/* The client didn't react, it's probably gone */
+		dhcpv4_free_lease(lease);
 	} else
 		dhcpv4_fr_stop(lease);
 }
@@ -336,7 +346,7 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 	if (!lease)
 		return;
 
-	if (lease->fr_ip)
+	if (dhcpv4_fr_pending(lease))
 		dhcpv4_fr_stop(lease);
 
 	if (avl_find(&lease->iface->dhcpv4_leases, &lease->ipv4) == &lease->iface_avl) {
@@ -349,6 +359,86 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 
 	free(lease->hostname);
 	free(lease);
+}
+
+static void dhcpv4_start_reconf(struct dhcpv4_lease *lease)
+{
+	lease->fr_cnt = 0;
+
+	if (lease->iface->dhcpv4_event.uloop.fd == -1)
+		dhcpv4_fr_rand_delay(lease);
+	else
+		dhcpv4_fr_start(lease);
+}
+
+/*
+ * The static lease config of an active lease has changed or has been deleted.
+ * If the lease's address is affected, the lease is removed: if the client
+ * supports it (RFC6704), after asking it to renew (it then starts over and
+ * gets its new lease right away), otherwise at once. Other changes (e.g. a new
+ * hostname) only make clients which support it renew.
+ */
+void dhcpv4_lease_cfg_changed(struct dhcpv4_lease *lease, bool addr_changed)
+{
+	bool reconf = lease->bound && lease->accept_fr_nonce;
+
+	if (!addr_changed) {
+		if (reconf && !lease->fr_timer.cb)
+			dhcpv4_start_reconf(lease);
+		return;
+	}
+
+	if (lease->lease_cfg) {
+		lease->lease_cfg->dhcpv4_lease = NULL;
+		lease->lease_cfg = NULL;
+	}
+
+	if (!reconf) {
+		dhcpv4_free_lease(lease);
+		return;
+	}
+
+	lease->removing = true;
+
+	/* A FORCERENEW may already be on its way (server address change) */
+	if (!lease->fr_timer.cb)
+		dhcpv4_start_reconf(lease);
+}
+
+/*
+ * Makes clients with a dynamic lease which now matches a static lease config
+ * (e.g. a newly added one) renew, if they support it, so that they get their
+ * static lease right away instead of at their next renewal.
+ */
+void dhcpv4_check_lease_cfgs(void)
+{
+	struct interface *iface;
+	struct dhcpv4_lease *lease, *tmp;
+	struct lease_cfg *lease_cfg;
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp) {
+			if (lease->lease_cfg || lease->removing || !lease->bound ||
+			    !lease->accept_fr_nonce)
+				continue;
+
+			/* Same lookup as when handling a request */
+			lease_cfg = NULL;
+			if (lease->duid_len > 0)
+				lease_cfg = config_find_lease_cfg_by_duid_and_iaid(iface, lease->duid,
+										   lease->duid_len,
+										   lease->iaid);
+			if (!lease_cfg)
+				lease_cfg = config_find_lease_cfg_by_mac(iface, lease->hwaddr);
+			if (!lease_cfg)
+				continue;
+
+			/* Without a new address, the renewal turns the lease into a static one */
+			dhcpv4_lease_cfg_changed(lease, lease_cfg->ignore4 ||
+						 (lease_cfg->ipv4.s_addr &&
+						  lease_cfg->ipv4.s_addr != lease->ipv4.s_addr));
+		}
+	}
 }
 
 static struct dhcpv4_lease *
@@ -511,8 +601,8 @@ static struct dhcpv4_lease *
 dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *req_mac,
 	     const uint8_t *clid, size_t clid_len, const struct in_addr req_addr,
 	     uint32_t *req_leasetime, const char *req_hostname, const size_t
-	     req_hostname_len, const bool req_accept_fr, bool *reply_incl_fr,
-	     uint32_t *fr_serverid)
+	     req_hostname_len, const bool req_accept_fr, const bool req_init_reboot,
+	     bool *reply_incl_fr, uint32_t *fr_serverid)
 {
 	struct dhcpv4_lease *lease = NULL;
 	struct lease_cfg *lease_cfg = NULL;
@@ -541,6 +631,21 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 	if (!lease_cfg)
 		lease_cfg = config_find_lease_cfg_by_mac(iface, req_mac);
 
+	/*
+	 * The client of a lease that is being removed is back (before the static
+	 * lease cfg checks, the lease may no longer match its cfg), finish the
+	 * removal.
+	 */
+	if (lease && lease->removing &&
+	    (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
+		dhcpv4_free_lease(lease);
+		lease = NULL;
+
+		/* RFC3203, §2.2: NAK the renewal, the client starts over */
+		if (req_msg == DHCPV4_MSG_REQUEST)
+			return NULL;
+	}
+
 	if (lease_cfg && lease_cfg->ignore4)
 		return NULL;
 
@@ -557,8 +662,10 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		lease = NULL;
 	}
 
-	if (lease && lease->bound && lease->fr_ip) {
-		*fr_serverid = lease->fr_ip->addr.addr.in.s_addr;
+	/* Stop a pending FORCERENEW, the client is already renewing */
+	if (lease && lease->bound && dhcpv4_fr_pending(lease)) {
+		if (lease->fr_ip)
+			*fr_serverid = lease->fr_ip->addr.addr.in.s_addr;
 		dhcpv4_fr_stop(lease);
 	}
 
@@ -661,15 +768,17 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 		}
 
 		*reply_incl_fr = false;
-		if (!lease->bound) {
-			/* This is the client's first request for the address */
-			if (req_accept_fr) {
-				lease->accept_fr_nonce = true;
-				*reply_incl_fr = true;
-				odhcpd_urandom(lease->key, sizeof(lease->key));
-			}
-			lease->bound = true;
+		/*
+		 * RFC6704 §3.1.3: send a new nonce on the first request for the
+		 * address or if none is recorded; a rebooted client may have lost it
+		 */
+		if (req_accept_fr &&
+		    (!lease->bound || !lease->accept_fr_nonce || req_init_reboot)) {
+			lease->accept_fr_nonce = true;
+			*reply_incl_fr = true;
+			odhcpd_urandom(lease->key, sizeof(lease->key));
 		}
+		lease->bound = true;
 
 		if (*req_leasetime == UINT32_MAX)
 			lease->valid_until = 0;
@@ -800,6 +909,8 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	uint8_t *req_clientid = NULL;
 	size_t req_clientid_len = 0;
 	bool req_accept_fr = false;
+	bool req_serverid = false;
+	bool req_init_reboot;
 	bool ipv6_only = false;
 
 	/* Reply variables */
@@ -981,6 +1092,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		case DHCPV4_OPT_SERVERID:
 			if (opt->len == 4 && memcmp(opt->data, &iface->dhcpv4_own_ip, 4))
 				return;
+			req_serverid = true;
 			break;
 		case DHCPV4_OPT_REQOPTS:
 			req_opts = opt->data;
@@ -1020,6 +1132,10 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 	info("Received %s from %s on %s", dhcpv4_msg_to_string(req_msg),
 	     odhcpd_print_mac(req->chaddr, req->hlen), iface->name);
 
+	/* RFC2131 §4.3.2: INIT-REBOOT has a requested address, no server ID or ciaddr */
+	req_init_reboot = req_msg == DHCPV4_MSG_REQUEST && req_addr.s_addr &&
+			  !req_serverid && !req->ciaddr.s_addr;
+
 	switch (req_msg) {
 	case DHCPV4_MSG_INFORM:
 		break;
@@ -1028,7 +1144,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 			     req_clientid_len, req_addr, &req_leasetime,
 			     req_hostname, req_hostname_len, req_accept_fr,
-			     &reply_incl_fr, &fr_serverid);
+			     req_init_reboot, &reply_incl_fr, &fr_serverid);
 		return;
 	case DHCPV4_MSG_DISCOVER:
 		if (ipv6_only)
@@ -1038,7 +1154,7 @@ void dhcpv4_handle_msg(void *src_addr, void *data, size_t len,
 		lease = dhcpv4_lease(iface, req_msg, req->chaddr, req_clientid,
 				     req_clientid_len, req_addr, &req_leasetime,
 				     req_hostname, req_hostname_len, req_accept_fr,
-				     &reply_incl_fr, &fr_serverid);
+				     req_init_reboot, &reply_incl_fr, &fr_serverid);
 		break;
 	default:
 		return;
@@ -1466,6 +1582,14 @@ struct dhcpv4_packet {
 	struct dhcpv4_message dhcp;
 } _o_packed;
 
+void dhcpv4_free_leases(struct interface *iface)
+{
+	struct dhcpv4_lease *lease, *tmp;
+
+	avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp)
+		dhcpv4_free_lease(lease);
+}
+
 bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 {
 	/* Note: we could check more things (but buggy clients exist), e.g.:
@@ -1516,10 +1640,9 @@ bool dhcpv4_setup_interface(struct interface *iface, bool enable)
 	}
 
 	if (!enable || iface->dhcpv4 == MODE_DISABLED) {
-		struct dhcpv4_lease *lease, *tmp;
-
-		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp)
-			dhcpv4_free_lease(lease);
+		/* Keep the leases while the interface is only down */
+		if (iface->dhcpv4 == MODE_DISABLED)
+			dhcpv4_free_leases(iface);
 		return true;
 	}
 

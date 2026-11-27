@@ -402,6 +402,8 @@ struct interface {
 
 	// DHCPv6 runtime data
 	struct odhcpd_event dhcpv6_event;
+	int dhcpv6_sock_ifindex;			// ifindex and mode the DHCPv6 socket was set up for
+	enum odhcpd_mode dhcpv6_sock_mode;
 	struct list_head ia_assignments;
 	struct avl_tree addr6_db;		// struct addr6_rec
 	struct avl_tree duid_db;		// struct duid_rec

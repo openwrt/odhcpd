@@ -50,6 +50,15 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 	enable = enable && (iface->dhcpv6 != MODE_DISABLED);
 
+	/*
+	 * Keep the existing socket if it was set up for the same ifindex and
+	 * mode. Re-creating it would drop datagrams still queued in the old one.
+	 */
+	if (enable && iface->dhcpv6_event.uloop.fd >= 0 &&
+	    iface->dhcpv6_sock_ifindex == iface->ifindex &&
+	    iface->dhcpv6_sock_mode == iface->dhcpv6)
+		return dhcpv6_ia_setup_interface(iface, enable);
+
 	if (iface->dhcpv6_event.uloop.fd >= 0) {
 		uloop_fd_delete(&iface->dhcpv6_event.uloop);
 		close(iface->dhcpv6_event.uloop.fd);
@@ -148,6 +157,8 @@ int dhcpv6_setup_interface(struct interface *iface, bool enable)
 
 		iface->dhcpv6_event.handle_dgram = handle_dhcpv6;
 		odhcpd_register(&iface->dhcpv6_event);
+		iface->dhcpv6_sock_ifindex = iface->ifindex;
+		iface->dhcpv6_sock_mode = iface->dhcpv6;
 	}
 
 	ret = dhcpv6_ia_setup_interface(iface, enable);

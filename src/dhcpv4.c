@@ -303,6 +303,9 @@ static void dhcpv4_fr_timer(struct uloop_timeout *event)
 		dhcpv4_fr_send(lease);
 		uloop_timeout_set(&lease->fr_timer, 1000 << lease->fr_cnt);
 		lease->fr_cnt++;
+	} else if (lease->removing) {
+		/* The client didn't react, it's probably gone */
+		dhcpv4_free_lease(lease);
 	} else
 		dhcpv4_fr_stop(lease);
 }
@@ -356,6 +359,86 @@ void dhcpv4_free_lease(struct dhcpv4_lease *lease)
 
 	free(lease->hostname);
 	free(lease);
+}
+
+static void dhcpv4_start_reconf(struct dhcpv4_lease *lease)
+{
+	lease->fr_cnt = 0;
+
+	if (lease->iface->dhcpv4_event.uloop.fd == -1)
+		dhcpv4_fr_rand_delay(lease);
+	else
+		dhcpv4_fr_start(lease);
+}
+
+/*
+ * The static lease config of an active lease has changed or has been deleted.
+ * If the lease's address is affected, the lease is removed: if the client
+ * supports it (RFC6704), after asking it to renew (it then starts over and
+ * gets its new lease right away), otherwise at once. Other changes (e.g. a new
+ * hostname) only make clients which support it renew.
+ */
+void dhcpv4_lease_cfg_changed(struct dhcpv4_lease *lease, bool addr_changed)
+{
+	bool reconf = lease->bound && lease->accept_fr_nonce;
+
+	if (!addr_changed) {
+		if (reconf && !lease->fr_timer.cb)
+			dhcpv4_start_reconf(lease);
+		return;
+	}
+
+	if (lease->lease_cfg) {
+		lease->lease_cfg->dhcpv4_lease = NULL;
+		lease->lease_cfg = NULL;
+	}
+
+	if (!reconf) {
+		dhcpv4_free_lease(lease);
+		return;
+	}
+
+	lease->removing = true;
+
+	/* A FORCERENEW may already be on its way (server address change) */
+	if (!lease->fr_timer.cb)
+		dhcpv4_start_reconf(lease);
+}
+
+/*
+ * Makes clients with a dynamic lease which now matches a static lease config
+ * (e.g. a newly added one) renew, if they support it, so that they get their
+ * static lease right away instead of at their next renewal.
+ */
+void dhcpv4_check_lease_cfgs(void)
+{
+	struct interface *iface;
+	struct dhcpv4_lease *lease, *tmp;
+	struct lease_cfg *lease_cfg;
+
+	avl_for_each_element(&interfaces, iface, avl) {
+		avl_for_each_element_safe(&iface->dhcpv4_leases, lease, iface_avl, tmp) {
+			if (lease->lease_cfg || lease->removing || !lease->bound ||
+			    !lease->accept_fr_nonce)
+				continue;
+
+			/* Same lookup as when handling a request */
+			lease_cfg = NULL;
+			if (lease->duid_len > 0)
+				lease_cfg = config_find_lease_cfg_by_duid_and_iaid(iface, lease->duid,
+										   lease->duid_len,
+										   lease->iaid);
+			if (!lease_cfg)
+				lease_cfg = config_find_lease_cfg_by_mac(iface, lease->hwaddr);
+			if (!lease_cfg)
+				continue;
+
+			/* Without a new address, the renewal turns the lease into a static one */
+			dhcpv4_lease_cfg_changed(lease, lease_cfg->ignore4 ||
+						 (lease_cfg->ipv4.s_addr &&
+						  lease_cfg->ipv4.s_addr != lease->ipv4.s_addr));
+		}
+	}
 }
 
 static struct dhcpv4_lease *
@@ -547,6 +630,21 @@ dhcpv4_lease(struct interface *iface, enum dhcpv4_msg req_msg, const uint8_t *re
 
 	if (!lease_cfg)
 		lease_cfg = config_find_lease_cfg_by_mac(iface, req_mac);
+
+	/*
+	 * The client of a lease that is being removed is back (before the static
+	 * lease cfg checks, the lease may no longer match its cfg), finish the
+	 * removal.
+	 */
+	if (lease && lease->removing &&
+	    (req_msg == DHCPV4_MSG_DISCOVER || req_msg == DHCPV4_MSG_REQUEST)) {
+		dhcpv4_free_lease(lease);
+		lease = NULL;
+
+		/* RFC3203, §2.2: NAK the renewal, the client starts over */
+		if (req_msg == DHCPV4_MSG_REQUEST)
+			return NULL;
+	}
 
 	if (lease_cfg && lease_cfg->ignore4)
 		return NULL;

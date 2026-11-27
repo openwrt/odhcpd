@@ -2033,9 +2033,16 @@ static int lease_cfg_cmp(const void *k1, const void *k2, _o_unused void *ptr)
 	return 0;
 }
 
+/* Remove the DHCPv4 lease of a lease cfg whose address changed */
+static void lease_cfg_remove_dhcpv4_lease(struct lease_cfg *lease_cfg)
+{
+	if (lease_cfg->dhcpv4_lease)
+		dhcpv4_lease_cfg_changed(lease_cfg->dhcpv4_lease, true);
+}
+
 static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *lease_cfg_new)
 {
-	bool update = false;
+	bool update = false, renew = false;
 
 	if ((!!lease_cfg_new->hostname != !!lease_cfg_old->hostname) ||
 	    (lease_cfg_new->hostname && strcmp(lease_cfg_new->hostname, lease_cfg_old->hostname))) {
@@ -2046,16 +2053,18 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 			lease_cfg_old->hostname = strdup(lease_cfg_new->hostname);
 
 		update = true;
+		renew = true;
 	}
 
 	if (lease_cfg_old->leasetime != lease_cfg_new->leasetime) {
 		lease_cfg_old->leasetime = lease_cfg_new->leasetime;
 		update = true;
+		renew = true;
 	}
 
 	if (lease_cfg_old->ipv4.s_addr != lease_cfg_new->ipv4.s_addr) {
 		lease_cfg_old->ipv4 = lease_cfg_new->ipv4;
-		dhcpv4_free_lease(lease_cfg_old->dhcpv4_lease);
+		lease_cfg_remove_dhcpv4_lease(lease_cfg_old);
 	}
 
 	if (lease_cfg_old->hostid != lease_cfg_new->hostid) {
@@ -2065,7 +2074,7 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 
 	if (lease_cfg_old->ignore4 != lease_cfg_new->ignore4) {
 		lease_cfg_old->ignore4 = lease_cfg_new->ignore4;
-		dhcpv4_free_lease(lease_cfg_old->dhcpv4_lease);
+		lease_cfg_remove_dhcpv4_lease(lease_cfg_old);
 	}
 
 	if (lease_cfg_old->ignore6 != lease_cfg_new->ignore6) {
@@ -2079,12 +2088,16 @@ static void lease_cfg_change(struct lease_cfg *lease_cfg_old, struct lease_cfg *
 		lease_cfg_update_duid_recs(lease_cfg_old);
 	}
 
+	/* Make the clients renew to get the changes */
+	if (renew && lease_cfg_old->dhcpv4_lease)
+		dhcpv4_lease_cfg_changed(lease_cfg_old->dhcpv4_lease, false);
+
 	free_lease_cfg(lease_cfg_new);
 }
 
 static void lease_cfg_delete(struct lease_cfg *lease_cfg)
 {
-	dhcpv4_free_lease(lease_cfg->dhcpv4_lease);
+	lease_cfg_remove_dhcpv4_lease(lease_cfg);
 	lease_cfg_delete_dhcpv6_leases(lease_cfg);
 	lease_cfg_unlink_duid_recs(lease_cfg);
 	free_lease_cfg(lease_cfg);
@@ -2401,6 +2414,7 @@ void odhcpd_reload(void)
 	uci_unload(uci, system);
 
 	vlist_flush(&lease_cfgs);
+	dhcpv4_check_lease_cfgs();
 
 	ubus_apply_network();
 

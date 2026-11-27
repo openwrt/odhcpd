@@ -308,8 +308,10 @@ static int handle_add_lease_cfg(_o_unused struct ubus_context *ctx, _o_unused st
 				_o_unused struct ubus_request_data *req, _o_unused const char *method,
 				struct blob_attr *msg)
 {
-	if (!config_set_lease_cfg_from_blobmsg(msg))
+	if (!config_set_lease_cfg_from_blobmsg(msg)) {
+		dhcpv4_check_lease_cfgs();
 		return UBUS_STATUS_OK;
+	}
 
 	return UBUS_STATUS_INVALID_ARGUMENT;
 }
